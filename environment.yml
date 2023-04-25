@@ -1,0 +1,10 @@
+name: hapla
+channels:
+	- default
+dependencies:
+	- python
+	- cython
+	- numpy
+	- scipy
+	- pip:
+		- cyvcf2

@@ -1,0 +1,96 @@
+"""
+hapla.
+Perform PCA using haplotype cluster assignments.
+"""
+
+__author__ = "Jonas Meisner"
+
+# Libraries
+import os
+
+##### hapla pca #####
+def main(args):
+	print("hapla pca by Jonas Meisner (v0.1)")
+	print(f"Using {args.threads} thread(s).")
+
+	# Check input
+	assert (args.filelist is not None) or (args.clusters is not None), \
+		"No input data (--filelist or --clusters)!"
+
+	# Control threads of external numerical libraries
+	os.environ["MKL_NUM_THREADS"] = str(args.threads)
+	os.environ["OMP_NUM_THREADS"] = str(args.threads)
+	os.environ["NUMEXPR_NUM_THREADS"] = str(args.threads)
+	os.environ["OPENBLAS_NUM_THREADS"] = str(args.threads)
+
+	# Import numerical libraries and cython functions
+	import numpy as np
+	from scipy.sparse.linalg import svds
+	from hapla import shared_cy
+
+	# Load data (and concatentate across windows)
+	if args.filelist is not None:
+		Z_list = []
+		with open(args.filelist) as f:
+			file_c = 1
+			for chr in f:
+				Z_list.append(np.load(chr.strip("\n")))
+				print(f"\rParsed file #{file_c}", end="")
+				file_c += 1
+		Z_mat = np.concatenate(Z_list, axis=0)
+		del Z_list
+	else:
+		Z_mat = np.load(args.clusters)
+	print("\rLoaded haplotype cluster assignments of " + \
+		f"{Z_mat.shape[1]} haplotypes in {Z_mat.shape[0]} windows.")
+	n = Z_mat.shape[1]//2
+
+	# Estimate total number of haplotype cluster assignments
+	K_vec = np.max(Z_mat, axis=1) + 1
+	m = np.sum(K_vec)
+
+	# Estimate haplotype cluster frequencies and populate full matrix
+	pi = np.zeros(m, dtype=float)
+	Z_tilde = np.zeros((m, n), dtype=float)
+	shared_cy.haplotypeFreqs(Z_mat, Z_tilde, K_vec, pi)
+	del Z_mat
+
+	# Mask non-rare haplotype clusters
+	mask = (pi >= args.min_freq) & (pi <= (1 - args.min_freq))
+	mask = mask.astype(np.uint8)
+	m = np.sum(mask)
+
+	# Filter out masked haplotype clusters
+	shared_cy.filterZ(Z_tilde, pi, mask)
+	del mask
+	Z_tilde = Z_tilde[:m,:]
+	pi = pi[:m]
+
+	# Standardize Z matrix of individuals
+	shared_cy.standardizeZ(Z_tilde, pi, args.threads)
+	if not args.cov:
+		# Perform SVD
+		print(f"Performing SVD, extracting {args.n_eig} eigenvectors.")
+		U, S, Vt = svds(Z_tilde, k=args.n_eig)
+
+		# Save matrices
+		np.savetxt(f"{args.out}.eigenvec", Vt[::-1,:].T, fmt="%.7f")
+		print(f"Saved eigenvectors as {args.out}.eigenvec")
+		np.savetxt(f"{args.out}.eigenval", (S[::-1]**2)/float(m), fmt="%.7f")
+		print(f"Saved eigenvalues as {args.out}.eigenval")
+		if args.loadings:
+			np.savetxt(f"{args.out}.loadings", U[:,::-1], fmt="%.7f")
+			print(f"Saved loadings as {args.out}.loadings")
+	else:
+		# Estimate covariance matrix
+		print("Estimating covariance matrix (GRM)")
+		C = np.dot(Z_tilde.T, Z_tilde)/float(m)
+		
+		# Save matrix
+		np.savetxt(f"{args.out}.cov", C, fmt="%.7f")
+		print(f"Saved covariance matrix (GRM) as {args.out}.cov")
+
+
+
+##### Main exception #####
+assert __name__ != "__main__", "Please use the 'hapla pca' command!"
