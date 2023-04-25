@@ -39,7 +39,8 @@ python3 setup.py build_ext --inplace; pip3 install -e .
 - prs
 - split
 
-*hapla cluster* (Haplotype clustering)
+**hapla cluster** (Haplotype clustering)
+
 Haplotype clustering is performed on a phased VCF/BCF.
 ```bash
 # Cluster haplotypes in a chromosome with default window size (500 SNPs)
@@ -54,7 +55,8 @@ do
 done
 ```
 
-*hapla pca* (Population structure inference)
+**hapla pca** (Population structure inference)
+
 PCA is performed on the output from the haplotype clustering.
 ```bash
 # Perform PCA on all chromosomes (genome-wide)
@@ -66,21 +68,24 @@ hapla pca --clusters hapla.chr1.z.npy --threads 64 --out hapla.chr1
 # Saves eigenvalues and eigenvectors in text-format ("hapla.chr1.eigenvec" and "hapla.chr1.eigenval")
 ```
 
-*hapla regress* (Whole-genome regression and association testing)
+**hapla regress** (Whole-genome regression and association testing)
+
 The association testing in *hapla* is based on the *regenie* software, however it is cluster-based instead of SNP-based. The eigenvectors from the PCA are directly used as input to correct for population structure. Additional covariates can be provided as a simple text file only containing values (one line per individual). The provided phenotype file is expected to be a single column text file of values (one line per individual). Both files with covariates and phenotypes should have no header and no extra columns of unnessecary information, such that the ordering of individuals is expected to follow the VCF/BCF file used in the haplotype clustering.
 ```bash
 hapla regress --filelist hapla.filelist --eigen hapla.eigenvec --pheno trait1.pheno --threads 64 --out hapla.trait1
 # Saves association tests of haplotype clusters in text-format ("hapla.trait1.assoc)
 ```
 
-*hapla prs* (Polygenic risk score estimation using summary statistics)
+**hapla prs** (Polygenic risk score estimation using summary statistics)
+
 Polygenic risk scores are estimated using the haplotype clustering and the summary statistics of the association testing.
 ```bash
 hapla prs --filelist hapla.filelist --assoc hapla.trait1.assoc --threads 64 --out hapla.trait1
 # Saves polygenic risk scores in text-format ("hapla.trait1.sumstats.prs")
 ```
 
-*hapla split* (LD-based window generation for haplotype clustering)
+**hapla split** (LD-based window generation for haplotype clustering)
+
 An optimal LD splitting can be performed per chromosome to perform haplotype clustering in inferred LD blocks rather than a fixed window size. The method is a reimplementation of the algorithm in this article [Optimal linkage disequilibrium splitting](https://doi.org/10.1093/bioinformatics/btab519). Please cite the original article if this method has been used!
 ```bash
 hapla split --bcf file.chr1.bcf --threads 64 --out hapla.chr1
