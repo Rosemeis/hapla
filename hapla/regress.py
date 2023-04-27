@@ -184,21 +184,21 @@ def main(args):
 		y_test = y[N_test]
 
 		# Split window predictions
-		B_train = np.ascontiguousarray(L_mat[:, N_train].T)
-		B_test = np.ascontiguousarray(L_mat[:, N_test].T)
+		L_train = np.ascontiguousarray(L_mat[:, N_train].T)
+		L_test = np.ascontiguousarray(L_mat[:, N_test].T)
 
 		# Ridge regressors
-		U, S, V = truncatedSVD(B_train)
+		U, S, V = truncatedSVD(L_train)
 		UtY = np.dot(U.T, y_train)
 		for r in np.arange(args.ridge):
 			f = S/(S*S + lmbda[r])
 			E_mat[k,r,:] = np.dot(V*f, UtY)
-			y_prs[r, N_test] = np.dot(B_test, E_mat[k,r,:])
+			y_prs[r, N_test] = np.dot(L_test, E_mat[k,r,:])
 			y_mse[r] += ((np.linalg.norm(y_test - y_prs[r, N_test]))**2)/n
 		N_ind[N_test] = k
 		
 		# Free memory
-		del B_train, B_test, U, S, V, UtY, f
+		del L_train, L_test, U, S, V, UtY, f
 	y_hat = np.copy(y_prs[np.argmin(y_mse),:])
 	E_hat = np.copy(E_mat[:,np.argmin(y_mse),:])
 	del y_mse, y_prs, E_mat

@@ -16,8 +16,8 @@ def main():
 	parser_cluster = subparsers.add_parser("cluster")
 	parser_cluster.add_argument("-g", "--vcf", "--bcf",
 		help="Input phased genotype file in VCF/BCF format")
-	parser_cluster.add_argument("-f", "--fixed", type=int, default=500,
-		help="Use fixed window length (500)")
+	parser_cluster.add_argument("-f", "--fixed", type=int, default=50,
+		help="Use fixed window length (50)")
 	parser_cluster.add_argument("-w", "--windows",
 		help="Use provided window lengths")
 	parser_cluster.add_argument("-l", "--lmbda", type=float, default=0.20,
@@ -78,8 +78,8 @@ def main():
 		help="Number of threads (1)")
 	parser_regress.add_argument("-o", "--out", default="hapla.asso",
 		help="Output prefix")
-	parser_regress.add_argument("--block", type=int, default=5,
-		help="Number of haplotype cluster windows in a block (5)")
+	parser_regress.add_argument("--block", type=int, default=100,
+		help="Number of haplotype cluster windows in a block (100)")
 	parser_regress.add_argument("--folds", type=int, default=5,
 		help="Number of folds for cross validations (5)")
 	parser_regress.add_argument("--ridge", type=int, default=5,
@@ -118,8 +118,8 @@ def main():
 		help="Maximum number of SNPs in windows (1000)")
 	parser_split.add_argument("--max_windows", type=int, default=5000,
 		help="Maximum number of windows allowed")
-	parser_split.add_argument("--threshold", type=float, default=0.2,
-		help="r2 threshold to be included in window creation (0.2)")
+	parser_split.add_argument("--threshold", type=float, default=0.1,
+		help="r2 threshold to be included in window creation (0.1)")
 
 	# hapla predict
 	parser_predict = subparsers.add_parser("predict")
@@ -127,8 +127,8 @@ def main():
 		help="Input phased genotype file in VCF/BCF format")
 	parser_predict.add_argument("-m", "--medians",
 		help="Input haplotype cluster medians as binary NumPy array")
-	parser_predict.add_argument("-f", "--fixed", type=int, default=100,
-		help="Use fixed window length (100)")
+	parser_predict.add_argument("-f", "--fixed", type=int, default=50,
+		help="Use fixed window length (50)")
 	parser_predict.add_argument("-w", "--windows",
 		help="Use provided window lengths")
 	parser_predict.add_argument("-t", "--threads", type=int, default=1,
