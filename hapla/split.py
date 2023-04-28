@@ -50,13 +50,13 @@ def main(args):
 	print("Estimating correlations and L matrix.")
 	F = np.zeros(m, dtype=float) # Means
 	S = np.zeros(m, dtype=float) # Standard deviations
-	L = np.zeros((m, args.max_length), dtype=float)
+	L = np.zeros((m, args.max_length), dtype=np.float32)
 	shared_cy.estimateL(Gt, F, S, L, args.threshold, n, args.threads)
 	del Gt, F, S
 
 	# Estimating E matrix
 	print("Estimating E matrix.")
-	E = np.zeros((m, args.max_length), dtype=float)
+	E = np.zeros((m, args.max_length), dtype=np.float32)
 	shared_cy.estimateE(L, E)
 	del L
 
@@ -72,10 +72,7 @@ def main(args):
 	# Reconstruct most optimal path
 	print("Reconstructing optimal path.")
 	P = np.zeros(maxW, dtype=np.int32)
-	minC = np.min(C[1:,0])
-	for i in np.arange(1, maxW):
-		if abs(C[i,0] - minC) < 1e-6:
-			optK = i
+	optK = maxW-np.argmin(C[:,0][::-1])-1
 	del C
 	shared_cy.reconstructPath(I, P, optK)
 	P = P[:(P.shape[0]-(np.sum(P == 0)-1))]

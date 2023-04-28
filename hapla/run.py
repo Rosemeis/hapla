@@ -16,12 +16,12 @@ def main():
 	parser_cluster = subparsers.add_parser("cluster")
 	parser_cluster.add_argument("-g", "--vcf", "--bcf",
 		help="Input phased genotype file in VCF/BCF format")
-	parser_cluster.add_argument("-f", "--fixed", type=int, default=50,
-		help="Use fixed window length (50)")
+	parser_cluster.add_argument("-f", "--fixed", type=int, default=100,
+		help="Use fixed window length (100)")
 	parser_cluster.add_argument("-w", "--windows",
 		help="Use provided window lengths")
-	parser_cluster.add_argument("-l", "--lmbda", type=float, default=0.20,
-		help="Set lambda hyperparameter (0.20)")
+	parser_cluster.add_argument("-l", "--lmbda", type=float, default=0.10,
+		help="Set lambda hyperparameter (0.10)")
 	parser_cluster.add_argument("-m", "--max_clusters", type=int, default=64,
 		help="Maximum number of haplotype clusters per window allowed (64)")
 	parser_cluster.add_argument("-e", "--max_iterations", type=int, default=100,
@@ -78,8 +78,8 @@ def main():
 		help="Number of threads (1)")
 	parser_regress.add_argument("-o", "--out", default="hapla.asso",
 		help="Output prefix")
-	parser_regress.add_argument("--block", type=int, default=100,
-		help="Number of haplotype cluster windows in a block (100)")
+	parser_regress.add_argument("--block", type=int, default=50,
+		help="Number of haplotype cluster windows in a block (50)")
 	parser_regress.add_argument("--folds", type=int, default=5,
 		help="Number of folds for cross validations (5)")
 	parser_regress.add_argument("--ridge", type=int, default=5,
@@ -118,8 +118,8 @@ def main():
 		help="Maximum number of SNPs in windows (1000)")
 	parser_split.add_argument("--max_windows", type=int, default=5000,
 		help="Maximum number of windows allowed")
-	parser_split.add_argument("--threshold", type=float, default=0.1,
-		help="r2 threshold to be included in window creation (0.1)")
+	parser_split.add_argument("--threshold", type=float, default=0.8,
+		help="r2 threshold to be included in window creation (0.8)")
 
 	# hapla predict
 	parser_predict = subparsers.add_parser("predict")

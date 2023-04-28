@@ -54,7 +54,7 @@ cpdef void standardizeZ(double[:,::1] Z_bar, double[::1] pi, int t):
 ### hapla split
 # Estimate squared correlation between variants (r^2) and compute L matrix
 cpdef void estimateL(unsigned char[:,::1] Gt, double[::1] F, double[::1] S, \
-				double[:,::1] L, double thr, int n, int t):
+				float[:,::1] L, double thr, int n, int t):
 	cdef int m = Gt.shape[0]
 	cdef int B = Gt.shape[1]
 	cdef int W = L.shape[1]
@@ -109,12 +109,12 @@ cpdef void estimateL(unsigned char[:,::1] Gt, double[::1] F, double[::1] S, \
 				corr = corr/<double>n
 				r2 = corr*corr
 				if r2 > thr:
-					L[j,c] = r2
+					L[j,c] = <float>r2
 				L[j,c] += L[j,c+1]
 				c = c - 1
 
 # Estimate E matrix used for cost estimation
-cpdef void estimateE(double[:,::1] L, double[:,::1] E):
+cpdef void estimateE(float[:,::1] L, float[:,::1] E):
 	cdef int m = E.shape[0]
 	cdef int W = E.shape[1]
 	cdef int j, k
@@ -126,7 +126,7 @@ cpdef void estimateE(double[:,::1] L, double[:,::1] E):
 				E[j,k] = L[j,k] + E[j+1,k-1]
 
 # Compute cost for different number of splits
-cpdef void estimateC(double[:,::1] E, float[:,::1] C, int[:,::1] I, int w0, int t):
+cpdef void estimateC(float[:,::1] E, float[:,::1] C, int[:,::1] I, int w0, int t):
 	cdef int m = E.shape[0]
 	cdef int W = E.shape[1]
 	cdef int K = C.shape[0]
@@ -140,8 +140,8 @@ cpdef void estimateC(double[:,::1] E, float[:,::1] C, int[:,::1] I, int w0, int 
 			for j in prange(m-(k+1)*w0, -1, -1):
 				cost = 0.0
 				for w in range(w0-1, min(W, m-j-1)):
-					cost = <float>E[j,w] + C[k-1,j+w+1]
-					if cost < C[k,j]:
+					cost = E[j,w] + C[k-1,j+w+1]
+					if cost <= C[k,j]:
 						C[k,j] = cost
 						I[k,j] = j+w+1
 
