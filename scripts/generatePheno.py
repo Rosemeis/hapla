@@ -3,8 +3,8 @@ Generate continuous phenotypes for simulated data.
 Sample causal effect sizes.
 
 Usage:
-python3 generatePheno.py --vcf file.bcf --windows file.windows \
-	--causal 10 --seed 1 --threads 8 --out output.prefix
+python3 generatePheno.py --bcf file.bcf --causal 10 --seed 1 --threads 64 \
+	--out output.prefix
 """
 
 __author__ = "Jonas Meisner"
@@ -27,6 +27,8 @@ parser.add_argument("-e", "--h2", type=int, default=5,
 	help="Heritability of trait as integer (0.x)")
 parser.add_argument("-s", "--seed", type=int, default=42,
 	help="Set random seed (42)")
+parser.add_argument("-a", "--alpha", type=float, default=-0.5,
+	help="Negative selection parameter")
 parser.add_argument("-t", "--threads", type=int, default=1,
 	help="Number of threads (1)")
 parser.add_argument("-o", "--out", default="hapla.generate",
@@ -51,9 +53,9 @@ os.environ["OPENBLAS_NUM_THREADS"] = str(args.threads)
 
 # Import numerical libraries
 import numpy as np
-from math import ceil, sqrt
 from cyvcf2 import VCF
-from hapla import reader_cy, shared_cy
+from math import ceil, sqrt
+from hapla import reader_cy
 
 ### Load data
 if args.vcf is not None:
@@ -84,30 +86,24 @@ if (args.clusters is not None) or (args.filelist is not None):
 	print("\rLoaded haplotype cluster assignments of " + \
 		f"{Z_mat.shape[1]} haplotypes in {Z_mat.shape[0]} windows.")
 	n = Z_mat.shape[1]//2
-
-	# Estimate total number of haplotype cluster assignments and frequencies
 	K_vec = np.max(Z_mat, axis=1) + 1
 	m = np.sum(K_vec)
-	pi = np.zeros(m, dtype=float)
-	reader_cy.estimateFreqs(Z_mat, K_vec, pi)
-	C_vec = np.arange(m, dtype=int)[(pi > 0.01) and (pi < 0.99)]
-	m = C_vec.shape[0]
 
 ### Causal betas and sampling
 assert (args.h2 > 0) and (args.h2 < 10), "Invalid value for h2!" 
 h2 = float(f"0.{args.h2}")
-G = np.zeros((args.causal, n), dtype=np.uint8) # Genotypes
+G = np.zeros((args.causal, n), dtype=np.uint8) # Genotypes or haplotype clusters
 np.random.seed(args.seed) # Set random seed
 p = np.sort(np.random.permutation(m)[:args.causal]).astype(int) # Select causals
 if (args.clusters is not None) or (args.filelist is not None):
-	C_vec = C_vec[p]
+	C_vec = np.arange(m)[p]
 	reader_cy.convertHaplo(Z_mat, G, K_vec, C_vec)
 	del Z_mat, K_vec, C_vec
 else:
 	reader_cy.genotypeBit(Gt, G, p)
 	del Gt
-
-b = np.random.normal(loc=0.0, scale=sqrt(h2/args.causal), size=args.causal)
+f = np.mean(G, axis=1)/2.0
+b = np.random.normal(loc=0.0, scale=(2*f*(1.0-f))**args.alpha, size=args.causal)
 B = np.zeros(m)
 B[p] = b
 
@@ -115,14 +111,13 @@ B[p] = b
 # Genetic contribution
 X = np.dot(G.T, b)
 X -= np.mean(X)
-X /= (np.linalg.norm(X)/np.sqrt(n))
-G_liab = sqrt(h2)*X
+G_scal = sqrt(h2)/(np.linalg.norm(X)/np.sqrt(n))
+G_liab = X*G_scal
 
 # Environmental contribution
 E = np.random.normal(loc=0.0, scale=sqrt(1 - h2), size=n)
 E -= np.mean(E)
-E /= (np.linalg.norm(E)/np.sqrt(n))
-E_liab = sqrt(1.0 - h2)*E
+E_liab = E*(sqrt(1.0 - h2)/(np.linalg.norm(E)/np.sqrt(n)))
 
 # Generate phenotype
 Y = G_liab + E_liab
@@ -143,3 +138,8 @@ if args.save_regenie:
 		fmt="%s")
 	print("Saved continuous phenotypes in regenie format as " + \
 	f"{args.out}.h{args.h2}.s{args.seed}.c{args.causal}.regenie.pheno")
+if args.save_beta:
+	np.savetxt("{args.out}.h{args.h2}.s{args.seed}.c{args.causal}.beta", \
+		B*G_scal, fmt="%.7f")
+	print(f"Saved causal betas as " + \
+		f"{args.out}.h{args.h2}.s{args.seed}.c{args.causal}.beta")

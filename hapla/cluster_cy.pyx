@@ -11,14 +11,12 @@ cpdef void marginalMedians(signed char[:,::1] M, float[:,::1] C, int[::1] N, int
 	cdef int m = M.shape[1]
 	cdef int j, k
 	for k in range(K):
-		if N[k] > 0:
-			for j in range(m):
-				C[k,j] = C[k,j]/<float>N[k]
-				if C[k,j] > 0.5:
-					M[k,j] = 1
-				else:
-					M[k,j] = 0
-				C[k,j] = 0.0
+		if N[k] == 0:
+			continue
+		for j in range(m):
+			C[k,j] = C[k,j]/<float>N[k]
+			M[k,j] = <signed char>(C[k,j] > 0.5)
+			C[k,j] = 0.0
 
 # Compute distances and cluster assignment
 cpdef void clusterAssignment(unsigned char[:,::1] X, signed char[:,::1] M, float[:,::1] C, \
@@ -75,14 +73,15 @@ cpdef void countN(unsigned char[:,::1] Z, int[::1] N, int K, int w):
 
 # Find non-zero cluster with least assignments
 cpdef void findZero(int[::1] N, int n, int thr, int K):
-	cdef int k
+	cdef int k, Nk
 	cdef int minI = 0
 	cdef int minN = n
 	for k in range(K):
-		if N[k] > 0:
-			if N[k] < minN:
+		Nk = N[k]
+		if Nk > 0:
+			if Nk < minN:
 				minI = k
-				minN = N[k]
+				minN = Nk
 	if minN <= thr:
 		N[minI] = 0
 
@@ -109,12 +108,13 @@ cpdef void medianFix(signed char[:,::1] M, unsigned char[:,::1] Z, \
 			for j in range(m):
 				M[k,j] = -9
 
-# Generate haplotype clu-likelihoods (Bernoulli)
+# Generate haplotype log-likelihoods (Bernoulli)
 cpdef void loglikeHaplo(float[:,:,::1] L, unsigned char[:,::1] X, float[:,::1] C, \
 		unsigned char[:,::1] Z, int[::1] N, int K, int w, int t):
 	cdef int n = X.shape[0]
 	cdef int m = X.shape[1]
 	cdef int i, j, k
+	cdef float p
 	for i in range(n):
 		for j in range(m):
 			C[Z[w,i],j] += <float>X[i,j]/<float>N[Z[w,i]]
@@ -123,5 +123,5 @@ cpdef void loglikeHaplo(float[:,:,::1] L, unsigned char[:,::1] X, float[:,::1] C
 			for k in range(K):
 				L[w, i, k] = 0.0
 				for j in range(m):
-					L[w, i, k] += X[i,j]*log(min(max(C[k,j], 1e-6), 1-(1e-6))) + \
-						(1.0 - X[i,j])*log(1.0 - min(max(C[k,j], 1e-6), 1-(1e-6)))
+					p = min(max(C[k,j], 1e-6), 1-(1e-6))
+					L[w, i, k] += X[i,j]*log(p) + (1.0 - X[i,j])*log(1.0 - p)

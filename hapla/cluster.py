@@ -25,8 +25,8 @@ def main(args):
 
 	# Import numerical libraries and cython functions
 	import numpy as np
-	from math import ceil
 	from cyvcf2 import VCF
+	from math import ceil
 	from hapla import reader_cy
 	from hapla import cluster_cy
 
@@ -114,7 +114,8 @@ def main(args):
 		# Perform DC-DP-Medians
 		for iter in np.arange(args.max_iterations):
 			# Cluster assignment
-			cluster_cy.clusterAssignment(X, M, C, Z_mat, c_vec, N_vec, K, w, args.threads)
+			cluster_cy.clusterAssignment(X, M, C, Z_mat, c_vec, N_vec, K, w, \
+				args.threads)
 
 			# Check for extra cluster
 			c_max = np.max(c_vec)
@@ -153,12 +154,13 @@ def main(args):
 		# Remove small haplotype clusters and try to rescue as many as possible
 		if K > 2:
 			N_thr = round(args.min_freq*n)-1
-			N_sur = max(2, np.sum(N_vec >= N_thr)) # Surviving clusters (at least 2)
+			N_sur = max(2, np.sum(N_vec >= N_thr)) # Surviving clusters
 			N_tmp = N_sur
 			K_rem = K - N_sur
 			for k in np.arange(K_rem):
-				cluster_cy.findZero(N_vec, n, N_thr, K) # Find smallest cluster
-				cluster_cy.clusterAssignment(X, M, C, Z_mat, c_vec, N_vec, K, w, args.threads)
+				cluster_cy.findZero(N_vec, n, N_thr, K) # Smallest cluster
+				cluster_cy.clusterAssignment(X, M, C, Z_mat, c_vec, N_vec, K, w, \
+					args.threads)
 				cluster_cy.countN(Z_mat, N_vec, K, w)
 				N_sur = np.sum(N_vec > 0)
 				if N_sur == N_tmp:
@@ -167,7 +169,8 @@ def main(args):
 					cluster_cy.marginalMedians(M, C, N_vec, K)
 				N_tmp = N_sur
 		else:
-			cluster_cy.clusterAssignment(X, M, C, Z_mat, c_vec, N_vec, K, w, args.threads)
+			cluster_cy.clusterAssignment(X, M, C, Z_mat, c_vec, N_vec, K, w, \
+				args.threads)
 			cluster_cy.countN(Z_mat, N_vec, K, w)
 
 		# Fix cluster median and cluster assignment order
