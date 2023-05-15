@@ -28,6 +28,7 @@ def main(args):
 	# Import numerical libraries and cython functions
 	import numpy as np
 	from cyvcf2 import VCF
+	from math import ceil
 	from hapla import reader_cy
 	from hapla import shared_cy
 
