@@ -21,13 +21,15 @@ parser.add_argument("-f", "--filelist",
 	help="Filelist with paths to multiple haplotype cluster assignment files")
 parser.add_argument("-z", "--clusters",
 	help="Path to a single haplotype cluster assignment file")
+parser.add_argument("-b", "--beta",
+	help="Path to pre-estimated betas from training data")
 parser.add_argument("-c", "--causal", type=int,
 	help="Number of causal SNPs")
 parser.add_argument("-e", "--h2", type=int, default=5,
 	help="Heritability of trait as integer (0.x)")
 parser.add_argument("-s", "--seed", type=int, default=42,
 	help="Set random seed (42)")
-parser.add_argument("-a", "--alpha", type=float, default=-0.5,
+parser.add_argument("-a", "--alpha", type=float, default=-1.0,
 	help="Negative selection parameter")
 parser.add_argument("-t", "--threads", type=int, default=1,
 	help="Number of threads (1)")
@@ -41,7 +43,8 @@ args = parser.parse_args()
 
 # Check input
 assert args.vcf is not None, "Please provide genotype file (--bcf or --vcf)!"
-assert args.causal is not None, "Please provide number of casual SNPs (--causal)!"
+if args.beta is None:
+	assert args.causal is not None, "Please provide number of casual SNPs (--causal)!"
 if args.save_regenie:
 	assert args.vcf is not None, "VCF/BCF file is needed for sample list!"
 
@@ -90,22 +93,36 @@ if (args.clusters is not None) or (args.filelist is not None):
 	m = np.sum(K_vec)
 
 ### Causal betas and sampling
-assert (args.h2 > 0) and (args.h2 < 10), "Invalid value for h2!" 
-h2 = float(f"0.{args.h2}")
-G = np.zeros((args.causal, n), dtype=np.uint8) # Genotypes or haplotype clusters
-np.random.seed(args.seed) # Set random seed
-p = np.sort(np.random.permutation(m)[:args.causal]).astype(int) # Select causals
-if (args.clusters is not None) or (args.filelist is not None):
-	C_vec = np.arange(m)[p]
-	reader_cy.convertHaplo(Z_mat, G, K_vec, C_vec)
-	del Z_mat, K_vec, C_vec
+if args.beta is None:
+	assert (args.h2 > 0) and (args.h2 < 10), "Invalid value for h2!" 
+	h2 = float(f"0.{args.h2}")
+	G = np.zeros((args.causal, n), dtype=np.uint8) # Genotypes or haplotype clusters
+	np.random.seed(args.seed) # Set random seed
+	p = np.sort(np.random.permutation(m)[:args.causal]).astype(int) # Select causals
+	if (args.clusters is not None) or (args.filelist is not None):
+		C_vec = np.arange(m, dtype=int)[p]
+		reader_cy.convertHaplo(Z_mat, G, K_vec, C_vec)
+		del Z_mat, K_vec, C_vec
+	else:
+		reader_cy.genotypeBit(Gt, G, p)
+		del Gt
+	f = np.mean(G, axis=1)/2.0
+	b = np.random.normal(loc=0.0, scale=(f*(1.0-f))**args.alpha, size=args.causal)
+	B = np.zeros(m)
+	B[p] = b
 else:
-	reader_cy.genotypeBit(Gt, G, p)
-	del Gt
-f = np.mean(G, axis=1)/2.0
-b = np.random.normal(loc=0.0, scale=(2*f*(1.0-f))**args.alpha, size=args.causal)
-B = np.zeros(m)
-B[p] = b
+	beta = np.loadtxt(args.beta, dtype=float)
+	p = np.arange(m, dtype=int)[beta != 0]
+	b = beta[p]
+	del beta
+	G = np.zeros((p.shape[0], n), dtype=np.uint8) # Genotypes or haplotype clusters
+	if (args.clusters is not None) or (args.filelist is not None):
+		C_vec = np.arange(m, dtype=int)[p]
+		reader_cy.convertHaplo(Z_mat, G, K_vec, C_vec)
+		del Z_mat, K_vec, C_vec
+	else:
+		reader_cy.genotypeBit(Gt, G, p)
+		del Gt
 
 ### Estimate phenotypes
 # Genetic contribution
@@ -138,7 +155,7 @@ if args.save_regenie:
 		fmt="%s")
 	print("Saved continuous phenotypes in regenie format as " + \
 	f"{args.out}.h{args.h2}.s{args.seed}.c{args.causal}.regenie.pheno")
-if args.save_beta:
+if (args.save_beta) and (args.beta is None):
 	np.savetxt("{args.out}.h{args.h2}.s{args.seed}.c{args.causal}.beta", \
 		B*G_scal, fmt="%.7f")
 	print(f"Saved causal betas as " + \
