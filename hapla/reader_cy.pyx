@@ -1,9 +1,9 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, initializedcheck=False, cdivision=True
 import numpy as np
 cimport numpy as np
+from cpython.mem cimport PyMem_Malloc, PyMem_Free
 from cython.parallel import prange
 from libcpp.vector cimport vector
-from libc.stdlib cimport malloc, free
 
 DTYPE = np.uint8
 ctypedef np.uint8_t DTYPE_t
@@ -147,7 +147,7 @@ cpdef void filterSNPs(unsigned char[:,::1] Gt, long[::1] W, unsigned char[::1] m
 	cdef int c = 0
 	cdef int b, j, k
 	cdef int* count
-	count = <int*>malloc(sizeof(int)*s)
+	count = <int*>PyMem_Malloc(sizeof(int)*s)
 	for k in range(s):
 		count[k] = 0
 	for j in range(m):
@@ -160,4 +160,4 @@ cpdef void filterSNPs(unsigned char[:,::1] Gt, long[::1] W, unsigned char[::1] m
 				if (W[k] + count[k]) >= j:
 					W[k] -= 1
 					count[k] += 1
-	free(count)
+	PyMem_Free(count)

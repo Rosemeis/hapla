@@ -1,9 +1,9 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, initializedcheck=False, cdivision=True
 import numpy as np
 cimport numpy as np
+from cpython.mem cimport PyMem_RawMalloc, PyMem_RawFree
 from cython.parallel import prange, parallel
 from libc.math cimport log
-from libc.stdlib cimport malloc, free
 
 ##### hapla - haplotype clustering #####
 # Create marginal medians
@@ -11,12 +11,11 @@ cpdef void marginalMedians(signed char[:,::1] M, float[:,::1] C, int[::1] N, int
 	cdef int m = M.shape[1]
 	cdef int j, k
 	for k in range(K):
-		if N[k] == 0:
-			continue
-		for j in range(m):
-			C[k,j] = C[k,j]/<float>N[k]
-			M[k,j] = <signed char>(C[k,j] > 0.5)
-			C[k,j] = 0.0
+		if N[k] > 0:
+			for j in range(m):
+				C[k,j] = C[k,j]/<float>N[k]
+				M[k,j] = <signed char>(C[k,j] > 0.5)
+				C[k,j] = 0.0
 
 # Compute distances and cluster assignment
 cpdef void clusterAssignment(unsigned char[:,::1] X, signed char[:,::1] M, float[:,::1] C, \
@@ -26,7 +25,7 @@ cpdef void clusterAssignment(unsigned char[:,::1] X, signed char[:,::1] M, float
 	cdef int i, j, k, l, k2, j2, dist, m_val
 	cdef float* tmp
 	with nogil, parallel(num_threads=t):
-		tmp = <float*>malloc(sizeof(float)*K*m)
+		tmp = <float*>PyMem_RawMalloc(sizeof(float)*K*m)
 		for l in range(K*m):
 			tmp[l] = 0.0
 		
@@ -60,7 +59,7 @@ cpdef void clusterAssignment(unsigned char[:,::1] X, signed char[:,::1] M, float
 					C[k2,j2] += tmp[k2*m + j2]
 		
 		# Deallocate thread-local arrays
-		free(tmp)
+		PyMem_RawFree(tmp)
 
 # Count size of clusters
 cpdef void countN(unsigned char[:,::1] Z, int[::1] N, int K, int w):

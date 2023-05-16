@@ -1,9 +1,9 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, initializedcheck=False, cdivision=True
 import numpy as np
 cimport numpy as np
+from cpython.mem cimport PyMem_Malloc, PyMem_Free
 from cython.parallel import prange
 from libc.math cimport sqrt
-from cpython.mem cimport PyMem_Malloc, PyMem_Free
 
 ##### hapla - association testing #####
 ### hapla regress
