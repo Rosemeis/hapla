@@ -7,7 +7,7 @@ from libc.math cimport sqrt
 ##### hapla - analyses on haplotype cluster assignments #####
 ### hapla pca
 # Estimate haplotype cluster frequencies
-cpdef void haplotypeFreqs(unsigned char[:,::1] Z, double[:,::1] Z_bar, \
+cpdef void haplotypeFreqs(unsigned char[:,::1] Z, double[:,::1] Z_tilde, \
 		unsigned char[::1] K_vec, double[::1] pi):
 	cdef int W = Z.shape[0]
 	cdef int n = Z.shape[1]
@@ -18,37 +18,56 @@ cpdef void haplotypeFreqs(unsigned char[:,::1] Z, double[:,::1] Z_bar, \
 			for i in range(n):
 				if Z[w,i] == k:
 					pi[j] += 1.0
-					Z_bar[j,i//2] += 1.0
+					Z_tilde[j,i//2] += 1.0
 			pi[j] /= <double>n
 			j += 1
 
+# Expand the haplotype cluster matrix (only for projection)
+cpdef void updateZ(unsigned char[:,::1] Z, double[:,::1] Z_tilde, double[::1] pi, \
+		double[::1] std, unsigned char[::1] K_vec, unsigned char[::1] mask):
+	cdef int W = Z.shape[0]
+	cdef int n = Z.shape[1]
+	cdef int i, k, w
+	cdef int c = 0
+	cdef int j = 0
+	for w in range(W):
+		for k in range(K_vec[w]):
+			if mask[j] == 1:
+				for i in range(n):
+					if Z[w,i] == k:
+						Z_tilde[c,i//2] += 1.0
+				for i in range(n//2):
+					Z_tilde[c,i] = (Z_tilde[c,i] - 2*pi[c])/std[c]
+				c += 1
+			j += 1
+
 # Array filtering
-cpdef void filterZ(double[:,::1] Z_bar, double[::1] pi, unsigned char[::1] mask):
-	cdef int m = Z_bar.shape[0]
-	cdef int n = Z_bar.shape[1]
+cpdef void filterZ(double[:,::1] Z_tilde, double[::1] pi, unsigned char[::1] mask):
+	cdef int m = Z_tilde.shape[0]
+	cdef int n = Z_tilde.shape[1]
 	cdef int c = 0
 	cdef int i, j
 	for j in range(m):
 		if mask[j] == 1:
 			for i in range(n):
-				Z_bar[c,i] = Z_bar[j,i]
+				Z_tilde[c,i] = Z_tilde[j,i]
 			pi[c] = pi[j]
 			c += 1
 
 # Standardize the full haplotype cluster assignment matrix
-cpdef void standardizeZ(double[:,::1] Z_bar, double[::1] pi, int t):
-	cdef int m = Z_bar.shape[0]
-	cdef int n = Z_bar.shape[1]
+cpdef void standardizeZ(double[:,::1] Z_tilde, double[::1] pi, int t):
+	cdef int m = Z_tilde.shape[0]
+	cdef int n = Z_tilde.shape[1]
 	cdef int i, j
 	cdef double s
 	with nogil:
 		for j in prange(m, num_threads=t):
 			s = 0.0
 			for i in range(n):
-				s = s + (Z_bar[j,i] - 2*pi[j])*(Z_bar[j,i] - 2*pi[j])
+				s = s + (Z_tilde[j,i] - 2*pi[j])*(Z_tilde[j,i] - 2*pi[j])
 			s = sqrt(s/<double>n)
 			for i in range(n):
-				Z_bar[j,i] = (Z_bar[j,i] - 2*pi[j])/s
+				Z_tilde[j,i] = (Z_tilde[j,i] - 2*pi[j])/s
 
 
 ### hapla split
@@ -148,11 +167,10 @@ cpdef void estimateC(float[:,::1] E, float[:,::1] C, int[:,::1] I, int w0, int t
 # Reconstruct path of the lowest cost
 cpdef void reconstructPath(int[:,::1] I, int[::1] P, int k):
 	cdef int j = 0
-	cdef int i = k
-	while i >= 0:
+	cdef int i
+	for i in range(k, -1, -1):
 		j = I[i,j]
 		P[i] = j
-		i -= 1
 
 
 ### hapla predict

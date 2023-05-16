@@ -58,13 +58,12 @@ def main(args):
 	# Mask non-rare haplotype clusters
 	mask = (pi >= args.min_freq) & (pi <= (1 - args.min_freq))
 	mask = mask.astype(np.uint8)
-	m = np.sum(mask)
+	m_new = np.sum(mask)
 
 	# Filter out masked haplotype clusters
 	shared_cy.filterZ(Z_tilde, pi, mask)
-	del mask
-	Z_tilde = Z_tilde[:m,:]
-	pi = pi[:m]
+	Z_tilde = Z_tilde[:m_new,:]
+	pi = pi[:m_new]
 
 	# Standardize Z matrix of individuals
 	shared_cy.standardizeZ(Z_tilde, pi, args.threads)
@@ -81,6 +80,37 @@ def main(args):
 		if args.loadings:
 			np.savetxt(f"{args.out}.loadings", U[:,::-1], fmt="%.7f")
 			print(f"Saved loadings as {args.out}.loadings")
+		if (args.project is not None) or (args.project_filelist is not None):
+			std = Z_tilde.std(axis=1) # Save standard deviations for projection
+		del Z_tilde, Vt
+		
+		# Project other samples into vector space
+		if (args.project is not None) or (args.project_filelist is not None):
+			if args.project_filelist is not None:
+				Z_list = []
+				with open(args.project_filelist) as f:
+					file_c = 1
+					for chr in f:
+						Z_list.append(np.load(chr.strip("\n")))
+						print(f"\rParsed file #{file_c}", end="")
+						file_c += 1
+				Z_mat = np.concatenate(Z_list, axis=0)
+				del Z_list
+			else:
+				Z_mat = np.load(args.project)
+			print("\rLoaded haplotype cluster assignments of " + \
+				f"{Z_mat.shape[1]} haplotypes in {Z_mat.shape[0]} windows.")
+			n = Z_mat.shape[1]//2
+
+			# Extract haplotype cluster assignments and standardize
+			Z_tilde = np.zeros((m_new, n), dtype=float)
+			shared_cy.updateZ(Z_mat, Z_tilde, pi, std, K_vec, mask)
+			del Z_mat
+
+			# Projection and save output
+			V = np.dot(Z_tilde.T, U*(1.0/S))
+			np.savetxt(f"{args.out}.projection", V[:,::-1], fmt="%.7f")
+			print(f"Saved projections as {args.out}.projection")
 	else:
 		# Estimate covariance matrix
 		print("Estimating covariance matrix (GRM)")

@@ -59,6 +59,10 @@ def main():
 		help="Save loadings of SVD")
 	parser_pca.add_argument("--cov", action="store_true",
 		help="Estimate covariance matrix instead of SVD (not recommended)")
+	parser_pca.add_argument("--project_filelist",
+		help="Filelist with paths to multiple chromosomes for projection")
+	parser_pca.add_argument("--project",
+		help="Path to a single haplotype cluster assignment file for projection")
 
 	# hapla regress
 	parser_regress = subparsers.add_parser("regress")
