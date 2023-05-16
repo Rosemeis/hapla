@@ -85,7 +85,7 @@ hapla regress --filelist hapla.filelist --eigen hapla.eigenvec --pheno trait.phe
 # Cluster haplotypes in reference dataset and save cluster medians
 for c in {1..22}
 do
-	hapla cluster --bcf ref.chr${c}.bcf --save_medians --threads 20 --out ref.chr${c}
+	hapla cluster --bcf ref.chr${c}.bcf --medians --threads 20 --out ref.chr${c}
 	# Saves cluster medians in a binary NumPy file (ref.chr${c}.medians.npy) 
 	realpath ref.chr${c}.z.npy >> ref.filelist
 done

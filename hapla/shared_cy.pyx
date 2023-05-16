@@ -157,7 +157,7 @@ cpdef void reconstructPath(int[:,::1] I, int[::1] P, int k):
 
 ### hapla predict
 # Haplotype cluster assignment based on pre-estimated medians
-cpdef void predictCluster(signed char[:,::1] X, signed char[:,::1] M, \
+cpdef void predictCluster(unsigned char[:,::1] X, signed char[:,::1] M, \
 		unsigned char[:,::1] Z, int K, int w, int t):
 	cdef int n = X.shape[0]
 	cdef int m = X.shape[1]
