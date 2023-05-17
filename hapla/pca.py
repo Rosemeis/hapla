@@ -80,8 +80,6 @@ def main(args):
 		if args.loadings:
 			np.savetxt(f"{args.out}.loadings", U[:,::-1], fmt="%.7f")
 			print(f"Saved loadings as {args.out}.loadings")
-		if (args.project is not None) or (args.project_filelist is not None):
-			std = Z_tilde.std(axis=1) # Save standard deviations for projection
 		del Z_tilde, Vt
 		
 		# Project other samples into vector space
@@ -104,7 +102,7 @@ def main(args):
 
 			# Extract haplotype cluster assignments and standardize
 			Z_tilde = np.zeros((m_new, n), dtype=float)
-			shared_cy.updateZ(Z_mat, Z_tilde, pi, std, K_vec, mask)
+			shared_cy.updateZ(Z_mat, Z_tilde, pi, K_vec, mask)
 			del Z_mat
 
 			# Projection and save output

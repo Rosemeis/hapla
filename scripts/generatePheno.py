@@ -18,7 +18,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("-g", "--vcf", "--bcf",
 	help="Genotype file in VCF/BCF format")
 parser.add_argument("-f", "--filelist",
-	help="Filelist with paths to multiple haplotype cluster assignment files")
+	help="Filelist with paths to haplotype cluster files")
 parser.add_argument("-z", "--clusters",
 	help="Path to a single haplotype cluster assignment file")
 parser.add_argument("-b", "--beta",
@@ -26,11 +26,11 @@ parser.add_argument("-b", "--beta",
 parser.add_argument("-c", "--causal", type=int,
 	help="Number of causal SNPs")
 parser.add_argument("-e", "--h2", type=int, default=5,
-	help="Heritability of trait as integer (0.x)")
+	help="Heritability of trait as integer (5 = 0.5)")
 parser.add_argument("-s", "--seed", type=int, default=42,
 	help="Set random seed (42)")
 parser.add_argument("-a", "--alpha", type=float, default=-1.0,
-	help="Negative selection parameter")
+	help="Negative selection parameter (-1.0)")
 parser.add_argument("-t", "--threads", type=int, default=1,
 	help="Number of threads (1)")
 parser.add_argument("-o", "--out", default="hapla.generate",
@@ -140,23 +140,17 @@ E_liab = E*(sqrt(1.0 - h2)/(np.linalg.norm(E)/np.sqrt(n)))
 Y = G_liab + E_liab
 
 ### Save output
-np.savetxt(f"{args.out}.h{args.h2}.s{args.seed}.c{args.causal}.pheno", \
-	Y, fmt="%.7f")
-print("Saved continuous phenotypes as " + \
-	f"{args.out}.h{args.h2}.s{args.seed}.c{args.causal}.pheno")
-np.savetxt(f"{args.out}.h{args.h2}.s{args.seed}.c{args.causal}.prs", \
-	G_liab, fmt="%.7f")
-print(f"Saved PRS as {args.out}.h{args.h2}.s{args.seed}.c{args.causal}.prs")
+np.savetxt(f"{args.out}.pheno", Y, fmt="%.7f")
+print(f"Saved continuous phenotypes as {args.out}.pheno")
+np.savetxt(f"{args.out}.prs", G_liab, fmt="%.7f")
+print(f"Saved PRS as {args.out}.prs")
 if args.save_regenie:
 	Y_regenie = np.repeat(np.array(s_list), 2).reshape(n, 2)
 	Y_regenie = np.hstack((Y_regenie, np.round(Y.reshape(-1,1), 7)))
-	np.savetxt(f"{args.out}.h{args.h2}.s{args.seed}.c{args.causal}.regenie.pheno", \
-		Y_regenie, delimiter="\t", comments="", header="FID\tIID\tY1", \
-		fmt="%s")
+	np.savetxt(f"{args.out}.regenie.pheno", Y_regenie, delimiter="\t", \
+	    comments="", header="FID\tIID\tY1", fmt="%s")
 	print("Saved continuous phenotypes in regenie format as " + \
-	f"{args.out}.h{args.h2}.s{args.seed}.c{args.causal}.regenie.pheno")
+	f"{args.out}.regenie.pheno")
 if (args.save_beta) and (args.beta is None):
-	np.savetxt("{args.out}.h{args.h2}.s{args.seed}.c{args.causal}.beta", \
-		B*G_scal, fmt="%.7f")
-	print(f"Saved causal betas as " + \
-		f"{args.out}.h{args.h2}.s{args.seed}.c{args.causal}.beta")
+	np.savetxt(f"{args.out}.beta", B*G_scal, fmt="%.7f")
+	print(f"Saved causal betas as {args.out}.beta")

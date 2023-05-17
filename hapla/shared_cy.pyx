@@ -24,7 +24,7 @@ cpdef void haplotypeFreqs(unsigned char[:,::1] Z, double[:,::1] Z_tilde, \
 
 # Expand the haplotype cluster matrix (only for projection)
 cpdef void updateZ(unsigned char[:,::1] Z, double[:,::1] Z_tilde, double[::1] pi, \
-		double[::1] std, unsigned char[::1] K_vec, unsigned char[::1] mask):
+		unsigned char[::1] K_vec, unsigned char[::1] mask):
 	cdef int W = Z.shape[0]
 	cdef int n = Z.shape[1]
 	cdef int i, k, w
@@ -37,7 +37,7 @@ cpdef void updateZ(unsigned char[:,::1] Z, double[:,::1] Z_tilde, double[::1] pi
 					if Z[w,i] == k:
 						Z_tilde[c,i//2] += 1.0
 				for i in range(n//2):
-					Z_tilde[c,i] = (Z_tilde[c,i] - 2*pi[c])/std[c]
+					Z_tilde[c,i] = (Z_tilde[c,i] - 2*pi[c])/sqrt(2*pi[c]*(1 - pi[c]))
 				c += 1
 			j += 1
 
@@ -59,15 +59,10 @@ cpdef void standardizeZ(double[:,::1] Z_tilde, double[::1] pi, int t):
 	cdef int m = Z_tilde.shape[0]
 	cdef int n = Z_tilde.shape[1]
 	cdef int i, j
-	cdef double s
 	with nogil:
 		for j in prange(m, num_threads=t):
-			s = 0.0
 			for i in range(n):
-				s = s + (Z_tilde[j,i] - 2*pi[j])*(Z_tilde[j,i] - 2*pi[j])
-			s = sqrt(s/<double>n)
-			for i in range(n):
-				Z_tilde[j,i] = (Z_tilde[j,i] - 2*pi[j])/s
+				Z_tilde[j,i] = (Z_tilde[j,i] - 2*pi[j])/sqrt(2*pi[j]*(1 - pi[j]))
 
 
 ### hapla split
