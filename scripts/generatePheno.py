@@ -93,9 +93,9 @@ if (args.clusters is not None) or (args.filelist is not None):
 	m = np.sum(K_vec)
 
 ### Causal betas and sampling
+assert (args.h2 > 0) and (args.h2 < 10), "Invalid value for h2!" 
+h2 = float(f"0.{args.h2}")
 if args.beta is None:
-	assert (args.h2 > 0) and (args.h2 < 10), "Invalid value for h2!" 
-	h2 = float(f"0.{args.h2}")
 	G = np.zeros((args.causal, n), dtype=np.uint8) # Genotypes or haplotype clusters
 	np.random.seed(args.seed) # Set random seed
 	p = np.sort(np.random.permutation(m)[:args.causal]).astype(int) # Select causals
