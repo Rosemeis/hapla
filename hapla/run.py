@@ -22,12 +22,12 @@ def main():
 		help="Use provided window lengths")
 	parser_cluster.add_argument("-l", "--lmbda", type=float, default=0.10,
 		help="Set lambda hyperparameter (0.10)")
-	parser_cluster.add_argument("-m", "--max_clusters", type=int, default=32,
-		help="Maximum number of haplotype clusters per window allowed (32)")
+	parser_cluster.add_argument("-m", "--max_clusters", type=int, default=40,
+		help="Maximum number of haplotype clusters per window allowed (40)")
 	parser_cluster.add_argument("-e", "--max_iterations", type=int, default=100,
 		help="Maximum number of iterations (100)")
-	parser_cluster.add_argument("--min_freq", type=float, default=0.01,
-		help="Minimum frequency of haplotype cluster to include (0.01)")
+	parser_cluster.add_argument("--min_freq", type=float, default=0.05,
+		help="Minimum frequency of haplotype cluster to include (0.05)")
 	parser_cluster.add_argument("-t", "--threads", type=int, default=1,
 		help="Number of threads (1)")
 	parser_cluster.add_argument("-o", "--out", default="hapla.cluster",
