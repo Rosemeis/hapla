@@ -107,7 +107,11 @@ def main(args):
 
 			# Projection and save output
 			V = np.dot(Z_tilde.T, U*(1.0/S))
-			np.savetxt(f"{args.out}.projection", V[:,::-1], fmt="%.7f")
+			if args.project_out is not None:
+				project_out = args.project_out
+			else:
+				project_out = args.out
+			np.savetxt(f"{project_out}.projection", V[:,::-1], fmt="%.7f")
 			print(f"Saved projections as {args.out}.projection")
 	else:
 		# Estimate covariance matrix

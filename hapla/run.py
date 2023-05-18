@@ -63,6 +63,8 @@ def main():
 		help="Filelist with paths to multiple chromosomes for projection")
 	parser_pca.add_argument("--project",
 		help="Path to a single haplotype cluster assignment file for projection")
+	parser_pca.add_argument("--project_out",
+		help="Output prefix for projected samples")
 
 	# hapla regress
 	parser_regress = subparsers.add_parser("regress")
