@@ -50,11 +50,12 @@ def main(args):
 
 	# Estimate total number of haplotype cluster assignments
 	w, b, p = np.loadtxt(args.assoc, dtype=float, unpack=True, \
-		usecols=(1,4,7))
+		usecols=(1,4,7), skiprows=1)
 	w = w.astype(int)
 	p = np.ascontiguousarray(p)
 	assert w[-1] == W, "Number of windows differ between files!"
-	K_vec = np.max(Z, axis=1) + 1
+	K_vec = np.zeros(W, dtype=np.uint8)
+	assoc_cy.updateK(K_vec, w)
 	m = np.sum(K_vec)
 	assert b.shape[0] == m, "Number of haplotype cluster differ between files!"
 

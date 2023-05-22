@@ -21,10 +21,12 @@ parser.add_argument("-f", "--filelist",
 	help="Filelist with paths to haplotype cluster files")
 parser.add_argument("-z", "--clusters",
 	help="Path to a single haplotype cluster assignment file")
+parser.add_argument("-k", "--num_clusters",
+	help="Path to either single path or filelist of haplotype cluster counts")
 parser.add_argument("-b", "--beta",
 	help="Path to pre-estimated betas from training data")
-parser.add_argument("-c", "--causal", type=int,
-	help="Number of causal SNPs")
+parser.add_argument("-c", "--causal", type=int, default=100,
+	help="Number of causal SNPs (100)")
 parser.add_argument("-e", "--h2", type=int, default=5,
 	help="Heritability of trait as integer (5 = 0.5)")
 parser.add_argument("-s", "--seed", type=int, default=42,
@@ -75,6 +77,7 @@ if args.vcf is not None:
 	del v_file
 if (args.clusters is not None) or (args.filelist is not None):
 	if args.filelist is not None:
+		# Haplotype clusters
 		Z_list = []
 		with open(args.filelist) as f:
 			file_c = 1
@@ -84,12 +87,22 @@ if (args.clusters is not None) or (args.filelist is not None):
 				file_c += 1
 		Z_mat = np.concatenate(Z_list, axis=0)
 		del Z_list
+
+		# Files with number of clusters
+		K_list = []
+		with open(args.num_clusters) as f:
+			file_c = 1
+			for chr in f:
+				K_list.append(np.loadtxt(chr.strip("\n"), dtype=np.uint8))
+				file_c += 1
+		K_vec = np.concatenate(K_list, dtype=np.uint8)
+		del K_list
 	else:
 		Z_mat = np.load(args.clusters)
+		K_vec = np.loadtxt(args.num_clusters, dtype=np.uint8)
 	print("\rLoaded haplotype cluster assignments of " + \
 		f"{Z_mat.shape[1]} haplotypes in {Z_mat.shape[0]} windows.")
 	n = Z_mat.shape[1]//2
-	K_vec = np.max(Z_mat, axis=1) + 1
 	m = np.sum(K_vec)
 
 ### Causal betas and sampling
@@ -152,5 +165,5 @@ if args.save_regenie:
 	print("Saved continuous phenotypes in regenie format as " + \
 	f"{args.out}.regenie.pheno")
 if (args.save_beta) and (args.beta is None):
-	np.savetxt(f"{args.out}.beta", B*G_scal, fmt="%.7f")
+	np.savetxt(f"{args.out}.beta", B, fmt="%.7f")
 	print(f"Saved causal betas as {args.out}.beta")

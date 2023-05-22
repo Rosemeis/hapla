@@ -20,14 +20,14 @@ def main():
 		help="Use fixed window length (100)")
 	parser_cluster.add_argument("-w", "--windows",
 		help="Use provided window lengths")
-	parser_cluster.add_argument("-l", "--lmbda", type=float, default=0.10,
-		help="Set lambda hyperparameter (0.10)")
+	parser_cluster.add_argument("-l", "--lmbda", type=float, default=0.20,
+		help="Set lambda hyperparameter (0.20)")
 	parser_cluster.add_argument("-m", "--max_clusters", type=int, default=40,
 		help="Maximum number of haplotype clusters per window allowed (40)")
 	parser_cluster.add_argument("-e", "--max_iterations", type=int, default=100,
 		help="Maximum number of iterations (100)")
-	parser_cluster.add_argument("--min_freq", type=float, default=0.05,
-		help="Minimum frequency of haplotype cluster to include (0.05)")
+	parser_cluster.add_argument("--min_count", type=int, default=10,
+		help="Minimum counts in haplotype cluster to include (10)")
 	parser_cluster.add_argument("-t", "--threads", type=int, default=1,
 		help="Number of threads (1)")
 	parser_cluster.add_argument("-o", "--out", default="hapla.cluster",
@@ -53,8 +53,8 @@ def main():
 		help="Number of threads (1)")
 	parser_pca.add_argument("-o", "--out", default="hapla.pca",
 		help="Output prefix")
-	parser_pca.add_argument("--min_freq", type=float, default=0.01,
-		help="Minimum haplotype cluster frequencies to include (0.01)")
+	parser_pca.add_argument("--min_count", type=int, default=10,
+		help="Minimum counts in haplotype cluster to include (10)")
 	parser_pca.add_argument("--loadings", action="store_true",
 		help="Save loadings of SVD")
 	parser_pca.add_argument("--cov", action="store_true",
@@ -137,8 +137,8 @@ def main():
 		help="Output files")
 	parser_split.add_argument("--min_length", type=int, default=50,
 		help="Minimum number of SNPs in windows (50)")
-	parser_split.add_argument("--max_length", type=int, default=1000,
-		help="Maximum number of SNPs in windows (1000)")
+	parser_split.add_argument("--max_length", type=int, default=500,
+		help="Maximum number of SNPs in windows (500)")
 	parser_split.add_argument("--max_windows", type=int, default=5000,
 		help="Maximum number of windows allowed")
 	parser_split.add_argument("--threshold", type=float, default=0.1,

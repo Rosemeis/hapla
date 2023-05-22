@@ -88,6 +88,22 @@ cpdef void haplotypeTest(double[:,::1] Z_tilde, double[:,::1] P, double[::1] y_r
 
 
 ### hapla prs
+# Extract number of haplotype clusters per window
+cpdef void updateK(unsigned char[::1] K_vec, long[::1] W_vec):
+	cdef int W = K_vec.shape[0]
+	cdef int C = W_vec.shape[0]
+	cdef int c
+	cdef int w = 0
+	cdef int k = 0
+	for c in range(C):
+		if W_vec[c] > (w+1):
+			K_vec[w] = k 
+			w += 1
+			k = 1
+		else:
+			k += 1
+	K_vec[w] = k # Last window case
+		
 # Expand the haplotype cluster matrix
 cpdef void updateZ(unsigned char[:,::1] Z, unsigned char[:,::1] Z_tilde, \
 		unsigned char[::1] K_vec):
