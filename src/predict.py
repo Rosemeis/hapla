@@ -29,8 +29,8 @@ def main(args):
 	import numpy as np
 	from cyvcf2 import VCF
 	from math import ceil
-	from hapla import reader_cy
-	from hapla import shared_cy
+	from src import reader_cy
+	from src import shared_cy
 
 	### Load data into 1-bit matrix
 	print("\rLoading VCF/BCF file...", end="")
@@ -95,3 +95,8 @@ def main(args):
 	### Save output
 	np.save(f"{args.out}.z", Z_mat)
 	print(f"Saved predicted haplotype cluster assignments as {args.out}.z.npy")
+
+
+
+##### Main exception #####
+assert __name__ != "__main__", "Please use the 'hapla predict' command!"

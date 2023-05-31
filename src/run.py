@@ -157,7 +157,7 @@ def main():
 			parser_cluster.print_help()
 			sys.exit()
 		else:
-			from hapla import cluster
+			from src import cluster
 			cluster.main(args)
 	
 	# hapla pca
@@ -166,7 +166,7 @@ def main():
 			parser_pca.print_help()
 			sys.exit()
 		else:
-			from hapla import pca
+			from src import pca
 			pca.main(args)
 
 	# hapla regress
@@ -175,7 +175,7 @@ def main():
 			parser_regress.print_help()
 			sys.exit()
 		else:
-			from hapla import regress
+			from src import regress
 			regress.main(args)
 
 	# hapla prs
@@ -184,7 +184,7 @@ def main():
 			parser_prs.print_help()
 			sys.exit()
 		else:
-			from hapla import prs
+			from src import prs
 			prs.main(args)
 
 	# hapla predict
@@ -193,7 +193,7 @@ def main():
 			parser_predict.print_help()
 			sys.exit()
 		else:
-			from hapla import predict
+			from src import predict
 			predict.main(args)
 
 	# hapla split
@@ -202,7 +202,7 @@ def main():
 			parser_split.print_help()
 			sys.exit()
 		else:
-			from hapla import split
+			from src import split
 			split.main(args)
 
 

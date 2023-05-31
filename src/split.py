@@ -28,8 +28,8 @@ def main(args):
 	import numpy as np
 	from cyvcf2 import VCF
 	from math import ceil
-	from hapla import reader_cy
-	from hapla import shared_cy
+	from src import reader_cy
+	from src import shared_cy
 
 	### Load data into 1-bit matrix
 	print("\rLoading VCF/BCF file...", end="")
@@ -84,3 +84,7 @@ def main(args):
 	np.savetxt(f"{args.out}.windows", P[::-1], fmt="%i")
 	print(f"Saved optimal window indices in {args.out}.windows")
 
+
+
+##### Main exception #####
+assert __name__ != "__main__", "Please use the 'hapla split' command!"

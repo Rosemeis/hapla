@@ -27,7 +27,7 @@ def main(args):
 
 	# Import numerical libraries and cython functions
 	import numpy as np
-	from hapla import assoc_cy
+	from src import assoc_cy
 
 	### Load data
 	# Load haplotype cluster assignments (and concatentate across windows)

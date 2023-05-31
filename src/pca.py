@@ -27,7 +27,7 @@ def main(args):
 	# Import numerical libraries and cython functions
 	import numpy as np
 	from scipy.sparse.linalg import svds
-	from hapla import shared_cy
+	from src import shared_cy
 
 	# Load data (and concatentate across windows)
 	if args.filelist is not None:

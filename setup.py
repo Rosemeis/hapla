@@ -4,29 +4,29 @@ import numpy
 
 extensions = [
 	Extension(
-		"hapla.cluster_cy",
-		["hapla/cluster_cy.pyx"],
+		"src.cluster_cy",
+		["src/cluster_cy.pyx"],
 		extra_compile_args=['-fopenmp', '-O3', '-g0', '-Wno-unreachable-code'],
 		extra_link_args=['-fopenmp'],
 		include_dirs=[numpy.get_include()],
 		define_macros=[('NPY_NO_DEPRECATED_API', 'NPY_1_7_API_VERSION')]
 	), Extension(
-		"hapla.shared_cy",
-		["hapla/shared_cy.pyx"],
+		"src.shared_cy",
+		["src/shared_cy.pyx"],
 		extra_compile_args=['-fopenmp', '-O3', '-g0', '-Wno-unreachable-code'],
 		extra_link_args=['-fopenmp'],
 		include_dirs=[numpy.get_include()],
 		define_macros=[('NPY_NO_DEPRECATED_API', 'NPY_1_7_API_VERSION')]
 	), Extension(
-		"hapla.assoc_cy",
-		["hapla/assoc_cy.pyx"],
+		"src.assoc_cy",
+		["src/assoc_cy.pyx"],
 		extra_compile_args=['-fopenmp', '-O3', '-g0', '-Wno-unreachable-code'],
 		extra_link_args=['-fopenmp'],
 		include_dirs=[numpy.get_include()],
 		define_macros=[('NPY_NO_DEPRECATED_API', 'NPY_1_7_API_VERSION')]
 	), Extension(
-		"hapla.reader_cy",
-		["hapla/reader_cy.pyx"],
+		"src.reader_cy",
+		["src/reader_cy.pyx"],
 		extra_compile_args=['-fopenmp', '-O3', '-g0', '-Wno-unreachable-code'],
 		extra_link_args=['-fopenmp'],
 		include_dirs=[numpy.get_include()],
@@ -40,9 +40,9 @@ setup(
 	version="0.1",
 	description="Framework for haplotype clustering",
 	author="Jonas Meisner",
-	packages=["hapla"],
+	packages=["src"],
 	entry_points={
-		"console_scripts": ["hapla=hapla.run:main"]
+		"console_scripts": ["hapla=src.run:main"]
 	},
 	python_requires=">=3.6",
 	install_requires=[

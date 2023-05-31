@@ -32,7 +32,7 @@ def main(args):
 	import numpy as np
 	from math import sqrt
 	from scipy.stats import chi2
-	from hapla import assoc_cy
+	from src import assoc_cy
 
 	# Truncated SVD
 	def truncatedSVD(A):
@@ -273,4 +273,4 @@ def main(args):
 
 
 ##### Main exception #####
-assert __name__ != "__main__", "Please use the 'hapla assoc' command!"
+assert __name__ != "__main__", "Please use the 'hapla regress' command!"
