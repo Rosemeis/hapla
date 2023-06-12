@@ -155,7 +155,7 @@ cpdef void estimateC(float[:,::1] E, float[:,::1] C, int[:,::1] I, int w0, int t
 				cost = 0.0
 				for w in range(w0-1, min(W, m-j-1)):
 					cost = E[j,w] + C[k-1,j+w+1]
-					if cost <= C[k,j]:
+					if cost < C[k,j]:
 						C[k,j] = cost
 						I[k,j] = j+w+1
 

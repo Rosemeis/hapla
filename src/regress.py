@@ -69,14 +69,16 @@ def main(args):
 	# Load phenotype file (outcome)
 	y = np.loadtxt(args.pheno, dtype=float)
 	assert y.shape[0] == n, "Number of samples differ between files!"
-	print("Loaded phenotype file")
+	print("Loaded phenotype file.")
+	if args.save_pred:
+		y_ori = np.copy(y)
 
 	# Load covariates and add bias term
 	if args.covar is not None:
 		C = np.loadtxt(args.covar, dtype=np.float32)
 		assert C.shape[0] == n, "Number of samples differ between files!"
 		C = np.concatenate((np.ones((n, 1), dtype=np.float32), C), axis=1)
-		print("Loaded covariates file")
+		print("Loaded covariates file.")
 	else:
 		C = np.ones((n, 1), dtype=np.float32)
 
@@ -84,7 +86,7 @@ def main(args):
 	if args.eigen is not None:
 		E = np.loadtxt(args.eigen, dtype=np.float32)
 		assert E.shape[0] == n, "Number of samples differ between files!"
-		print("Loaded eigenvectors file")
+		print("Loaded eigenvectors file.")
 		C = np.concatenate((C, E), axis=1)
 		del E
 
@@ -206,7 +208,8 @@ def main(args):
 
 	# Optional save of whole-genome prediction
 	if args.save_pred:
-		np.savetxt(f"{args.out}.pred", y_hat, fmt="%.7f")
+		r2 = 1.0 - np.sum((y_hat - y_ori)**2)/np.sum((y_ori - np.mean(y_ori))**2)
+		np.savetxt(f"{args.out}.pred", y_hat, fmt="%.7f", header=f"R2={round(r2, 7)}")
 		print(f"Saved whole-genome prediction as {args.out}.pred")
 
 	### Association testing
@@ -240,24 +243,27 @@ def main(args):
 		if args.filelist is not None: # Extract LOCO prediction for block
 			if b == 0: # First chromosome
 				C_idx = 0
+				W_idx = 0
 				B_nxt = B_list[C_idx]
 				y_res = y_chr[0,:]
 				s_env = np.linalg.norm(y_res)/sqrt(n - R_c)
 			if b == B_nxt: # Next chromosome
 				C_idx += 1
+				W_idx = 0
 				B_nxt += B_list[C_idx]
 				y_res = y_chr[C_idx,:]
 				s_env = np.linalg.norm(y_res)/sqrt(n - R_c)
-			P[B_idx:(B_idx+B_num),0] = C_idx + 1 # Chromosome information
+			P[B_idx:(B_idx+B_num),0] = C_idx + 1 # Chromosome info
 		else: # Residualized phenotype without block effect
 			assoc_cy.residualY(L_mat, E_hat, y, y_hat, y_res, N_ind, b, args.ridge)
 			s_env = np.linalg.norm(y_res)/sqrt(n - R_c)
 
 		# Test haplotype clusters
-		assoc_cy.haplotypeTest(Z_tilde, P, y_res, B_arr[b], K_vec, s_env, B_idx)
-		P[B_idx:(B_idx+B_num),4] /= Z_scale # Rescale beta
-		P[B_idx:(B_idx+B_num),5] /= Z_scale # Rescale se(beta)
+		assoc_cy.haplotypeTest(Z_tilde, P, y_res, B_arr[b], K_vec, s_env, W_idx, B_idx)
+		P[B_idx:(B_idx+B_num),4] *= Z_scale # Rescale beta
+		P[B_idx:(B_idx+B_num),5] *= Z_scale # Rescale se(beta)
 		B_idx += B_num
+		W_idx += B_arr[b].shape[0]
 
 		# Free memory
 		del Z_tilde, Z_scale

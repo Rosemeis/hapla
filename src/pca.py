@@ -16,7 +16,7 @@ def main(args):
 	# Check input
 	assert (args.filelist is not None) or (args.clusters is not None), \
 		"No input data (--filelist or --clusters)!"
-	assert args.min_count > 0, "Empty haplotype clusters not allowed!"
+	assert args.min_freq > 0.0, "Empty haplotype clusters not allowed!"
 
 	# Control threads of external numerical libraries
 	os.environ["MKL_NUM_THREADS"] = str(args.threads)
@@ -57,8 +57,7 @@ def main(args):
 	del Z_mat
 
 	# Mask non-rare haplotype clusters
-	freq = args.min_count/float(n)
-	mask = (pi >= freq) & (pi <= (1 - freq))
+	mask = (pi >= args.min_freq) & (pi <= (1 - args.min_freq))
 	mask = mask.astype(np.uint8)
 	m_new = np.sum(mask)
 

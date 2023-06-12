@@ -65,7 +65,7 @@ cpdef void residualY(float[:,::1] B_mat, float[:,::1] E_hat, double[::1] y, \
 
 # Association testing of haplotype clusters
 cpdef void haplotypeTest(double[:,::1] Z_tilde, double[:,::1] P, double[::1] y_res, \
-		long[::1] B_arr, unsigned char[::1] K_vec, double s_env, int B):
+		long[::1] B_arr, unsigned char[::1] K_vec, double s_env, int W_chr, int B):
 	cdef int n = Z_tilde.shape[1]
 	cdef int W = B_arr.shape[0]
 	cdef int i, k, w
@@ -78,7 +78,7 @@ cpdef void haplotypeTest(double[:,::1] Z_tilde, double[:,::1] P, double[::1] y_r
 			for i in range(n):
 				gTg = gTg + Z_tilde[b,i]*Z_tilde[b,i]
 				gTy = gTy + Z_tilde[b,i]*y_res[i]
-			P[B+b,1] = B_arr[w]+1 # Window
+			P[B+b,1] = W_chr+w+1 # Window
 			P[B+b,2] = k+1 # Cluster
 			P[B+b,4] = gTy/gTg # Beta
 			P[B+b,6] = gTy/(s_env*sqrt(gTg)) # Wald's
@@ -89,20 +89,21 @@ cpdef void haplotypeTest(double[:,::1] Z_tilde, double[:,::1] P, double[::1] y_r
 
 ### hapla prs
 # Extract number of haplotype clusters per window
-cpdef void updateK(unsigned char[::1] K_vec, long[::1] W_vec):
+cpdef int updateK(unsigned char[::1] K_vec, long[::1] W_vec):
 	cdef int W = K_vec.shape[0]
 	cdef int C = W_vec.shape[0]
 	cdef int c
 	cdef int w = 0
-	cdef int k = 0
-	for c in range(C):
-		if W_vec[c] > (w+1):
+	cdef int k = 1
+	for c in range(1, C):
+		if W_vec[c] != W_vec[c-1]:
 			K_vec[w] = k 
 			w += 1
 			k = 1
 		else:
 			k += 1
 	K_vec[w] = k # Last window case
+	return w+1
 		
 # Expand the haplotype cluster matrix
 cpdef void updateZ(unsigned char[:,::1] Z, unsigned char[:,::1] Z_tilde, \
@@ -117,44 +118,3 @@ cpdef void updateZ(unsigned char[:,::1] Z, unsigned char[:,::1] Z_tilde, \
 				if Z[w,i] == k:
 					Z_tilde[j,i//2] += 1
 			j += 1
-
-# Clumping adjacent windows based on most significant haplotype cluster
-cpdef void clumpWindows(unsigned char[::1] mask, unsigned char[::1] maskW,
-		unsigned char[::1] K_vec, double[::1] p, int B):
-	cdef int W = maskW.shape[0]
-	cdef int b, i, k, w
-	cdef int j = 0
-	cdef double p_val
-	cdef double* p_min
-	p_min = <double*>PyMem_Malloc(sizeof(double)*W)
-	# Find minimum per window
-	for w in range(W):
-		p_val = 1.0
-		p_min[w] = 1.0
-		for k in range(K_vec[w]):
-			if p[j] < p_val:
-				p_min[w] = p[j]
-			j += 1
-	
-	# Clump B windows in running window
-	for w in range(W-1):
-		if maskW[w] == 0:
-			for b in range(w+1, min(w+B, W)):
-				if p_min[w] < p_min[b]:
-					maskW[b] = 1
-				else:
-					maskW[w] = 1
-					break
-	
-	# Mask haplotype clusters in masked windows
-	j = 0
-	for w in range(W):
-		if maskW[w] == 1:
-			for k in range(K_vec[w]):
-				mask[j] = 1
-				j += 1
-		else:
-			j += K_vec[w]
-	
-	# Deallocate
-	PyMem_Free(p_min)
