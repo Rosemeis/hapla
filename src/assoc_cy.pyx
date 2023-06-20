@@ -38,7 +38,7 @@ cpdef void haplotypeAssoc(unsigned char[:,::1] Z, double[:,::1] Z_tilde, \
 			b += 1
 
 # Setup LOCO prediction if multiple chromosomes are present
-cpdef void haplotypeLoco(float[:,::1] B_mat, float[:,::1] E_hat, double[:,::1] y_chr, \
+cpdef void haplotypeLOCO(float[:,::1] L_mat, float[:,::1] E_hat, double[:,::1] y_chr, \
 		double[::1] y, double[::1] y_hat, unsigned char[::1] N_ind, long[::1] B_list, \
 		int R):
 	cdef int C = y_chr.shape[0]
@@ -49,11 +49,11 @@ cpdef void haplotypeLoco(float[:,::1] B_mat, float[:,::1] E_hat, double[:,::1] y
 		for i in range(n):
 			y_chr[c,i] = y[i] - y_hat[i]
 			for b in range(B_blk*R, B_blk*R + B_list[c]*R):
-				y_chr[c,i] += B_mat[b,i]*E_hat[N_ind[i],b]
+				y_chr[c,i] += L_mat[b,i]*E_hat[N_ind[i],b]
 		B_blk += B_list[c]
 
 # Remove residualized effect of haplotype clusters in same block
-cpdef void residualY(float[:,::1] B_mat, float[:,::1] E_hat, double[::1] y, \
+cpdef void residualY(float[:,::1] L_mat, float[:,::1] E_hat, double[::1] y, \
 		double[::1] y_hat, double[::1] y_res, unsigned char[::1] N_ind, \
 		int b, int R):
 	cdef int n = y.shape[0]
@@ -61,7 +61,7 @@ cpdef void residualY(float[:,::1] B_mat, float[:,::1] E_hat, double[::1] y, \
 	for i in range(n):
 		y_res[i] = y[i] - y_hat[i]
 		for r in range(R):
-			y_res[i] += B_mat[b*R+r,i]*E_hat[N_ind[i],b*R+r]
+			y_res[i] += L_mat[b*R+r,i]*E_hat[N_ind[i],b*R+r]
 
 # Association testing of haplotype clusters
 cpdef void haplotypeTest(double[:,::1] Z_tilde, double[:,::1] P, double[::1] y_res, \

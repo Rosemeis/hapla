@@ -6,9 +6,9 @@ from libc.math cimport sqrt
 
 ##### hapla - analyses on haplotype cluster assignments #####
 ### hapla pca
-# Estimate haplotype cluster frequencies
-cpdef void haplotypeFreqs(unsigned char[:,::1] Z, double[:,::1] Z_tilde, \
-		unsigned char[::1] K_vec, double[::1] pi):
+# Extract aggregated haplotype cluster counts
+cpdef void haplotypeAggregate(unsigned char[:,::1] Z, unsigned char[:,::1] Z_tilde, \
+		double[::1] pi, double[::1] sd, unsigned char[::1] K_vec):
 	cdef int W = Z.shape[0]
 	cdef int n = Z.shape[1]
 	cdef int i, k, w
@@ -17,32 +17,17 @@ cpdef void haplotypeFreqs(unsigned char[:,::1] Z, double[:,::1] Z_tilde, \
 		for k in range(K_vec[w]):
 			for i in range(n):
 				if Z[w,i] == k:
-					pi[j] += 1.0
-					Z_tilde[j,i//2] += 1.0
+					Z_tilde[j,i//2] += 1
+					pi[j] += 1
 			pi[j] /= <double>n
-			j += 1
-
-# Expand the haplotype cluster matrix (only for projection)
-cpdef void updateZ(unsigned char[:,::1] Z, double[:,::1] Z_tilde, double[::1] pi, \
-		unsigned char[::1] K_vec, unsigned char[::1] mask):
-	cdef int W = Z.shape[0]
-	cdef int n = Z.shape[1]
-	cdef int i, k, w
-	cdef int c = 0
-	cdef int j = 0
-	for w in range(W):
-		for k in range(K_vec[w]):
-			if mask[j] == 1:
-				for i in range(n):
-					if Z[w,i] == k:
-						Z_tilde[c,i//2] += 1.0
-				for i in range(n//2):
-					Z_tilde[c,i] = (Z_tilde[c,i] - 2*pi[c])/sqrt(2*pi[c]*(1 - pi[c]))
-				c += 1
+			for i in range(n//2):
+				sd[j] += (<double>Z_tilde[j,i]-2*pi[j])*(<double>Z_tilde[j,i]-2*pi[j])
+			sd[j] = sqrt(sd[j]/(<double>(n//2)-1))
 			j += 1
 
 # Array filtering
-cpdef void filterZ(double[:,::1] Z_tilde, double[::1] pi, unsigned char[::1] mask):
+cpdef void filterZ(unsigned char[:,::1] Z_tilde, double[::1] pi, \
+		double[::1] sd, unsigned char[::1] mask):
 	cdef int m = Z_tilde.shape[0]
 	cdef int n = Z_tilde.shape[1]
 	cdef int c = 0
@@ -52,17 +37,31 @@ cpdef void filterZ(double[:,::1] Z_tilde, double[::1] pi, unsigned char[::1] mas
 			for i in range(n):
 				Z_tilde[c,i] = Z_tilde[j,i]
 			pi[c] = pi[j]
+			sd[c] = sd[j]
 			c += 1
 
-# Standardize the full haplotype cluster assignment matrix
-cpdef void standardizeZ(double[:,::1] Z_tilde, double[::1] pi, int t):
+# Standardize the batch haplotype cluster assignment matrix
+cpdef void batchZ(unsigned char[:,::1] Z_tilde, double[:,::1] Z_b, double[::1] pi, \
+		double[::1] sd, int m_b, int t):
+	cdef int m = Z_b.shape[0]
+	cdef int n = Z_b.shape[1]
+	cdef int i, j
+	with nogil:
+		for j in prange(m, num_threads=t):
+			for i in range(n):
+				Z_b[j,i] = (Z_tilde[m_b+j,i] - 2*pi[m_b+j])/sd[m_b+j]
+
+# Standardize full matrix
+cpdef void standardizeZ(unsigned char[:,::1] Z_tilde, double[:,::1] Z_std, \
+		double[::1] pi, double[::1] sd, int t):
 	cdef int m = Z_tilde.shape[0]
 	cdef int n = Z_tilde.shape[1]
 	cdef int i, j
 	with nogil:
 		for j in prange(m, num_threads=t):
 			for i in range(n):
-				Z_tilde[j,i] = (Z_tilde[j,i] - 2*pi[j])/sqrt(2*pi[j]*(1 - pi[j]))
+				Z_std[j,i] = (Z_tilde[j,i] - 2*pi[j])/sd[j]
+
 
 
 ### hapla split
@@ -99,7 +98,7 @@ cpdef void estimateL(unsigned char[:,::1] Gt, double[::1] F, double[::1] S, \
 					k = k + 1
 					if k == n:
 						break
-			S[j] = sqrt(S[j]/<double>n)
+			S[j] = sqrt(S[j]/(<double>n-1))
 		# Estimate squared correlations
 		for j in prange(m-1):
 			if j > (m - W):
@@ -166,6 +165,7 @@ cpdef void reconstructPath(int[:,::1] I, int[::1] P, int k):
 	for i in range(k, -1, -1):
 		j = I[i,j]
 		P[i] = j
+
 
 
 ### hapla predict

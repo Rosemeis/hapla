@@ -32,16 +32,8 @@ def main(args):
 	import numpy as np
 	from math import sqrt
 	from scipy.stats import chi2
+	from src import functions
 	from src import assoc_cy
-
-	# Truncated SVD
-	def truncatedSVD(A):
-		X = np.dot(A.T, A)
-		D, V = np.linalg.eigh(X)
-		D, V = D[D > 1e-6], V[:, D > 1e-6]
-		S = np.sqrt(D)
-		U = np.dot(A, V)/S
-		return U, S, V
 
 	### Load data
 	# Load haplotype cluster assignments (and concatentate across windows)
@@ -70,8 +62,6 @@ def main(args):
 	y = np.loadtxt(args.pheno, dtype=float)
 	assert y.shape[0] == n, "Number of samples differ between files!"
 	print("Loaded phenotype file.")
-	if args.save_pred:
-		y_ori = np.copy(y)
 
 	# Load covariates and add bias term
 	if args.covar is not None:
@@ -100,7 +90,7 @@ def main(args):
 	U_c, _, _ = truncatedSVD(C)
 	R_c = U_c.shape[1]
 	y -= np.dot(U_c, np.dot(U_c.T, y))
-	y /= (np.linalg.norm(y)/sqrt(n - R_c))
+	y /= np.linalg.norm(y)/sqrt(n - R_c)
 
 	### Level 0 - Ridge regression
 	# Setup haplotype cluster window blocks
@@ -136,31 +126,23 @@ def main(args):
 		Z_tilde = np.zeros((B_num, n), dtype=float)
 		assoc_cy.haplotypeExtract(Z_mat, Z_tilde, B_arr[b], K_vec)
 		Z_tilde -= np.dot(np.dot(Z_tilde, U_c), U_c.T)
-		Z_tilde /= (np.linalg.norm(Z_tilde, axis=1, keepdims=True)/sqrt(n - R_c))
+		Z_tilde /= np.linalg.norm(Z_tilde, axis=1, keepdims=True)/sqrt(n - R_c)
 
-		# K-fold validation scheme
+		# K-fold cross-validation scheme
 		for k in np.arange(args.folds):
-			# Split phenotype vector
-			N_train = np.sort(np.concatenate([
-				fold for i, fold in enumerate(N_split) if i != k
-			]))
-			y_train = y[N_train]
+			# Define folds
 			N_test = np.sort(N_split[k])
-			y_test = y[N_test]
-
-			# Split haplotype clusters
-			Z_train = Z_tilde[:, N_train]
-			Z_test = Z_tilde[:, N_test]
+			N_train = np.setdiff1d(np.arange(n), N_test)
 
 			# Ridge regressors
-			U, S, V = truncatedSVD(Z_train.T)
-			UtY = np.dot(U.T, y_train)
+			U, S, V = truncatedSVD(Z_tilde[:, N_train].T)
+			UtY = np.dot(U.T, y[N_train])
 			for r in np.arange(args.ridge):
-				f = S/(S*S + lmbda[r])
-				L_mat[b*args.ridge + r, N_test] = np.dot(Z_test.T, np.dot(V*f, UtY))
+				L_mat[b*args.ridge + r, N_test] = np.dot(Z_tilde[:, N_test].T, \
+					np.dot(V*(S/(S*S + lmbda[r])), UtY))
 			
 			# Free memory
-			del Z_train, Z_test, U, S, V, UtY, f
+			del U, S, V, UtY
 		del Z_tilde
 	print("")
 	
@@ -176,39 +158,30 @@ def main(args):
 	lmbda = L_mat.shape[0]*((1.0 - h2)/h2) # Lambda scaling in ridge regression 2
 	for k in np.arange(args.folds):
 		print(f"\rLevel 1 - Fold {k+1}/{args.folds}", end="")
-		
-		# Split phenotype vector
-		N_train = np.sort(np.concatenate([
-			fold for i, fold in enumerate(N_split) if i != k
-		]))
-		y_train = y[N_train]
 		N_test = np.sort(N_split[k])
-		y_test = y[N_test]
-
-		# Split window predictions
-		L_train = np.ascontiguousarray(L_mat[:, N_train].T)
-		L_test = np.ascontiguousarray(L_mat[:, N_test].T)
+		N_train = np.setdiff1d(np.arange(n), N_test)
 
 		# Ridge regressors
-		U, S, V = truncatedSVD(L_train)
-		UtY = np.dot(U.T, y_train)
+		U, S, V = truncatedSVD(L_mat[:, N_train].T)
+		UtY = np.dot(U.T, y[N_train])
 		for r in np.arange(args.ridge):
-			f = S/(S*S + lmbda[r])
-			E_mat[k,r,:] = np.dot(V*f, UtY)
-			y_prs[r, N_test] = np.dot(L_test, E_mat[k,r,:])
-			y_mse[r] += ((np.linalg.norm(y_test - y_prs[r, N_test]))**2)/n
+			E_mat[k,r,:] = np.dot(V*(S/(S*S + lmbda[r])), UtY)
+			y_prs[r, N_test] = np.dot(L_mat[:, N_test].T, E_mat[k,r,:])
+			y_mse[r] += (np.linalg.norm(y[N_test] - y_prs[r, N_test]))**2
 		N_ind[N_test] = k
 		
 		# Free memory
-		del L_train, L_test, U, S, V, UtY, f
-	y_hat = np.copy(y_prs[np.argmin(y_mse),:])
-	E_hat = np.copy(E_mat[:,np.argmin(y_mse),:])
+		del U, S, V, UtY
+	y_mse /= float(n)
+	h2_opt = np.argmin(y_mse)
+	print(f"\nOptimal h2 from CV: {h2[h2_opt]}, MSE={y_mse[h2_opt]}")
+	y_hat = np.copy(y_prs[h2_opt,:])
+	E_hat = np.copy(E_mat[:,h2_opt,:])
 	del y_mse, y_prs, E_mat
-	print("")
 
 	# Optional save of whole-genome prediction
 	if args.save_pred:
-		r2 = 1.0 - np.sum((y_hat - y_ori)**2)/np.sum((y_ori - np.mean(y_ori))**2)
+		r2 = 1.0 - np.sum((y_hat - y)**2)/np.sum((y - np.mean(y))**2)
 		np.savetxt(f"{args.out}.pred", y_hat, fmt="%.7f", header=f"R2={round(r2, 7)}")
 		print(f"Saved whole-genome prediction as {args.out}.pred")
 
@@ -218,8 +191,7 @@ def main(args):
 	# Create LOCO predictions if multiple chromosomes provided
 	if args.filelist is not None:
 		y_chr = np.zeros((N_chr, n), dtype=float)
-		assoc_cy.haplotypeLoco(L_mat, E_hat, y_chr, y, y_hat, N_ind, B_list, \
-			args.ridge)
+		assoc_cy.haplotypeLOCO(L_mat, E_hat, y_chr, y, y_hat, N_ind, B_list, args.ridge)
 		if args.save_loco:
 			np.savetxt(f"{args.out}.loco", y_chr.T, fmt="%.7f")
 			print(f"Saved {N_chr} LOCO predictions as {args.out}.loco")

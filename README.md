@@ -4,28 +4,11 @@
 ### Citation
 Please cite our preprint on *BioRxiv*: Work in progress
 
-### Dependencies
-The ***hapla*** software relies on the following Python libaries that you can install using *conda* or *pip*:
-
-- cython
-- cyvcf2
-- numpy
-- scipy
-
-You can create an environment with *conda* or install libraries with *pip* as follows:
-```
-# conda
-conda env create -f environment.yml
-
-# pip
-pip3 install -r requirements.txt
-```
-
 ## Install and build
 ```bash
 git clone https://github.com/Rosemeis/hapla.git
 cd hapla
-python3 setup.py build_ext --inplace; pip3 install -e .
+pip3 install .
 
 # The "hapla" main caller will now be available
 ```
@@ -35,7 +18,6 @@ A detailed tutorial on how to use all features in ***hapla*** with a toy dataset
 
 ## Quick start
 ***hapla*** contains the following subcommands:
-
 - cluster
 - pca
 - regress
@@ -47,11 +29,11 @@ A detailed tutorial on how to use all features in ***hapla*** with a toy dataset
 
 Haplotype clustering is performed on a phased VCF/BCF.
 ```bash
-# Cluster haplotypes in a chromosome with default window size (100 SNPs)
+# Cluster haplotypes in a chromosome with default window size (500 SNPs)
 hapla cluster --bcf file.chr1.bcf --threads 20 --out hapla.chr1
 # Saves clustering in a binary NumPy file ("hapla.z.npy")
 
-# Cluster haplotypes in all chromosomes and save output in a filelist
+# Cluster haplotypes in all chromosomes and save output path in a filelist
 for c in {1..22}
 do
 	hapla cluster --bcf file.chr${c}.bcf --threads 20 --out hapla.chr${c}
@@ -60,7 +42,6 @@ done
 ```
 
 **hapla pca** (Population structure inference)
-
 PCA is performed on the output from the haplotype clustering.
 ```bash
 # Perform PCA on all chromosomes (genome-wide)
@@ -73,8 +54,7 @@ hapla pca --clusters hapla.chr1.z.npy --threads 20 --out hapla.chr1
 ```
 
 **hapla regress** (Whole-genome regression and association testing)
-
-The association testing in *hapla* is based on the *regenie* software, however it is haplotype cluster-based instead of SNP-based. The eigenvectors from the PCA are directly used as input to correct for population structure. Additional covariates can be provided as a simple text file only containing values (one line per individual). The provided phenotype file is expected to be a single column text file of values (one line per individual). Both files with covariates and phenotypes should have no header and no extra columns of unnessecary information, such that the ordering of individuals is expected to follow the VCF/BCF file used in the haplotype clustering.
+The polygenic prediction and association testing in *hapla* are based on the *REGENIE* software, however it is haplotype cluster-based instead of SNP-based. The eigenvectors from the PCA are directly used as input to correct for population structure. Additional covariates can be provided as a simple text file only containing values (one line per individual). The provided phenotype file is expected to be a single column text file of values (one line per individual). Both files with covariates and phenotypes should have no header and no extra columns of unnessecary information, such that the ordering of individuals is expected to follow the VCF/BCF file used in the haplotype clustering.
 ```bash
 hapla regress --filelist hapla.filelist --eigen hapla.eigenvec --pheno trait.pheno --threads 20 --out hapla.trait
 # Saves association tests of haplotype clusters in text-format ("hapla.trait.assoc)
@@ -99,10 +79,9 @@ done
 ```
 
 **hapla prs** (Polygenic risk score estimation using summary statistics)
-
 Polygenic risk scores are estimated using the haplotype clustering and summary statistics of genome-wide association testing from a reference dataset.
 ```bash
-hapla prs --filelist target.filelist --assoc reference.trait.assoc --threads 20 --out target.trait
+hapla prs --filelist target.filelist --regress reference.trait.assoc --threads 20 --out target.trait
 # Saves polygenic risk scores in text-format ("target.trait.sumstats.prs")
 ```
 

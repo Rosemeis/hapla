@@ -16,12 +16,12 @@ def main():
 	parser_cluster = subparsers.add_parser("cluster")
 	parser_cluster.add_argument("-g", "--vcf", "--bcf", metavar="FILE",
 		help="Input phased genotype file in VCF/BCF format")
-	parser_cluster.add_argument("-f", "--fixed", type=int, default=100,
-		metavar="INT", help="Use fixed window length (100)")
+	parser_cluster.add_argument("-f", "--fixed", type=int, default=500,
+		metavar="INT", help="Use fixed window length (500)")
 	parser_cluster.add_argument("-w", "--windows",
 		metavar="FILE", help="Use provided window lengths")
-	parser_cluster.add_argument("-l", "--lmbda", type=float, default=0.125,
-		metavar="FLOAT", help="Set lambda hyperparameter (0.125)")
+	parser_cluster.add_argument("-l", "--lmbda", type=float, default=0.166,
+		metavar="FLOAT", help="Set lambda hyperparameter (0.166)")
 	parser_cluster.add_argument("-m", "--max_clusters", type=int, default=40,
 		metavar="INT", help="Maximum number of haplotype clusters per window (40)")
 	parser_cluster.add_argument("-e", "--max_iterations", type=int, default=100,
@@ -55,16 +55,14 @@ def main():
 		metavar="OUTPUT", help="Output prefix")
 	parser_pca.add_argument("--min_freq", type=float, default=0.01,
 		metavar="FLOAT", help="Haplotype cluster frequency threshold (0.01)")
-	parser_pca.add_argument("--project_filelist", metavar="FILE",
-		help="Filelist with paths to multiple chromosomes for projection")
-	parser_pca.add_argument("--project", metavar="FILE",
-		help="Path to a single haplotype cluster assignment file for projection")
-	parser_pca.add_argument("--project_out",
-		metavar="OUTPUT", help="Output prefix for projected samples")
 	parser_pca.add_argument("--loadings", action="store_true",
 		help="Save loadings of SVD")
-	parser_pca.add_argument("--cov", action="store_true",
-		help="Estimate covariance matrix instead of SVD (not recommended)")
+	parser_pca.add_argument("--randomized", action="store_true",
+		help="Use randomized SVD (use for very large data)")
+	parser_pca.add_argument("--grm", action="store_true",
+		help="Estimate genome-wide relationship matrix (only small data)")
+	parser_pca.add_argument("--batch", type=int, default=1000,
+		metavar="INT", help="Number of clusters in batch SVD")
 
 	# hapla regress
 	parser_regress = subparsers.add_parser("regress")
@@ -86,8 +84,8 @@ def main():
 		metavar="OUTPUT", help="Output prefix")
 	parser_regress.add_argument("--block", type=int, default=100,
 		metavar="INT", help="Number of haplotype cluster windows in a block (100)")
-	parser_regress.add_argument("--folds", type=int, default=5,
-		metavar="INT", help="Number of folds for cross validations (5)")
+	parser_regress.add_argument("--folds", type=int, default=10,
+		metavar="INT", help="Number of folds for cross validations (10)")
 	parser_regress.add_argument("--ridge", type=int, default=5,
 		metavar="INT", help="Number of ridge regressors in each level (5)")
 	parser_regress.add_argument("--save_pred", action="store_true",
@@ -116,8 +114,8 @@ def main():
 		help="Input phased genotype file in VCF/BCF format")
 	parser_predict.add_argument("-m", "--medians", metavar="FILE",
 		help="Input haplotype cluster medians as binary NumPy array")
-	parser_predict.add_argument("-f", "--fixed", type=int, default=100,
-		metavar="INT", help="Use fixed window length (100)")
+	parser_predict.add_argument("-f", "--fixed", type=int, default=500,
+		metavar="INT", help="Use fixed window length (500)")
 	parser_predict.add_argument("-w", "--windows", metavar="FILE",
 		help="Use provided window lengths")
 	parser_predict.add_argument("-t", "--threads", type=int, default=1,
@@ -135,14 +133,14 @@ def main():
 		metavar="INT", help="Number of threads (1)")
 	parser_split.add_argument("-o", "--out", default="hapla.split",
 		metavar="OUTPUT", help="Output files")
-	parser_split.add_argument("--min_length", type=int, default=50,
-		metavar="INT", help="Minimum number of SNPs in windows (50)")
+	parser_split.add_argument("--min_length", type=int, default=100,
+		metavar="INT", help="Minimum number of SNPs in windows (100)")
 	parser_split.add_argument("--max_length", type=int, default=1000,
 		metavar="INT", help="Maximum number of SNPs in windows (1000)")
 	parser_split.add_argument("--max_windows", type=int, default=5000,
 		metavar="INT", help="Maximum number of windows allowed")
-	parser_split.add_argument("--threshold", type=float, default=0.2,
-		metavar="FLOAT", help="Lower bound for r^2 in window creation (0.2)")
+	parser_split.add_argument("--threshold", type=float, default=0.1,
+		metavar="FLOAT", help="Lower bound for r^2 in window creation (0.1)")
 
 	# Parse arguments
 	args = parser.parse_args()

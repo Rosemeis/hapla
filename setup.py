@@ -47,9 +47,9 @@ setup(
 	python_requires=">=3.6",
 	install_requires=[
 		"cython",
+		"cyvcf2",
 		"numpy",
-		"scipy",
-		"cyvcf2"
+		"scipy"
 	],
 	ext_modules=cythonize(extensions, compiler_directives={'language_level':'3'}),
 	include_dirs=[numpy.get_include()]
