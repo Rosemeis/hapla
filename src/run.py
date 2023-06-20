@@ -16,12 +16,12 @@ def main():
 	parser_cluster = subparsers.add_parser("cluster")
 	parser_cluster.add_argument("-g", "--vcf", "--bcf", metavar="FILE",
 		help="Input phased genotype file in VCF/BCF format")
-	parser_cluster.add_argument("-f", "--fixed", type=int, default=500,
-		metavar="INT", help="Use fixed window length (500)")
+	parser_cluster.add_argument("-f", "--fixed", type=int, default=256,
+		metavar="INT", help="Use fixed window length (256)")
 	parser_cluster.add_argument("-w", "--windows",
 		metavar="FILE", help="Use provided window lengths")
-	parser_cluster.add_argument("-l", "--lmbda", type=float, default=0.166,
-		metavar="FLOAT", help="Set lambda hyperparameter (0.166)")
+	parser_cluster.add_argument("-l", "--lmbda", type=float, default=0.25,
+		metavar="FLOAT", help="Set lambda hyperparameter (0.25)")
 	parser_cluster.add_argument("-m", "--max_clusters", type=int, default=40,
 		metavar="INT", help="Maximum number of haplotype clusters per window (40)")
 	parser_cluster.add_argument("-e", "--max_iterations", type=int, default=100,

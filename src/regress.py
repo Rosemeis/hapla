@@ -87,7 +87,7 @@ def main(args):
 	N_split = np.array_split(np.random.permutation(n), args.folds) # K-fold splits
 
 	### Residualize and scale phenotypes by covariates
-	U_c, _, _ = truncatedSVD(C)
+	U_c, _, _ = functions.truncatedSVD(C)
 	R_c = U_c.shape[1]
 	y -= np.dot(U_c, np.dot(U_c.T, y))
 	y /= np.linalg.norm(y)/sqrt(n - R_c)
@@ -135,7 +135,7 @@ def main(args):
 			N_train = np.setdiff1d(np.arange(n), N_test)
 
 			# Ridge regressors
-			U, S, V = truncatedSVD(Z_tilde[:, N_train].T)
+			U, S, V = functions.truncatedSVD(Z_tilde[:, N_train].T)
 			UtY = np.dot(U.T, y[N_train])
 			for r in np.arange(args.ridge):
 				L_mat[b*args.ridge + r, N_test] = np.dot(Z_tilde[:, N_test].T, \
@@ -162,7 +162,7 @@ def main(args):
 		N_train = np.setdiff1d(np.arange(n), N_test)
 
 		# Ridge regressors
-		U, S, V = truncatedSVD(L_mat[:, N_train].T)
+		U, S, V = functions.truncatedSVD(L_mat[:, N_train].T)
 		UtY = np.dot(U.T, y[N_train])
 		for r in np.arange(args.ridge):
 			E_mat[k,r,:] = np.dot(V*(S/(S*S + lmbda[r])), UtY)

@@ -3,7 +3,7 @@ Generate continuous phenotypes for simulated data.
 Sample causal effect sizes.
 
 Usage:
-python3 generatePheno.py --bcf file.bcf --causal 10 --seed 1 --threads 16 \
+python3 generatePheno.py --bcf file.bcf --causal 100 --seed 1 --threads 16 \
 	--out output.prefix
 """
 
@@ -21,8 +21,6 @@ parser.add_argument("-f", "--filelist",
 	help="Filelist with paths to haplotype cluster files")
 parser.add_argument("-z", "--clusters",
 	help="Path to a single haplotype cluster assignment file")
-parser.add_argument("-k", "--num_clusters",
-	help="Path to either single path or filelist of haplotype cluster counts")
 parser.add_argument("-c", "--causal", type=int, default=100,
 	help="Number of causal SNPs (100)")
 parser.add_argument("-e", "--h2", type=int, default=5,
@@ -44,8 +42,6 @@ args = parser.parse_args()
 # Check input
 if (args.filelist is None) and (args.clusters is None):
 	assert (args.vcf is not None), "Please provide genotype file (--bcf or --vcf)!"
-else:
-	assert (args.num_clusters is not None), "Please provide info (--num_clusters)!"
 if args.save_regenie:
 	assert args.vcf is not None, "VCF/BCF file is needed for sample list!"
 
@@ -86,22 +82,14 @@ if (args.clusters is not None) or (args.filelist is not None):
 				file_c += 1
 		Z_mat = np.concatenate(Z_list, axis=0)
 		del Z_list
-
-		# Files with number of clusters
-		K_list = []
-		with open(args.num_clusters) as f:
-			file_c = 1
-			for chr in f:
-				K_list.append(np.loadtxt(chr.strip("\n"), dtype=np.uint8))
-				file_c += 1
-		K_vec = np.concatenate(K_list, dtype=np.uint8)
-		del K_list
 	else:
 		Z_mat = np.load(args.clusters)
-		K_vec = np.loadtxt(args.num_clusters, dtype=np.uint8)
 	print("\rLoaded haplotype cluster assignments of " + \
 		f"{Z_mat.shape[1]} haplotypes in {Z_mat.shape[0]} windows.")
 	n = Z_mat.shape[1]//2
+
+	# Estimate total number of haplotype cluster assignments
+	K_vec = np.max(Z_mat, axis=1) + 1
 	m = np.sum(K_vec)
 
 ### Causal betas and sampling
