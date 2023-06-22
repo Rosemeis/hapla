@@ -59,7 +59,8 @@ def main(args):
 	del Z_mat
 
 	# Mask non-rare haplotype clusters
-	mask = (pi >= args.min_freq) & (pi <= (1 - args.min_freq))
+	freq = args.min_count/float(2*n)
+	mask = (pi >= freq) & (pi <= (1 - freq))
 	mask = mask.astype(np.uint8)
 	m = np.sum(mask)
 

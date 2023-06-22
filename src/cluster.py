@@ -154,12 +154,11 @@ def main(args):
 
 		# Remove small haplotype clusters and try to rescue as many as possible
 		if K > 2:
-			N_thr = int(n*args.min_freq)
-			N_sur = max(2, np.sum(N_vec > N_thr)) # Surviving clusters
+			N_sur = max(2, np.sum(N_vec >= args.min_count)) # Surviving clusters
 			N_tmp = N_sur
 			K_rem = K - N_sur
 			for k in np.arange(K_rem):
-				cluster_cy.findZero(N_vec, n, N_thr, K) # Smallest cluster
+				cluster_cy.findZero(N_vec, n, args.min_count, K) # Smallest cluster
 				cluster_cy.clusterAssignment(X, M, C, Z_mat, c_vec, N_vec, K, w, \
 					args.threads)
 				cluster_cy.countN(Z_mat, N_vec, K, w)

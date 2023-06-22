@@ -22,12 +22,12 @@ def main():
 		metavar="FILE", help="Use provided window lengths")
 	parser_cluster.add_argument("-l", "--lmbda", type=float, default=0.25,
 		metavar="FLOAT", help="Set lambda hyperparameter (0.25)")
-	parser_cluster.add_argument("-m", "--max_clusters", type=int, default=40,
-		metavar="INT", help="Maximum number of haplotype clusters per window (40)")
+	parser_cluster.add_argument("-m", "--max_clusters", type=int, default=20,
+		metavar="INT", help="Maximum number of haplotype clusters per window (20)")
 	parser_cluster.add_argument("-e", "--max_iterations", type=int, default=100,
 		metavar="INT", help="Maximum number of iterations (100)")
-	parser_cluster.add_argument("--min_freq", type=float, default=0.01,
-		metavar="FLOAT", help="Haplotype cluster frequency threshold (0.01)")
+	parser_cluster.add_argument("--min_count", type=int, default=10,
+		metavar="INT", help="Minimum count for haplotype cluster (10)")
 	parser_cluster.add_argument("-t", "--threads", type=int, default=1,
 		metavar="INT", help="Number of threads (1)")
 	parser_cluster.add_argument("-o", "--out", default="hapla.cluster",
@@ -53,8 +53,8 @@ def main():
 		metavar="INT", help="Number of threads (1)")
 	parser_pca.add_argument("-o", "--out", default="hapla.pca",
 		metavar="OUTPUT", help="Output prefix")
-	parser_pca.add_argument("--min_freq", type=float, default=0.01,
-		metavar="FLOAT", help="Haplotype cluster frequency threshold (0.01)")
+	parser_pca.add_argument("--min_count", type=float, default=10,
+		metavar="INT", help="Minimum count for haplotype cluster (10)")
 	parser_pca.add_argument("--loadings", action="store_true",
 		help="Save loadings of SVD")
 	parser_pca.add_argument("--randomized", action="store_true",

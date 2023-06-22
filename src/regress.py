@@ -117,7 +117,7 @@ def main(args):
 	L_mat = np.zeros((B*args.ridge, n), dtype=np.float32) # Local predictors
 
 	# Ridge regression in blocks (local predictors)
-	lmbda = np.sum(K_vec)*((1.0 - h2)/h2) # Lambda scaling in ridge regression 1
+	lmbda = W*(1.0 - h2)/h2 # Lambda scaling in ridge regression 1
 	for b in np.arange(B):
 		print(f"\rLevel 0 - Block {b+1}/{B}", end="")
 		B_num = np.sum(K_vec[B_arr[b]], dtype=int)
@@ -155,7 +155,7 @@ def main(args):
 	y_mse = np.zeros(args.ridge, dtype=float) # Cross validation phenotype MSE
 	y_prs = np.zeros((args.ridge, n), dtype=float) # Phenotype prediction
 	N_ind = np.zeros(n, dtype=np.uint8) # Index vector for K-fold information
-	lmbda = L_mat.shape[0]*((1.0 - h2)/h2) # Lambda scaling in ridge regression 2
+	lmbda = L_mat.shape[0]*(1.0 - h2)/h2 # Lambda scaling in ridge regression 2
 	for k in np.arange(args.folds):
 		print(f"\rLevel 1 - Fold {k+1}/{args.folds}", end="")
 		N_test = np.sort(N_split[k])
