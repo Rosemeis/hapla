@@ -38,8 +38,11 @@ def randomizedSVD(Z_tilde, pi, sd, K, B, threads):
 
 ### hapla regress
 # Truncated SVD
-def truncatedSVD(A):
-	X = np.dot(A.T, A)
+def truncatedSVD(A, transpose=False):
+	if transpose:
+		X = np.dot(A, A.T)
+	else:
+		X = np.dot(A.T, A)
 	D, V = np.linalg.eigh(X)
 	D, V = D[D > 1e-6], V[:, D > 1e-6]
 	S = np.sqrt(D)

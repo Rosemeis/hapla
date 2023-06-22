@@ -135,7 +135,7 @@ def main(args):
 			N_train = np.setdiff1d(np.arange(n), N_test)
 
 			# Ridge regressors
-			U, S, V = functions.truncatedSVD(Z_tilde[:, N_train].T)
+			U, S, V = functions.truncatedSVD(Z_tilde[:, N_train], transpose=True)
 			UtY = np.dot(U.T, y[N_train])
 			for r in np.arange(args.ridge):
 				L_mat[b*args.ridge + r, N_test] = np.dot(Z_tilde[:, N_test].T, \
@@ -162,7 +162,7 @@ def main(args):
 		N_train = np.setdiff1d(np.arange(n), N_test)
 
 		# Ridge regressors
-		U, S, V = functions.truncatedSVD(L_mat[:, N_train].T)
+		U, S, V = functions.truncatedSVD(L_mat[:, N_train], transpose=True)
 		UtY = np.dot(U.T, y[N_train])
 		for r in np.arange(args.ridge):
 			E_mat[k,r,:] = np.dot(V*(S/(S*S + lmbda[r])), UtY)

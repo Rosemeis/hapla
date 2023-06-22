@@ -16,7 +16,7 @@ def main(args):
 	# Check input
 	assert args.vcf is not None, \
 		"Please provide phased genotype file (--bcf or --vcf)!"
-	assert args.min_freq > 0.0, "Empty haplotype clusters not allowed!"
+	assert args.min_count > 1, "Empty haplotype clusters not allowed!"
 
 	# Control threads of external numerical libraries
 	os.environ["MKL_NUM_THREADS"] = str(args.threads)

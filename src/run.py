@@ -22,8 +22,8 @@ def main():
 		metavar="FILE", help="Use provided window lengths")
 	parser_cluster.add_argument("-l", "--lmbda", type=float, default=0.25,
 		metavar="FLOAT", help="Set lambda hyperparameter (0.25)")
-	parser_cluster.add_argument("-m", "--max_clusters", type=int, default=20,
-		metavar="INT", help="Maximum number of haplotype clusters per window (20)")
+	parser_cluster.add_argument("-m", "--max_clusters", type=int, default=32,
+		metavar="INT", help="Maximum number of haplotype clusters per window (32)")
 	parser_cluster.add_argument("-e", "--max_iterations", type=int, default=100,
 		metavar="INT", help="Maximum number of iterations (100)")
 	parser_cluster.add_argument("--min_count", type=int, default=10,
