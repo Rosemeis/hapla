@@ -1,20 +1,20 @@
 """
 hapla.
-Perform association tests using haplotype cluster assignments.
-Using whole-genome regression approach from REGENIE.
+Perform whole-genome regression using haplotype cluster alleles.
 """
 
 __author__ = "Jonas Meisner"
 
 ##### hapla regress #####
 def main(args):
-	print("hapla regress by Jonas Meisner (v0.1)")
-	print(f"Using {args.threads} thread(s).")
+	print("hapla by Jonas Meisner (v0.2)")
+	print(f"hapla regress using {args.threads} thread(s).")
 
 	# Check input
 	assert (args.filelist is not None) or (args.clusters is not None), \
-		"No input data (--filelist or --clusters)"
+		"No input data provided!"
 	assert args.pheno is not None, "No phenotype file provided!"
+	assert args.block is not None, "Need to provide number of windows in a block!"
 	assert args.ridge >= 3, "Need at least 3 ridge regressors!"
 	if args.eigen is None:
 		print("WARNING: Eigenvectors (PCs) have not been provided!")
@@ -31,12 +31,11 @@ def main(args):
 	# Import numerical libraries and cython functions
 	import numpy as np
 	from math import sqrt
-	from scipy.stats import chi2
 	from src import functions
 	from src import assoc_cy
 
 	### Load data
-	# Load haplotype cluster assignments (and concatentate across windows)
+	# Load haplotype cluster alleles (and concatentate across windows)
 	if args.filelist is not None:
 		Z_list = []
 		C_list = []
@@ -53,7 +52,7 @@ def main(args):
 		del Z_list
 	else:
 		Z_mat = np.load(args.clusters)
-	print("\rLoaded haplotype cluster assignments of " + \
+	print("\rLoaded haplotype cluster alleles of " + \
 		f"{Z_mat.shape[1]} haplotypes in {Z_mat.shape[0]} windows.")
 	W = Z_mat.shape[0]
 	n = Z_mat.shape[1]//2
@@ -65,33 +64,37 @@ def main(args):
 
 	# Load covariates and add bias term
 	if args.covar is not None:
-		C = np.loadtxt(args.covar, dtype=np.float32)
+		C = np.loadtxt(args.covar, dtype=float)
 		assert C.shape[0] == n, "Number of samples differ between files!"
-		C = np.concatenate((np.ones((n, 1), dtype=np.float32), C), axis=1)
+		C = np.concatenate((np.ones((n, 1), dtype=float), C), axis=1)
 		print("Loaded covariates file.")
 	else:
-		C = np.ones((n, 1), dtype=np.float32)
+		C = np.ones((n, 1), dtype=float)
 
 	# Load eigenvectors
 	if args.eigen is not None:
-		E = np.loadtxt(args.eigen, dtype=np.float32)
+		E = np.loadtxt(args.eigen, dtype=float)
 		assert E.shape[0] == n, "Number of samples differ between files!"
 		print("Loaded eigenvectors file.")
 		C = np.concatenate((C, E), axis=1)
 		del E
+	assert C.shape[1] < n, "Number of covariates exceed indviduals!"
 
 	# Setup parameters and containers for estimation
-	np.random.seed(args.seed) # Set random seed
-	h2 = np.clip(np.linspace(0.0, 1.0, args.ridge), 0.01, 0.99) # Heritability
+	if args.folds > 0: # K-fold splits
+		np.random.seed(args.seed) # Set random seed
+		N_split = np.array_split(np.random.permutation(n), args.folds)
+	h2 = np.clip(np.linspace(0.0, 1.0, args.ridge), 0.01, 0.99) # h^2_g
 	K_vec = np.max(Z_mat, axis=1) + 1 # Number of haplotype clusters in windows
-	N_split = np.array_split(np.random.permutation(n), args.folds) # K-fold splits
 
 	### Residualize and scale phenotypes by covariates
-	U_c, _, _ = functions.truncatedSVD(C)
+	U_c, _, _ = functions.fastSVD(C)
 	R_c = U_c.shape[1]
 	y -= np.dot(U_c, np.dot(U_c.T, y))
 	y /= np.linalg.norm(y)/sqrt(n - R_c)
 
+
+	##### Step 1 - Whole-genome regression #####
 	### Level 0 - Ridge regression
 	# Setup haplotype cluster window blocks
 	if args.block > 1:
@@ -101,152 +104,196 @@ def main(args):
 			for c in range(N_chr):
 				B_chr = np.split(np.arange(args.block*(C_list[c]//args.block)) + \
 					C_sum, C_list[c]//args.block)
-				B_chr[-1] = np.concatenate((B_chr[-1], np.arange(\
-					args.block*(C_list[c]//args.block), C_list[c]) + C_sum))
+				B_chr[-1] = np.concatenate((B_chr[-1], \
+					np.arange(args.block*(C_list[c]//args.block), C_list[c]) + C_sum))
 				B_arr += B_chr
 				C_sum += C_list[c]
 				B_list[c] = len(B_chr)
 			del B_chr
 		else: # Only one chromosome
 			B_arr = np.split(np.arange(args.block*(W//args.block)), W//args.block)
-			B_arr[-1] = np.concatenate((B_arr[-1], np.arange(\
-				args.block*(W//args.block), W)))
+			B_arr[-1] = np.concatenate((B_arr[-1], \
+				np.arange(args.block*(W//args.block), W)))
 	else: # One window per block
 		B_arr = np.split(np.arange(W), W)
 	B = len(B_arr) # Number of window blocks
-	L_mat = np.zeros((B*args.ridge, n), dtype=np.float32) # Local predictors
 
-	# Ridge regression in blocks (local predictors)
-	lmbda = W*(1.0 - h2)/h2 # Lambda scaling in ridge regression 1
+	# Regression in blocks (local predictors)
+	if args.linreg:
+		r0 = 1
+	else:
+		r0 = args.ridge
+		lmbda = np.sum(K_vec)*(1.0 - h2)/h2 # Lambda scaling (level 0)
+	L = np.zeros((B*r0, n), dtype=float) # Local predictors
 	for b in np.arange(B):
 		print(f"\rLevel 0 - Block {b+1}/{B}", end="")
-		B_num = np.sum(K_vec[B_arr[b]], dtype=int)
+		B_num = np.sum(K_vec[B_arr[b]], dtype=int) - B_arr[b].shape[0]
 
 		# Extract haplotype clusters, residualize and scale by covariates
-		Z_tilde = np.zeros((B_num, n), dtype=float)
-		assoc_cy.haplotypeExtract(Z_mat, Z_tilde, B_arr[b], K_vec)
-		Z_tilde -= np.dot(np.dot(Z_tilde, U_c), U_c.T)
-		Z_tilde /= np.linalg.norm(Z_tilde, axis=1, keepdims=True)/sqrt(n - R_c)
+		Z = np.zeros((B_num, n), dtype=float)
+		assoc_cy.haplotypeStandard(Z_mat, Z, B_arr[b], K_vec)
+		Z -= np.dot(np.dot(Z, U_c), U_c.T)
+		Z /= np.linalg.norm(Z, axis=1, keepdims=True)/sqrt(n - R_c)
+		Z = np.ascontiguousarray(Z.T)
+		if args.linreg:
+			assert B_num < n, "Number of clusters exceeds individuals!"
 
-		# K-fold cross-validation scheme
-		for k in np.arange(args.folds):
-			# Define folds
-			N_test = np.sort(N_split[k])
-			N_train = np.setdiff1d(np.arange(n), N_test)
+		# Cross-validation scheme
+		if args.folds > 0: # K-fold CV
+			for k in np.arange(args.folds):
+				# Define folds
+				N_test = np.sort(N_split[k])
+				N_train = np.setdiff1d(np.arange(n), N_test)
 
-			# Ridge regressors
-			U, S, V = functions.truncatedSVD(Z_tilde[:, N_train], transpose=True)
-			UtY = np.dot(U.T, y[N_train])
-			for r in np.arange(args.ridge):
-				L_mat[b*args.ridge + r, N_test] = np.dot(Z_tilde[:, N_test].T, \
-					np.dot(V*(S/(S*S + lmbda[r])), UtY))
-			
-			# Free memory
-			del U, S, V, UtY
-		del Z_tilde
+				# Regression
+				U, S, V = functions.fastSVD(Z[N_train,:])
+				UtY = np.dot(U.T, y[N_train])
+				if args.linreg:
+					L[b, N_test] = np.dot(Z[N_test,:], np.dot(V*(1.0/S), UtY))
+				else:
+					for r in np.arange(args.ridge):
+						L[b*args.ridge + r, N_test] = np.dot(Z[N_test,:], \
+							np.dot(V*(S/(S*S + lmbda[r])), UtY))
+				del N_test, N_train, U, S, V, UtY
+		else: # N-fold CV (LOOCV)
+			U, S, V = functions.fastSVD(Z)
+			UtY = np.dot(U.T, y)
+			x = np.zeros(B_num, dtype=float)
+			if args.linreg:
+				H = np.dot(V*(1.0/(S*S)), V.T)
+				p = np.dot(U, UtY)
+				assoc_cy.loocvLevel0(Z, L, H, p, y, x, b)
+			else:
+				for r in np.arange(args.ridge):
+					H = np.dot(V*(1.0/(S*S + lmbda[r])), V.T)
+					p = np.dot(U*((S*S)/(S*S + lmbda[r])), UtY)
+					assoc_cy.loocvLevel0(Z, L, H, p, y, x, b*args.ridge + r)
+			del U, S, V, UtY, H, p, x
+		del Z
 	print("")
 	
 	# Center and scale local predictors
-	L_mat -= np.mean(L_mat, axis=1, keepdims=True)
-	L_mat /= (np.linalg.norm(L_mat, axis=1, keepdims=True)/sqrt(n - 1))
+	L -= np.mean(L, axis=1, keepdims=True)
+	L /= np.linalg.norm(L, axis=1, keepdims=True)/sqrt(n - 1)
+	L = np.ascontiguousarray(L.T)
 
-	### Level 1 - Ridge regression - K-fold validation scheme
-	E_mat = np.zeros((args.folds, args.ridge, L_mat.shape[0]), dtype=np.float32)
+	### Level 1 - Ridge regression
 	y_mse = np.zeros(args.ridge, dtype=float) # Cross validation phenotype MSE
 	y_prs = np.zeros((args.ridge, n), dtype=float) # Phenotype prediction
-	N_ind = np.zeros(n, dtype=np.uint8) # Index vector for K-fold information
-	lmbda = L_mat.shape[0]*(1.0 - h2)/h2 # Lambda scaling in ridge regression 2
-	for k in np.arange(args.folds):
-		print(f"\rLevel 1 - Fold {k+1}/{args.folds}", end="")
-		N_test = np.sort(N_split[k])
-		N_train = np.setdiff1d(np.arange(n), N_test)
+	lmbda = L.shape[1]*(1.0 - h2)/h2 # Lambda scaling (level 1)
 
-		# Ridge regressors
-		U, S, V = functions.truncatedSVD(L_mat[:, N_train], transpose=True)
-		UtY = np.dot(U.T, y[N_train])
+	# Cross-validation scheme
+	if args.folds > 0: # K-fold CV
+		E_mat = np.zeros((args.folds, args.ridge, L.shape[1]), dtype=float)
+		N_ind = np.zeros(n, dtype=np.uint8) # Index vector for K-fold info
+		for k in np.arange(args.folds):
+			print(f"\rLevel 1 - Fold {k+1}/{args.folds}", end="")
+			N_test = np.sort(N_split[k])
+			N_train = np.setdiff1d(np.arange(n), N_test)
+
+			# Regression
+			U, S, V = functions.fastSVD(L[N_train,:])
+			UtY = np.dot(U.T, y[N_train])
+			for r in np.arange(args.ridge):
+				E_mat[k,r,:] = np.dot(V*(S/(S*S + lmbda[r])), UtY)
+				y_prs[r, N_test] = np.dot(L[N_test,:], E_mat[k,r,:])
+				y_mse[r] += (np.linalg.norm(y[N_test] - y_prs[r, N_test]))**2
+			N_ind[N_test] = k
+			
+			# Free memory
+			del N_test, N_train, U, S, V, UtY
+		print("")
+	else: # N-fold CV (LOOCV)
+		print("Level 1 - LOOCV")
+		U, S, V = functions.fastSVD(L)
+		UtY = np.dot(U.T, y)
+		x = np.zeros(L.shape[1], dtype=float)
 		for r in np.arange(args.ridge):
-			E_mat[k,r,:] = np.dot(V*(S/(S*S + lmbda[r])), UtY)
-			y_prs[r, N_test] = np.dot(L_mat[:, N_test].T, E_mat[k,r,:])
-			y_mse[r] += (np.linalg.norm(y[N_test] - y_prs[r, N_test]))**2
-		N_ind[N_test] = k
+			H = np.dot(V*(1.0/(S*S + lmbda[r])), V.T)
+			p = np.dot(U*(S*S/(S*S + lmbda[r])), UtY)
+			assoc_cy.loocvLevel1(L, y_prs, y_mse, H, p, y, x, r)
 		
 		# Free memory
-		del U, S, V, UtY
-	y_mse /= float(n)
+		del H, p
+	
+	# Find optimal hyperparameter from CV
 	h2_opt = np.argmin(y_mse)
-	print(f"\nOptimal h2 from CV: {h2[h2_opt]}, MSE={y_mse[h2_opt]}")
 	y_hat = np.copy(y_prs[h2_opt,:])
-	E_hat = np.copy(E_mat[:,h2_opt,:])
-	del y_mse, y_prs, E_mat
+	if args.folds > 0:
+		E_hat = np.copy(E_mat[:,h2_opt,:])
+		del E_mat
+	del y_mse, y_prs
 
 	# Optional save of whole-genome prediction
-	if args.save_pred:
-		r2 = 1.0 - np.sum((y_hat - y)**2)/np.sum((y - np.mean(y))**2)
-		np.savetxt(f"{args.out}.pred", y_hat, fmt="%.7f", header=f"R2={round(r2, 7)}")
-		print(f"Saved whole-genome prediction as {args.out}.pred")
+	r2 = 1.0 - np.sum((y_hat - y)**2)/np.sum((y - np.mean(y))**2)
+	np.savetxt(f"{args.out}.pred", y_hat, fmt="%.7f", header=f"R2={round(r2, 7)}")
+	print(f"Saved whole-genome prediction as {args.out}.pred")
 
-	### Association testing
-	P = np.zeros((np.sum(K_vec), 8), dtype=float) # Output matrix
-
+	### Create LOCO predictions
 	# Create LOCO predictions if multiple chromosomes provided
 	if args.filelist is not None:
-		y_chr = np.zeros((N_chr, n), dtype=float)
-		assoc_cy.haplotypeLOCO(L_mat, E_hat, y_chr, y, y_hat, N_ind, B_list, args.ridge)
-		if args.save_loco:
-			np.savetxt(f"{args.out}.loco", y_chr.T, fmt="%.7f")
-			print(f"Saved {N_chr} LOCO predictions as {args.out}.loco")
-	else: # Residualized phenotype if one chromosome provided
-		y_res = np.zeros(n, dtype=float)
+		print("Obtaining LOCO predictions.")
+		y_chr = np.zeros((n, N_chr), dtype=float)
+		if args.folds > 0: # LOCO predictions from K-fold CV
+			assoc_cy.haplotypeLOCO(L, E_hat, y_chr, y_hat, N_ind, B_list, r0)
+		else: # LOCO predictions from LOOCV
+			H = np.dot(V*(1.0/(S*S + lmbda[h2_opt])), V.T)
+			p = np.dot(U*(S*S/(S*S + lmbda[h2_opt])), UtY)
+			a = np.dot(V*(S/(S*S + lmbda[h2_opt])), UtY)
+			assoc_cy.loocvLOCO(L, y_chr, y_hat, H, p, y, a, x, B_list, r0)
+			del U, S, V, UtY, H, p, a, x
+		np.savetxt(f"{args.out}.loco", y_chr, fmt="%.7f")
+		print(f"Saved {N_chr} LOCO predictions as {args.out}.loco")
 
-	# Perform testing
-	B_idx = 0 # Start index for haplotype clusters
-	for b in np.arange(B):
-		print(f"\rAssociation testing - Block {b+1}/{B}", end="")
-		B_num = np.sum(K_vec[B_arr[b]], dtype=int)
-		
-		# Extract haplotype clusters, residualize and scale by covariates
-		Z_tilde = np.zeros((B_num, n), dtype=float)
-		assoc_cy.haplotypeAssoc(Z_mat, Z_tilde, P, B_arr[b], K_vec, B_idx)
-		Z_tilde -= np.dot(np.dot(Z_tilde, U_c), U_c.T)
-		Z_scale = np.linalg.norm(Z_tilde, axis=1)/sqrt(n - R_c)
-		Z_tilde /= Z_scale.reshape(-1,1)
 
-		# Create residualized phenotypes
-		if args.filelist is not None: # Extract LOCO prediction for block
-			if b == 0: # First chromosome
-				C_idx = 0
-				W_idx = 0
-				B_nxt = B_list[C_idx]
-				y_res = y_chr[0,:]
-				s_env = np.linalg.norm(y_res)/sqrt(n - R_c)
-			if b == B_nxt: # Next chromosome
-				C_idx += 1
-				W_idx = 0
-				B_nxt += B_list[C_idx]
-				y_res = y_chr[C_idx,:]
-				s_env = np.linalg.norm(y_res)/sqrt(n - R_c)
-			P[B_idx:(B_idx+B_num),0] = C_idx + 1 # Chromosome info
-		else: # Residualized phenotype without block effect
-			assoc_cy.residualY(L_mat, E_hat, y, y_hat, y_res, N_ind, b, args.ridge)
-			s_env = np.linalg.norm(y_res)/sqrt(n - R_c)
+	##### Step 2 - Association testing #####
+	if args.haplo_asso:
+		# Perform association testing of haplotype clusters alleles
+		if args.filelist is not None:
+			y_chr = np.ascontiguousarray(y_chr.T)
+			C_idx = 0
+			W_idx = 0
+			B_nxt = B_list[0]
+			y_res = y - y_chr[0,:]
+		else: # Use PRS (beware of proximal contamination)
+			y_res = y - y_hat
+		P = np.zeros((np.sum(K_vec), 8), dtype=float) # Output matrix
+		B_idx = 0 # Start index for haplotype clusters
+		s_env = np.linalg.norm(y_res)/sqrt(n - R_c)
+		for b in np.arange(B):
+			print(f"\rAssociation testing (clusters) - Block {b+1}/{B}", end="")
+			B_num = np.sum(K_vec[B_arr[b]], dtype=int) - B_arr[b].shape[0]
+			
+			# Extract haplotype clusters and regress out covariates
+			Z = np.zeros((B_num, n), dtype=float)
+			assoc_cy.haplotypeAssoc(Z_mat, Z, P, B_arr[b], K_vec, B_idx)
+			Z -= np.dot(np.dot(Z, U_c), U_c.T)
 
-		# Test haplotype clusters
-		assoc_cy.haplotypeTest(Z_tilde, P, y_res, B_arr[b], K_vec, s_env, W_idx, B_idx)
-		P[B_idx:(B_idx+B_num),4] *= Z_scale # Rescale beta
-		P[B_idx:(B_idx+B_num),5] *= Z_scale # Rescale se(beta)
-		B_idx += B_num
-		W_idx += B_arr[b].shape[0]
+			# Create residualized phenotypes
+			if args.filelist is not None: # Extract LOCO prediction for block
+				if b == B_nxt: # Next chromosome
+					C_idx += 1
+					W_idx = 0
+					B_nxt += B_list[C_idx]
+					y_res = y - y_chr[C_idx,:]
+					s_env = np.linalg.norm(y_res)/sqrt(n - R_c)
+				P[B_idx:(B_idx + B_num),0] = C_idx + 1 # Chromosome info
 
-		# Free memory
-		del Z_tilde, Z_scale
-	print("")
+			# Test haplotype clusters
+			assoc_cy.haplotypeTest(Z, P, y_res, B_arr[b], K_vec, s_env, W_idx, B_idx)
+			B_idx += B_num
+			W_idx += B_arr[b].shape[0]
 
-	### Save association results
-	P[:,7] = chi2.sf(P[:,6], df=1) # P-values (1 - cdf) - Wald's
-	np.savetxt(f"{args.out}.assoc", P, fmt=["%i", "%i", "%i", "%.7f", "%.7f", \
-		"%.7f", "%.7f", "%.7e"], header="chrom window cluster freq beta se chisq p",
-		comments="")
-	print(f"Saved association test statistics as {args.out}.assoc")
+			# Free memory
+			del Z
+		print("")
+
+		### Save association results
+		P[:,7] = chi2.sf(P[:,6], df=1) # P-values (1 - cdf) - Wald's
+		np.savetxt(f"{args.out}.assoc", P, fmt=["%i", "%i", "%i", "%.7f", "%.7f", \
+			"%.7f", "%.7f", "%.7e"], header="chrom window cluster freq beta se chisq p",
+			comments="")
+		print(f"Saved association test statistics as {args.out}.haplo.assoc")
 
 
 

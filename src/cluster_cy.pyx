@@ -8,8 +8,9 @@ from libc.math cimport log
 ##### hapla - haplotype clustering #####
 # Create marginal medians
 cpdef void marginalMedians(signed char[:,::1] M, float[:,::1] C, int[::1] N, int K):
-	cdef int m = M.shape[1]
-	cdef int j, k
+	cdef:
+		int m = M.shape[1]
+		int j, k
 	for k in range(K):
 		if N[k] > 0:
 			for j in range(m):
@@ -20,10 +21,11 @@ cpdef void marginalMedians(signed char[:,::1] M, float[:,::1] C, int[::1] N, int
 # Compute distances and cluster assignment
 cpdef void clusterAssignment(unsigned char[:,::1] X, signed char[:,::1] M, float[:,::1] C, \
 		unsigned char[:,::1] Z, int[::1] c, int[::1] N, int K, int w, int t):
-	cdef int n = X.shape[0]
-	cdef int m = X.shape[1]
-	cdef int i, j, k, l, k2, j2, dist, m_val
-	cdef float* tmp
+	cdef:
+		int n = X.shape[0]
+		int m = X.shape[1]
+		int i, j, k, l, k2, j2, dist, m_val
+		float* tmp
 	with nogil, parallel(num_threads=t):
 		tmp = <float*>PyMem_RawMalloc(sizeof(float)*K*m)
 		for l in range(K*m):
@@ -63,34 +65,37 @@ cpdef void clusterAssignment(unsigned char[:,::1] X, signed char[:,::1] M, float
 
 # Count size of clusters
 cpdef void countN(unsigned char[:,::1] Z, int[::1] N, int K, int w):
-	cdef int n = Z.shape[1]
-	cdef int i, k
+	cdef:
+		int n = Z.shape[1]
+		int i, k
 	for k in range(K):
 		N[k] = 0
 	for i in range(n):
 		N[Z[w,i]] += 1
 
 # Find non-zero cluster with least assignments
-cpdef void findZero(int[::1] N, int n, int thr, int K):
-	cdef int k, Nk
-	cdef int minI = 0
-	cdef int minN = n
+cpdef int findZero(int[::1] N, int n, int thr, int K):
+	cdef:
+		int k
+		int minI = 0
+		int minN = n
 	for k in range(K):
-		Nk = N[k]
-		if Nk > 0:
-			if Nk < minN:
+		if N[k] > 0:
+			if N[k] <= minN:
 				minI = k
-				minN = Nk
-	if minN <= thr:
+				minN = N[k]
+	if minN < (thr+1):
 		N[minI] = 0
+	return minN
 
 # Fix index of medians
 cpdef void medianFix(signed char[:,::1] M, unsigned char[:,::1] Z, \
 		int[::1] N, int K, int w):
-	cdef int m = M.shape[1]
-	cdef int n = Z.shape[1]
-	cdef int i, j, k	
-	cdef int c = 0
+	cdef:
+		int m = M.shape[1]
+		int n = Z.shape[1]
+		int i, j, k	
+		int c = 0
 	for k in range(K):
 		if N[k] > 0:
 			if k != c:
@@ -110,10 +115,11 @@ cpdef void medianFix(signed char[:,::1] M, unsigned char[:,::1] Z, \
 # Generate haplotype log-likelihoods (Bernoulli)
 cpdef void loglikeHaplo(float[:,:,::1] L, unsigned char[:,::1] X, float[:,::1] C, \
 		unsigned char[:,::1] Z, int[::1] N, int K, int w, int t):
-	cdef int n = X.shape[0]
-	cdef int m = X.shape[1]
-	cdef int i, j, k
-	cdef float p
+	cdef:
+		int n = X.shape[0]
+		int m = X.shape[1]
+		int i, j, k
+		float p
 	for i in range(n):
 		for j in range(m):
 			C[Z[w,i],j] += <float>X[i,j]/<float>N[Z[w,i]]

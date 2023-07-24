@@ -10,8 +10,8 @@ import os
 
 ##### hapla predict #####
 def main(args):
-	print("hapla predict by Jonas Meisner (v0.1)")
-	print(f"Using {args.threads} thread(s).")
+	print("hapla by Jonas Meisner (v0.2)")
+	print(f"hapla predict using {args.threads} thread(s).")
 	
 	# Check input
 	assert args.vcf is not None, \
@@ -68,7 +68,7 @@ def main(args):
 	assert m == M_mat.shape[0], "Number of SNPs does not match between files!"
 
 	# Containers
-	Z_mat = np.zeros((W, n), dtype=np.uint8) # Haplotype cluster assignments
+	Z_mat = np.zeros((W, n), dtype=np.uint8) # Haplotype cluster alleles
 
 	### Clustering
 	for w in np.arange(W):
@@ -94,7 +94,7 @@ def main(args):
 
 	### Save output
 	np.save(f"{args.out}.z", Z_mat)
-	print(f"Saved predicted haplotype cluster assignments as {args.out}.z.npy")
+	print(f"Saved predicted haplotype cluster alleles as {args.out}.z.npy")
 
 
 

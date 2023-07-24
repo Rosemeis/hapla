@@ -7,60 +7,64 @@ from libc.math cimport sqrt
 ##### hapla - analyses on haplotype cluster assignments #####
 ### hapla pca
 # Extract aggregated haplotype cluster counts
-cpdef void haplotypeAggregate(unsigned char[:,::1] Z, unsigned char[:,::1] Z_tilde, \
+cpdef void haplotypeAggregate(unsigned char[:,::1] Z_mat, unsigned char[:,::1] Z, \
 		double[::1] pi, double[::1] sd, unsigned char[::1] K_vec):
-	cdef int W = Z.shape[0]
-	cdef int n = Z.shape[1]
-	cdef int i, k, w
-	cdef int j = 0
+	cdef:
+		int W = Z.shape[0]
+		int n = Z.shape[1]
+		int i, k, w
+		int j = 0
 	for w in range(W):
-		for k in range(K_vec[w]):
+		for k in range(K_vec[w]-1):
 			for i in range(n):
-				if Z[w,i] == k:
-					Z_tilde[j,i//2] += 1
+				if Z_mat[w,i] == k:
+					Z[j,i//2] += 1
 					pi[j] += 1
 			pi[j] /= <double>n
 			for i in range(n//2):
-				sd[j] += (<double>Z_tilde[j,i]-2*pi[j])*(<double>Z_tilde[j,i]-2*pi[j])
+				sd[j] += (<double>Z[j,i]-2*pi[j])*(<double>Z[j,i]-2*pi[j])
 			sd[j] = sqrt(sd[j]/(<double>(n//2)-1))
 			j += 1
 
 # Array filtering
-cpdef void filterZ(unsigned char[:,::1] Z_tilde, double[::1] pi, \
+cpdef void filterZ(unsigned char[:,::1] Z, double[::1] pi, \
 		double[::1] sd, unsigned char[::1] mask):
-	cdef int m = Z_tilde.shape[0]
-	cdef int n = Z_tilde.shape[1]
-	cdef int c = 0
-	cdef int i, j
+	cdef:
+		int m = Z.shape[0]
+		int n = Z.shape[1]
+		int c = 0
+		int i, j
 	for j in range(m):
 		if mask[j] == 1:
 			for i in range(n):
-				Z_tilde[c,i] = Z_tilde[j,i]
+				Z[c,i] = Z[j,i]
 			pi[c] = pi[j]
 			sd[c] = sd[j]
 			c += 1
 
 # Standardize the batch haplotype cluster assignment matrix
-cpdef void batchZ(unsigned char[:,::1] Z_tilde, double[:,::1] Z_b, double[::1] pi, \
+cpdef void batchZ(unsigned char[:,::1] Z, double[:,::1] Z_b, double[::1] pi, \
 		double[::1] sd, int m_b, int t):
-	cdef int m = Z_b.shape[0]
-	cdef int n = Z_b.shape[1]
-	cdef int i, j
+	cdef:
+		int m = Z_b.shape[0]
+		int n = Z_b.shape[1]
+		int i, j
 	with nogil:
 		for j in prange(m, num_threads=t):
 			for i in range(n):
-				Z_b[j,i] = (Z_tilde[m_b+j,i] - 2*pi[m_b+j])/sd[m_b+j]
+				Z_b[j,i] = (Z[m_b+j,i] - 2*pi[m_b+j])/sd[m_b+j]
 
 # Standardize full matrix
-cpdef void standardizeZ(unsigned char[:,::1] Z_tilde, double[:,::1] Z_std, \
+cpdef void standardizeZ(unsigned char[:,::1] Z, double[:,::1] Z_std, \
 		double[::1] pi, double[::1] sd, int t):
-	cdef int m = Z_tilde.shape[0]
-	cdef int n = Z_tilde.shape[1]
-	cdef int i, j
+	cdef:
+		int m = Z.shape[0]
+		int n = Z.shape[1]
+		int i, j
 	with nogil:
 		for j in prange(m, num_threads=t):
 			for i in range(n):
-				Z_std[j,i] = (Z_tilde[j,i] - 2*pi[j])/sd[j]
+				Z_std[j,i] = (Z[j,i] - 2*pi[j])/sd[j]
 
 
 
@@ -68,14 +72,15 @@ cpdef void standardizeZ(unsigned char[:,::1] Z_tilde, double[:,::1] Z_std, \
 # Estimate squared correlation between variants (r^2) and compute L matrix
 cpdef void estimateL(unsigned char[:,::1] Gt, double[::1] F, double[::1] S, \
 				float[:,::1] L, double thr, int n, int t):
-	cdef int m = Gt.shape[0]
-	cdef int B = Gt.shape[1]
-	cdef int W = L.shape[1]
-	cdef int b, c, i, j, k, bit
-	cdef unsigned char mask = 1
-	cdef unsigned char b1
-	cdef unsigned char b2
-	cdef double corr, r2
+	cdef:
+		int m = Gt.shape[0]
+		int B = Gt.shape[1]
+		int W = L.shape[1]
+		int b, c, i, j, k, bit
+		unsigned char mask = 1
+		unsigned char b1
+		unsigned char b2
+		double corr, r2
 	with nogil, parallel(num_threads=t):
 		# Estimate means and standard deviations
 		for j in prange(m):
@@ -128,9 +133,10 @@ cpdef void estimateL(unsigned char[:,::1] Gt, double[::1] F, double[::1] S, \
 
 # Estimate E matrix used for cost estimation
 cpdef void estimateE(float[:,::1] L, float[:,::1] E):
-	cdef int m = E.shape[0]
-	cdef int W = E.shape[1]
-	cdef int j, k
+	cdef:
+		int m = E.shape[0]
+		int W = E.shape[1]
+		int j, k
 	for j in range(m-2, -1, -1):
 		for k in range(W-1, -1, -1):
 			if k == 0:
@@ -140,11 +146,12 @@ cpdef void estimateE(float[:,::1] L, float[:,::1] E):
 
 # Compute cost for different number of splits
 cpdef void estimateC(float[:,::1] E, float[:,::1] C, int[:,::1] I, int w0, int t):
-	cdef int m = E.shape[0]
-	cdef int W = E.shape[1]
-	cdef int K = C.shape[0]
-	cdef int c, j, k, w
-	cdef float cost
+	cdef:
+		int m = E.shape[0]
+		int W = E.shape[1]
+		int K = C.shape[0]
+		int c, j, k, w
+		float cost
 	for c in range(w0, W+1):
 		C[0,m-c] = 0.0
 		I[0,m-c] = m
@@ -160,8 +167,9 @@ cpdef void estimateC(float[:,::1] E, float[:,::1] C, int[:,::1] I, int w0, int t
 
 # Reconstruct path of the lowest cost
 cpdef void reconstructPath(int[:,::1] I, int[::1] P, int k):
-	cdef int j = 0
-	cdef int i
+	cdef:
+		int j = 0
+		int i
 	for i in range(k, -1, -1):
 		j = I[i,j]
 		P[i] = j
@@ -172,9 +180,10 @@ cpdef void reconstructPath(int[:,::1] I, int[::1] P, int k):
 # Haplotype cluster assignment based on pre-estimated medians
 cpdef void predictCluster(unsigned char[:,::1] X, signed char[:,::1] M, \
 		unsigned char[:,::1] Z, int K, int w, int t):
-	cdef int n = X.shape[0]
-	cdef int m = X.shape[1]
-	cdef int i, j, k, dist, m_val
+	cdef:
+		int n = X.shape[0]
+		int m = X.shape[1]
+		int i, j, k, dist, m_val
 	with nogil:
 		for i in prange(n, num_threads=t):
 			m_val = m 

@@ -9,15 +9,18 @@ DTYPE = np.uint8
 ctypedef np.uint8_t DTYPE_t
 DTYPE2 = np.int16
 ctypedef np.int16_t DTYPE2_t
+DTYPE3 = np.int64
+ctypedef np.int64_t DTYPE3_t
 ctypedef vector[unsigned char] char_vec
 
 ##### Cython function for reading VCF/BCF files #####
 ### Read VCF/BCF into 1-bit integer matrix
 cpdef np.ndarray[DTYPE_t, ndim=2] readVCF(v_file, const int n, const int B):
-	cdef int b, i, j, m, bit
-	cdef np.ndarray[DTYPE2_t, ndim=2] geno
-	cdef char_vec G_var
-	cdef vector[char_vec] G
+	cdef:
+		int b, i, j, m, bit
+		np.ndarray[DTYPE2_t, ndim=2] geno
+		char_vec G_var
+		vector[char_vec] G
 	G_var = char_vec(B)
 	for var in v_file: # Loop through VCF file
 		i = 0
@@ -36,8 +39,9 @@ cpdef np.ndarray[DTYPE_t, ndim=2] readVCF(v_file, const int n, const int B):
 		G.push_back(G_var)
 	m = G.size()
 	# Fill up and return NumPy array
-	cdef np.ndarray[DTYPE_t, ndim=2] G_np = np.empty((m, B), dtype=DTYPE)
-	cdef unsigned char *G_ptr
+	cdef:
+		np.ndarray[DTYPE_t, ndim=2] G_np = np.empty((m, B), dtype=DTYPE)
+		unsigned char *G_ptr
 	for j in range(m):
 		G_ptr = &G[j][0]
 		G_np[j] = np.asarray(<unsigned char[:B]>G_ptr)
@@ -46,12 +50,13 @@ cpdef np.ndarray[DTYPE_t, ndim=2] readVCF(v_file, const int n, const int B):
 ### Convert 1-bit into full array and initialize cluster mean
 cpdef void convertBit(unsigned char[:,::1] Gt, unsigned char[:,::1] Xt, float[:,::1] C, \
 		int w0, int t):
-	cdef int B = Gt.shape[1]
-	cdef int m = Xt.shape[0]
-	cdef int n = Xt.shape[1]
-	cdef int b, i, j, bit
-	cdef unsigned char mask = 1
-	cdef unsigned char byte
+	cdef:
+		int B = Gt.shape[1]
+		int m = Xt.shape[0]
+		int n = Xt.shape[1]
+		int b, i, j, bit
+		unsigned char mask = 1
+		unsigned char byte
 	with nogil:
 		for j in prange(m, num_threads=t):
 			i = 0
@@ -68,12 +73,13 @@ cpdef void convertBit(unsigned char[:,::1] Gt, unsigned char[:,::1] Xt, float[:,
 
 ### Convert 1-bit into full array for predicting target clusters
 cpdef void predictBit(unsigned char[:,::1] Gt, unsigned char[:,::1] Xt, int w0, int t):
-	cdef int B = Gt.shape[1]
-	cdef int m = Xt.shape[0]
-	cdef int n = Xt.shape[1]
-	cdef int b, i, j, bit
-	cdef unsigned char mask = 1
-	cdef unsigned char byte
+	cdef:
+		int B = Gt.shape[1]
+		int m = Xt.shape[0]
+		int n = Xt.shape[1]
+		int b, i, j, bit
+		unsigned char mask = 1
+		unsigned char byte
 	with nogil:
 		for j in prange(m, num_threads=t):
 			i = 0
@@ -86,51 +92,75 @@ cpdef void predictBit(unsigned char[:,::1] Gt, unsigned char[:,::1] Xt, int w0, 
 					if i == n:
 						break
 
-### Convert 1-bit into genotype array for generating phenotypes
-cpdef void genotypeBit(unsigned char[:,::1] Gt, unsigned char[:,::1] G, long[::1] p):
-	cdef int m = G.shape[0]
-	cdef int n = G.shape[1]
-	cdef int B = Gt.shape[1]
-	cdef int b, i, j, bit
-	cdef unsigned char mask = 1
-	cdef unsigned char byte
+### Convert 1-bit into standardized genotype array for phenotypes
+cpdef void genotypeBit(unsigned char[:,::1] G_mat, float[:,::1] G, long[::1] p):
+	cdef:
+		int m = G.shape[0]
+		int n = G.shape[1]
+		int B = G_mat.shape[1]
+		int b, i, j, bit
+		float pi, sd 
+		unsigned char mask = 1
+		unsigned char byte
 	for j in range(m):
 		i = 0
+		pi = 0.0
+		sd = 0.0
 		for b in range(B):
-			byte = Gt[p[j],b]
+			byte = G_mat[p[j],b]
 			for bit in range(0, 8, 2):
-				G[j,i] = byte & mask
+				G[j,i] = <float>(byte & mask)
 				byte = byte >> 1 # Right shift 1 bit
-				G[j,i] += byte & mask
+				G[j,i] += <float>(byte & mask)
 				byte = byte >> 1 # Right shift 1 bit
+				pi += G[j,i] # Allele frequency
 				i = i + 1
 				if i == n:
 					break
+		pi /= <float>n
+		for i in range(n):
+			sd += (G[j,i] - pi)*(G[j,i] - pi)
+		sd = sqrt(sd/(<float>(n-1)))
+		for i in range(n):
+			G[j,i] = (G[j,i] - pi)/sd
 
-### Convert haplotype cluster assignments to proper array for generating phenotypes
-cpdef void convertHaplo(unsigned char[:,::1] Z, unsigned char[:,::1] G, \
+### Convert haplotype cluster assignments to standardized array for phenotypes
+cpdef void convertHaplo(unsigned char[:,::1] Z, float[:,::1] G, \
 		unsigned char[::1] K_vec, long[::1] C):
-	cdef int W = Z.shape[0]
-	cdef int n = Z.shape[1]
-	cdef int i, k, w
-	cdef int b = 0
-	cdef int j = 0
+	cdef:
+		int W = Z.shape[0]
+		int m = G.shape[0]
+		int n = G.shape[1]
+		int i, k, w
+		int b = 0
+		int j = 0
+		float p, s
 	for w in range(W):
 		for k in range(K_vec[w]):
 			if b == C[j]:
-				for i in range(n):
+				pi = 0.0
+				sd = 0.0
+				for i in range(2*n):
 					if Z[w,i] == k:
 						G[j,i//2] += 1
+						pi += G[j,i//2]
+				pi /= <float>n
+				for i in range(n):
+					sd += (G[j,i] - pi)*(G[j,i] - pi)
+				sd = sqrt(sd/(<float>(n-1)))
+				for i in range(n):
+					G[j,i] = (G[j,i] - pi)/sd
 				j += 1
 			b += 1
 
 # Estimate haplotype cluster frequencies
 cpdef void estimateFreqs(unsigned char[:,::1] Z, unsigned char[::1] K_vec, \
 		double[::1] pi):
-	cdef int W = Z.shape[0]
-	cdef int n = Z.shape[1]
-	cdef int i, k, w
-	cdef int j = 0
+	cdef:
+		int W = Z.shape[0]
+		int n = Z.shape[1]
+		int i, k, w
+		int j = 0
 	for w in range(W):
 		for k in range(K_vec[w]):
 			for i in range(n):
@@ -141,12 +171,13 @@ cpdef void estimateFreqs(unsigned char[:,::1] Z, unsigned char[::1] K_vec, \
 
 ### Filter out variants from haplotype clustering and fix window sizes
 cpdef void filterSNPs(unsigned char[:,::1] Gt, long[::1] W, unsigned char[::1] mask):
-	cdef int m = Gt.shape[0]
-	cdef int B = Gt.shape[1]
-	cdef int s = W.shape[0]
-	cdef int c = 0
-	cdef int b, j, k
-	cdef int* count
+	cdef:
+		int m = Gt.shape[0]
+		int B = Gt.shape[1]
+		int s = W.shape[0]
+		int c = 0
+		int b, j, k
+		int* count
 	count = <int*>PyMem_Malloc(sizeof(int)*s)
 	for k in range(s):
 		count[k] = 0
@@ -161,3 +192,41 @@ cpdef void filterSNPs(unsigned char[:,::1] Gt, long[::1] W, unsigned char[::1] m
 					W[k] -= 1
 					count[k] += 1
 	PyMem_Free(count)
+
+### Read VCF/BCF into 1-bit integer matrix plus position information
+cpdef (np.ndarray[DTYPE_t, ndim=2], np.ndarray[DTYPE3_t, ndim=1]) \
+		assocVCF(v_file, const int n, const int B):
+	cdef:
+		int b, i, j, m, bit
+		np.ndarray[DTYPE2_t, ndim=2] geno
+		char_vec G_var
+		vector[char_vec] G
+		vector[long] p
+		unsigned char *G_ptr
+	G_var = char_vec(B)
+	for var in v_file: # Loop through VCF file
+		i = 0
+		geno = var.genotype.array()
+		for b in range(B):
+			G_var[b] = 0
+			for bit in range(0, 8, 2):
+				if geno[i,0] == 1:
+					G_var[b] |= (1<<bit)
+				if geno[i,1] == 1:
+					G_var[b] |= (1<<(bit+1))
+				# Increase counter and check for break
+				i = i + 1
+				if i == n:
+					break
+		G.push_back(G_var)
+		p.push_back(<long>var.POS)
+	m = G.size()
+	# Fill up and return NumPy array
+	cdef:
+		long *p_ptr = &p[0]
+		np.ndarray[DTYPE3_t, ndim=1] p_np = np.asarray(<long[:m]>p_ptr)
+		np.ndarray[DTYPE_t, ndim=2] G_np = np.empty((m, B), dtype=DTYPE)
+	for j in range(m):
+		G_ptr = &G[j][0]
+		G_np[j] = np.asarray(<unsigned char[:B]>G_ptr)
+	return G_np, p_np

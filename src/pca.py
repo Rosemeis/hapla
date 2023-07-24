@@ -1,6 +1,6 @@
 """
 hapla.
-Perform PCA using haplotype cluster assignments.
+Perform PCA using haplotype cluster alleles.
 """
 
 __author__ = "Jonas Meisner"
@@ -10,13 +10,14 @@ import os
 
 ##### hapla pca #####
 def main(args):
-	print("hapla pca by Jonas Meisner (v0.1)")
-	print(f"Using {args.threads} thread(s).")
+	print("hapla by Jonas Meisner (v0.2)")
+	print(f"hapla pca using {args.threads} thread(s).")
 
 	# Check input
 	assert (args.filelist is not None) or (args.clusters is not None), \
 		"No input data (--filelist or --clusters)!"
-	assert args.min_freq > 0.0, "Empty haplotype clusters not allowed!"
+	if args.min_freq is not None:
+		assert args.min_freq > 0.0, "Empty haplotype clusters not allowed!"
 
 	# Control threads of external numerical libraries
 	os.environ["MKL_NUM_THREADS"] = str(args.threads)
@@ -43,38 +44,39 @@ def main(args):
 		del Z_list
 	else:
 		Z_mat = np.load(args.clusters)
-	print("\rLoaded haplotype cluster assignments of " + \
+	print("\rLoaded haplotype cluster alleles of " + \
 		f"{Z_mat.shape[1]} haplotypes in {Z_mat.shape[0]} windows.")
+	W = Z_mat.shape[0]
 	n = Z_mat.shape[1]//2
 
-	# Estimate total number of haplotype cluster assignments
+	# Estimate total number of haplotype cluster alleles
 	K_vec = np.max(Z_mat, axis=1) + 1
-	m = np.sum(K_vec)
+	m = np.sum(K_vec, dtype=int) - W # Dummy encoding, removing last cluster
 
 	# Populate full matrix and estimate summary statistics
-	Z_tilde = np.zeros((m, n), dtype=np.uint8)
+	Z = np.zeros((m, n), dtype=np.uint8)
 	pi = np.zeros(m, dtype=float)
 	sd = np.zeros(m, dtype=float)
-	shared_cy.haplotypeAggregate(Z_mat, Z_tilde, pi, sd, K_vec)
+	shared_cy.haplotypeAggregate(Z_mat, Z, pi, sd, K_vec)
 	del Z_mat
 
 	# Mask non-rare haplotype clusters
-	freq = args.min_count/float(2*n)
-	mask = (pi >= freq) & (pi <= (1 - freq))
-	mask = mask.astype(np.uint8)
-	m = np.sum(mask)
+	if args.min_freq is not None:
+		mask = (pi >= args.min_freq) & (pi <= (1 - args.min_freq))
+		mask = mask.astype(np.uint8)
+		m = np.sum(mask, dtype=int)
 
-	# Filter out masked haplotype clusters
-	shared_cy.filterZ(Z_tilde, pi, sd, mask)
-	Z_tilde = Z_tilde[:m,:]
-	pi = pi[:m]
-	sd = sd[:m]
+		# Filter out masked haplotype clusters
+		shared_cy.filterZ(Z, pi, sd, mask)
+		Z = Z[:m,:]
+		pi = pi[:m]
+		sd = sd[:m]
 
 	# Perform PCA
 	if args.randomized:
 		# Randomized SVD
 		print(f"Performing randomized SVD, extracting {args.n_eig} eigenvectors.")
-		U, S, V = functions.randomizedSVD(Z_tilde, pi, sd, args.n_eig, args.batch, \
+		U, S, V = functions.randomizedSVD(Z, pi, sd, args.n_eig, args.batch, \
 			args.threads)
 
 		# Save matrices
@@ -87,8 +89,8 @@ def main(args):
 			print(f"Saved loadings as {args.out}.loadings")
 	else:
 		Z_std = np.zeros((m, n), dtype=float)
-		shared_cy.standardizeZ(Z_tilde, Z_std, pi, sd, args.threads)
-		del Z_tilde
+		shared_cy.standardizeZ(Z, Z_std, pi, sd, args.threads)
+		del Z
 		if args.grm:
 			# Estimate GRM
 			print("Estimating genome-wide relationship matrix (GRM)")

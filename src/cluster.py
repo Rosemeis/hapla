@@ -10,13 +10,13 @@ import os
 
 ##### hapla cluster #####
 def main(args):
-	print("hapla cluster by Jonas Meisner (v0.1)")
-	print(f"Using {args.threads} thread(s).")
+	print("hapla by Jonas Meisner (v0.2)")
+	print(f"hapla cluster using {args.threads} thread(s).")
 	
 	# Check input
 	assert args.vcf is not None, \
 		"Please provide phased genotype file (--bcf or --vcf)!"
-	assert args.min_count > 1, "Empty haplotype clusters not allowed!"
+	assert args.min_freq > 0.0, "Empty haplotype clusters not allowed!"
 
 	# Control threads of external numerical libraries
 	os.environ["MKL_NUM_THREADS"] = str(args.threads)
@@ -36,9 +36,9 @@ def main(args):
 	v_file = VCF(args.vcf, threads=args.threads)
 	n = 2*len(v_file.samples)
 	B = ceil(n/8)
-	Gt = reader_cy.readVCF(v_file, n//2, B)
+	G = reader_cy.readVCF(v_file, n//2, B)
 	del v_file
-	m = Gt.shape[0]
+	m = G.shape[0]
 	print(f"\rLoaded phased genotype data: {n} haplotypes and {m} SNPs.")
 
 	### Setup windows
@@ -53,21 +53,22 @@ def main(args):
 		assert winList[-1] == m, "Window splits doesn't match genotype file!"
 		print(f"Clustering in {W} windows of provided lengths.")
 	
-		# Filter out causal SNPs --- DEBUG FOR SIMULATION STUDIES ONLY!
-		if args.filter is not None:
-			mask = np.loadtxt(args.filter, dtype=np.uint8)
-			m = np.sum(mask) # New number of variants
-			reader_cy.filterSNPs(Gt, winList, mask) # Fix data and window arrays
-			Gt = Gt[:m,:]
-			print(f"Removed {np.sum(mask==0)} causal SNPs.")
-			del mask
+	# Filter out causal SNPs --- DEBUG FOR SIMULATION STUDIES ONLY!
+	if args.filter is not None:
+		mask = np.loadtxt(args.filter, dtype=np.uint8)
+		m = np.sum(mask) # New number of variants
+		reader_cy.filterSNPs(G, winList, mask) # Fix data and window arrays
+		G = G[:m,:]
+		print(f"Removed {np.sum(mask==0)} causal SNPs.")
+		del mask
 
 	### Containers
 	c_vec = np.zeros(n, dtype=np.int32) # Cost vector
 	K_vec = np.zeros(W, dtype=np.uint8) # Number of clusters in windows
 	N_vec = np.zeros(args.max_clusters, dtype=np.int32) # Size vector
-	Z_mat = np.zeros((W, n), dtype=np.uint8) # Haplotype cluster assignments
+	Z_mat = np.zeros((W, n), dtype=np.uint8) # Haplotype cluster alleles
 	if args.windows is None:
+		H = np.zeros((args.fixed, n), dtype=np.uint8) # Haplotypes
 		M = np.zeros((args.max_clusters, args.fixed), dtype=np.int8) # Medians
 		C = np.zeros((args.max_clusters, args.fixed), dtype=np.float32) # Means
 	if args.medians:
@@ -85,21 +86,20 @@ def main(args):
 		# Load haplotype segment
 		if w < (W-1):
 			if args.windows is None:
-				Xt = np.zeros((args.fixed, n), dtype=np.uint8)
 				M.fill(-9)
 				C.fill(0.0)
-				reader_cy.convertBit(Gt, Xt, C, winList[w], args.threads)
+				reader_cy.convertBit(G, H, C, winList[w], args.threads)
 			else:
-				Xt = np.zeros((winList[w+1]-winList[w], n), dtype=np.uint8)
-				M = np.full((args.max_clusters, Xt.shape[0]), -9, dtype=np.int8)
-				C = np.zeros((args.max_clusters, Xt.shape[0]), dtype=np.float32)
-				reader_cy.convertBit(Gt, Xt, C, winList[w], args.threads)
+				H = np.zeros((winList[w+1]-winList[w], n), dtype=np.uint8)
+				M = np.full((args.max_clusters, H.shape[0]), -9, dtype=np.int8)
+				C = np.zeros((args.max_clusters, H.shape[0]), dtype=np.float32)
+				reader_cy.convertBit(G, H, C, winList[w], args.threads)
 		else:
-			Xt = np.zeros((m-winList[w], n), dtype=np.uint8)
-			M = np.full((args.max_clusters, Xt.shape[0]), -9, dtype=np.int8)
-			C = np.zeros((args.max_clusters, Xt.shape[0]), dtype=np.float32)
-			reader_cy.convertBit(Gt, Xt, C, winList[w], args.threads)
-		mX = Xt.shape[0]
+			H = np.zeros((m-winList[w], n), dtype=np.uint8)
+			M = np.full((args.max_clusters, H.shape[0]), -9, dtype=np.int8)
+			C = np.zeros((args.max_clusters, H.shape[0]), dtype=np.float32)
+			reader_cy.convertBit(G, H, C, winList[w], args.threads)
+		mX = H.shape[0]
 
 		# Setup log-likelihood container
 		if args.loglike:
@@ -109,8 +109,9 @@ def main(args):
 		K = 1
 		N_vec[0] = n
 		cluster_cy.marginalMedians(M, C, N_vec, K)
-		X = np.ascontiguousarray(Xt.T)
-		del Xt
+		X = np.ascontiguousarray(H.T) # Re-order NxB in contiguous memory
+		if args.windows is not None:
+			del H
 
 		# Perform DC-DP-Medians
 		for iter in np.arange(args.max_iterations):
@@ -152,22 +153,27 @@ def main(args):
 			cluster_cy.countN(Z_mat, N_vec, K, w)
 			cluster_cy.marginalMedians(M, C, N_vec, K)
 
-		# Remove small haplotype clusters and try to rescue as many as possible
+		# Remove small haplotype clusters and rescue as many as possible
 		if K > 2:
-			N_sur = max(2, np.sum(N_vec >= args.min_count)) # Surviving clusters
-			N_tmp = N_sur
-			K_rem = K - N_sur
-			for k in np.arange(K_rem):
-				cluster_cy.findZero(N_vec, n, args.min_count, K) # Smallest cluster
+			N_thr = int(args.min_freq*n)
+			K_tmp = K
+			if args.verbose:
+				N_sur = np.sum(N_vec > N_thr)
+				print(f"{N_sur}/{K_tmp} clusters reaching threshold.")
+			while True:
+				N_min = cluster_cy.findZero(N_vec, n, N_thr, K)
+				if N_min > N_thr:
+					break
 				cluster_cy.clusterAssignment(X, M, C, Z_mat, c_vec, N_vec, K, w, \
 					args.threads)
 				cluster_cy.countN(Z_mat, N_vec, K, w)
-				N_sur = np.sum(N_vec > 0)
-				if N_sur == N_tmp:
+				cluster_cy.marginalMedians(M, C, N_vec, K)
+				K_tmp -= 1
+				if K_tmp == 2: # Safety break
 					break
-				if k < (K_rem - 1):
-					cluster_cy.marginalMedians(M, C, N_vec, K)
-				N_tmp = N_sur
+				if args.verbose:
+					N_sur = np.sum(N_vec > N_thr)
+					print(f"{N_sur}/{K_tmp} clusters reaching threshold. {N_min}/{N_thr}.")
 		else:
 			cluster_cy.clusterAssignment(X, M, C, Z_mat, c_vec, N_vec, K, w, \
 				args.threads)
@@ -193,20 +199,25 @@ def main(args):
 			cluster_cy.loglikeHaplo(L_mat, X, C, Z_mat, N_vec, K, w, args.threads)
 			
 		# Clean up
+		if args.windows is not None:
+			del M, C
 		del X
 		N_vec.fill(0)
 	if not args.verbose:
 		print("")
+	K_max = np.max(K_vec)
 
 	##### Save output #####
 	np.save(f"{args.out}.z", Z_mat)
-	print(f"Saved haplotype cluster assignments as {args.out}.z.npy")
+	print(f"Saved haplotype cluster alleles as {args.out}.z.npy")
 	np.savetxt(f"{args.out}.num_clusters", K_vec, fmt="%i")
 	print(f"Saved the number of clusters per window as {args.out}.num_clusters")
 	if args.medians:
+		M_mat = M_mat[:,:K_max] # Reduce memory in downstream analyses
 		np.save(f"{args.out}.medians", M_mat)
 		print(f"Saved haplotype cluster medians as {args.out}.medians.npy")
 	if args.loglike:
+		L_mat = L_mat[:,:,:K_max] # Reduce memory in downstream analyses
 		np.save(f"{args.out}.loglike", L_mat)
 		print(f"Saved haplotype cluster log-likelihoods as {args.out}.loglike.npy")
 

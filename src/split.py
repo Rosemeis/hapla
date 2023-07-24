@@ -10,8 +10,8 @@ import os
 
 ##### hapla split #####
 def main(args):
-	print("hapla split by Jonas Meisner (v0.1)")
-	print(f"Using {args.threads} thread(s).")
+	print("hapla by Jonas Meisner (v0.2)")
+	print(f"hapla split using {args.threads} thread(s).")
 	print("Cite original paper: https://doi.org/10.1093/bioinformatics/btab519")
 
 	# Check input

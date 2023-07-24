@@ -37,7 +37,7 @@ extensions = [
 
 setup(
 	name="hapla",
-	version="0.1",
+	version="0.2",
 	description="Framework for haplotype clustering",
 	author="Jonas Meisner",
 	packages=["src"],
