@@ -97,13 +97,12 @@ def main(args):
 			print(f"\rAssociation testing (SNPs) - Chromosome {c+1}/{N_chr}", end="")
 			v_file = VCF(files[c], threads=args.threads)
 			assert len(v_file.samples) == n, "Number of samples differ between files!"
-			G_mat, p_vec = reader_cy.assocVCF(v_file, n, ceil(2*n/8))
+			G_mat = reader_cy.readVCF(v_file, n, ceil(2*n/8))
+			del v_file
 			m = G_mat.shape[0] # Number of SNPs in chromosome
-			P = np.zeros((m, 7), dtype=float) # Output matrix
-			P[:,1] = p_vec # Base positions
-			del v_file, p_vec
 
 			# Setup parameters for chromosome
+			P = np.zeros((m, 7), dtype=float) # Output matrix
 			B = ceil(m/args.block)
 			G = np.zeros((args.block, n), dtype=float)
 			y_res = y - y_chr[c,:] # Residualized phenotype
@@ -121,6 +120,9 @@ def main(args):
 			P[:,6] = chi2.sf(P[:,5], df=1) # P-values (1 - cdf) - Wald's
 			
 			# Save association results
+			P[:,0] = c+1 # Chromosome number information
+			v_file = VCF(files[c], threads=args.threads)
+			reader_cy.readPOS(v_file, P) # Read base positions
 			if c == 0: # First chromosome
 				np.savetxt(f"{args.out}.snp.assoc", P, \
 					fmt=["%i", "%i", "%.7f", "%.7f", "%.7f", "%.7f", "%.7e"], \
@@ -129,18 +131,18 @@ def main(args):
 				with open(f"{args.out}.snp.assoc", "a") as f:
 					np.savetxt(f, P, \
 						fmt=["%i", "%i", "%.7f", "%.7f", "%.7f", "%.7f", "%.7e"])
+			del P, v_file
 		print("")
 	else: # Single chromosome only - beware of proximal contamination
 		print("Association testing (SNPs)")
 		v_file = VCF(args.vcf, threads=args.threads)
 		assert len(v_file.samples) == n, "Number of samples differ between files!"
 		G_mat = reader_cy.readVCF(v_file, n, ceil(2*n/8)) # 1-bit geno matrix
-		m = G_mat.shape[0] # Number of SNPs in chromosome
-		P = np.zeros((m, 7), dtype=float) # Output matrix
-		P[:,1] = 0 # Base positions
 		del v_file
+		m = G_mat.shape[0] # Number of SNPs in chromosome
 
 		# Setup parameters
+		P = np.zeros((m, 7), dtype=float) # Output matrix
 		B = ceil(m/args.block)
 		G = np.zeros((args.block, n), dtype=float)
 		y_res = y - y_hat # Residualized phenotype
@@ -157,9 +159,16 @@ def main(args):
 		P[:,6] = chi2.sf(P[:,5], df=1) # P-values (1 - cdf) - Wald's
 		
 		# Save association results
+		if args.chrom is not None: # Chromosome number information
+			P[:,0] = args.chrom
+		else:
+			P[:,0] = 1
+		v_file = VCF(args.vcf, threads=args.threads)
+		reader_cy.readPOS(v_file, P) # Read base positions
 		np.savetxt(f"{args.out}.snp.assoc", P, \
 			fmt=["%i", "%i", "%.7f", "%.7f", "%.7f", "%.7f", "%.7e"], \
 			header="chrom pos freq beta se chisq p", comments="")
+		del P, v_file
 	print(f"Saved SNP association test statistics as {args.out}.snp.assoc")
 
 

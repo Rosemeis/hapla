@@ -193,40 +193,10 @@ cpdef void filterSNPs(unsigned char[:,::1] Gt, long[::1] W, unsigned char[::1] m
 					count[k] += 1
 	PyMem_Free(count)
 
-### Read VCF/BCF into 1-bit integer matrix plus position information
-cpdef (np.ndarray[DTYPE_t, ndim=2], np.ndarray[DTYPE3_t, ndim=1]) \
-		assocVCF(v_file, const int n, const int B):
+### Read VCF/BCF position information
+cpdef void readPOS(v_file, double[:,::1] P):
 	cdef:
-		int b, i, j, m, bit
-		np.ndarray[DTYPE2_t, ndim=2] geno
-		char_vec G_var
-		vector[char_vec] G
-		vector[long] p
-		unsigned char *G_ptr
-	G_var = char_vec(B)
+		int j = 0
 	for var in v_file: # Loop through VCF file
-		i = 0
-		geno = var.genotype.array()
-		for b in range(B):
-			G_var[b] = 0
-			for bit in range(0, 8, 2):
-				if geno[i,0] == 1:
-					G_var[b] |= (1<<bit)
-				if geno[i,1] == 1:
-					G_var[b] |= (1<<(bit+1))
-				# Increase counter and check for break
-				i = i + 1
-				if i == n:
-					break
-		G.push_back(G_var)
-		p.push_back(<long>var.POS)
-	m = G.size()
-	# Fill up and return NumPy array
-	cdef:
-		long *p_ptr = &p[0]
-		np.ndarray[DTYPE3_t, ndim=1] p_np = np.asarray(<long[:m]>p_ptr)
-		np.ndarray[DTYPE_t, ndim=2] G_np = np.empty((m, B), dtype=DTYPE)
-	for j in range(m):
-		G_ptr = &G[j][0]
-		G_np[j] = np.asarray(<unsigned char[:B]>G_ptr)
-	return G_np, p_np
+		P[j,1] = <double>var.POS
+		j += 1
