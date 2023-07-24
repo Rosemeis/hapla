@@ -16,10 +16,9 @@ def main(args):
 		"Whole-genome predictions not provided! Please run 'hapla regress'!"
 	if args.loco is not None:
 		assert args.filelist is not None, \
-			"No filelist with paths to multiple input files provided for LOCO!"
+			"No filelist with multiple input genotype files provided for LOCO!"
 	else:
-		assert (args.clusters is not None) or (args.geno is not None), \
-			"No input data provided!"
+		assert args.geno is not None, "No input genotype file provided!"
 	if args.eigen is None:
 		print("WARNING: Eigenvectors (PCs) have not been provided!")
 	if args.covar is None:

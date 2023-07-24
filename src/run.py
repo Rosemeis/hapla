@@ -96,9 +96,7 @@ def main():
 	# hapla asso
 	parser_asso = subparsers.add_parser("asso")
 	parser_asso.add_argument("-f", "--filelist", metavar="FILE",
-		help="Filelist with paths to cluster or genotype files")
-	parser_asso.add_argument("-z", "--clusters", metavar="FILE",
-		help="Path to a single haplotype cluster alleles file")
+		help="Filelist with paths to genotype files in VCF/BCF format")
 	parser_asso.add_argument("-g", "--vcf", "--bcf", metavar="FILE",
 		help="Path to single genotype file in VCF/BCF format")
 	parser_asso.add_argument("-y", "--pheno", metavar="FILE",
@@ -112,7 +110,7 @@ def main():
 	parser_asso.add_argument("-c", "--covar", metavar="FILE",
 		help="Path to file with covariates")
 	parser_asso.add_argument("-b", "--block", type=int, default=1024,
-		metavar="INT", help="Number of clusters or SNPs to read in blocks")
+		metavar="INT", help="Number of clusters or SNPs to read in blocks (1024)")
 	parser_asso.add_argument("-t", "--threads", type=int, default=1,
 		metavar="INT", help="Number of threads (1)")
 	parser_asso.add_argument("-o", "--out", default="hapla.asso",
