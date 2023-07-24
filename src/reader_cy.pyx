@@ -4,6 +4,7 @@ cimport numpy as np
 from cpython.mem cimport PyMem_Malloc, PyMem_Free
 from cython.parallel import prange
 from libcpp.vector cimport vector
+from libc.math cimport sqrt
 
 DTYPE = np.uint8
 ctypedef np.uint8_t DTYPE_t

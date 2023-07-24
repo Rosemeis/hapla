@@ -1,5 +1,5 @@
 # hapla
-***hapla*** is a software for performing window-based haplotype clustering in phased genotype data. The inferred haplotype clusters can be used to infer fine-scale population structure and perform association testing.
+***hapla*** is a software for performing window-based haplotype clustering in phased genotype data. The inferred haplotype cluster alleles can be used to infer fine-scale population structure, perform polygenic prediction and haplotype-based association studies.
 
 ### Citation
 Please cite our preprint on *BioRxiv*: Work in progress
@@ -23,7 +23,6 @@ A detailed tutorial on how to use all features in ***hapla*** with a toy dataset
 - regress
 - predict
 - prs
-- split
 
 **hapla cluster** (Haplotype clustering)
 
@@ -83,15 +82,4 @@ Polygenic risk scores are estimated using the haplotype clustering and summary s
 ```bash
 hapla prs --filelist target.filelist --regress reference.trait.assoc --threads 20 --out target.trait
 # Saves polygenic risk scores in text-format ("target.trait.sumstats.prs")
-```
-
-**hapla split** (LD-based window generation for haplotype clustering)
-
-An optimal LD splitting can be performed per chromosome to perform haplotype clustering in inferred LD blocks rather than a fixed window size. The method is a reimplementation of the algorithm in this article [Optimal linkage disequilibrium splitting](https://doi.org/10.1093/bioinformatics/btab519). Please cite the original article if this method has been used!
-```bash
-hapla split --bcf file.chr1.bcf --threads 20 --out hapla.chr1
-# Saves the indices of the optimal splitting ("hapla.chr1.windows")
-
-# The window indices can now directly be used as input to "hapla cluster"
-hapla cluster --bcf file.chr1.bcf --windows hapla.chr1.windows --threads 20 --out hapla.chr1
 ```
