@@ -12,7 +12,7 @@ def randomizedSVD(Z_tilde, pi, sd, K, batch, threads):
 	O = np.random.standard_normal(size=(n, L))
 	A = np.zeros((m, L))
 	H = np.zeros((n, L))
-	for p in range(7):
+	for p in range(11):
 		Z_b = np.zeros((batch, n))
 		if p > 0:
 			O, _ = np.linalg.qr(H, mode="reduced")
