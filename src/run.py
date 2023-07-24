@@ -117,6 +117,8 @@ def main():
 		metavar="INT", help="Number of threads (1)")
 	parser_asso.add_argument("-o", "--out", default="hapla.asso",
 		metavar="OUTPUT", help="Output prefix")
+	parser_asso.add_argument("--chrom_num", default=1, metavar="INT", 
+		help="Chromosome number for output of single chromosome")
 
 	# hapla predict
 	parser_predict = subparsers.add_parser("predict")

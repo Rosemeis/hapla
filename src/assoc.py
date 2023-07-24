@@ -159,10 +159,7 @@ def main(args):
 		P[:,6] = chi2.sf(P[:,5], df=1) # P-values (1 - cdf) - Wald's
 		
 		# Save association results
-		if args.chrom is not None: # Chromosome number information
-			P[:,0] = args.chrom
-		else:
-			P[:,0] = 1
+		P[:,0] = args.chrom_info # Chromosome number information
 		v_file = VCF(args.vcf, threads=args.threads)
 		reader_cy.readPOS(v_file, P) # Read base positions
 		np.savetxt(f"{args.out}.snp.assoc", P, \
