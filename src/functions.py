@@ -1,4 +1,5 @@
 import numpy as np
+from math import ceil
 from src import shared_cy
 
 ##### hapla - functions #####
@@ -8,7 +9,7 @@ def randomizedSVD(Z_tilde, pi, sd, K, batch, threads):
 	m = Z_tilde.shape[0]
 	n = Z_tilde.shape[1]
 	B = ceil(m/batch)
-	L = K + 10
+	L = K + 20
 	O = np.random.standard_normal(size=(n, L))
 	A = np.zeros((m, L))
 	H = np.zeros((n, L))
