@@ -88,7 +88,7 @@ if (args.clusters is not None) or (args.filelist is not None):
 	n = Z_mat.shape[1]//2
 
 	# Estimate total number of haplotype cluster alleles
-	K_vec = np.max(Z_mat, axis=1) # Dummy encoding, removing last cluster
+	K_vec = np.max(Z_mat, axis=1) + 1
 	m = np.sum(K_vec, dtype=int)
 
 ### Causal betas and sampling

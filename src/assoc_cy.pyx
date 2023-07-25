@@ -10,7 +10,7 @@ from libc.math cimport sqrt
 cpdef void haplotypeStandard(unsigned char[:,::1] Z_mat, double[:,::1] Z, \
 		long[::1] B_arr, unsigned char[::1] K_vec):
 	cdef:
-		int n = Z.shape[1]//2
+		int n = Z.shape[1]
 		int W = B_arr.shape[0]
 		int b = 0
 		int i, k, w

@@ -12,8 +12,8 @@ cpdef void haplotypeAggregate(unsigned char[:,::1] Z_mat, unsigned char[:,::1] Z
 	cdef:
 		int W = Z_mat.shape[0]
 		int n = Z_mat.shape[1]
-		int i, k, w
 		int j = 0
+		int i, k, w
 	for w in range(W):
 		for k in range(K_vec[w]):
 			for i in range(n):
