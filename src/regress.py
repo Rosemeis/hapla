@@ -85,7 +85,7 @@ def main(args):
 		np.random.seed(args.seed) # Set random seed
 		N_split = np.array_split(np.random.permutation(n), args.folds)
 	h2 = np.clip(np.linspace(0.0, 1.0, args.ridge), 0.01, 0.99) # h^2_g
-	K_vec = np.max(Z_mat, axis=1) + 1
+	K_vec = np.max(Z_mat, axis=1) # Dummy encoding
 
 	### Residualize and scale phenotypes by covariates
 	U_c, _, _ = functions.fastSVD(C)
