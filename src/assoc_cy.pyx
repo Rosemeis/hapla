@@ -16,7 +16,7 @@ cpdef void haplotypeStandard(unsigned char[:,::1] Z_mat, double[:,::1] Z, \
 		int i, k, w
 		double pi, sd
 	for w in range(W):
-		for k in range(K_vec[B_arr[w]]-1):
+		for k in range(K_vec[B_arr[w]]):
 			pi = 0.0
 			sd = 0.0
 			for i in range(2*n):
@@ -40,7 +40,7 @@ cpdef void haplotypeAssoc(unsigned char[:,::1] Z_mat, double[:,::1] Z, \
 		int b = 0
 		int i, k, w
 	for w in range(W):
-		for k in range(K_vec[B_arr[w]]-1):
+		for k in range(K_vec[B_arr[w]]):
 			for i in range(n):
 				if Z_mat[B_arr[w],i] == k:
 					Z[b,i//2] += 1.0

@@ -85,7 +85,7 @@ def main(args):
 		np.random.seed(args.seed) # Set random seed
 		N_split = np.array_split(np.random.permutation(n), args.folds)
 	h2 = np.clip(np.linspace(0.0, 1.0, args.ridge), 0.01, 0.99) # h^2_g
-	K_vec = np.max(Z_mat, axis=1) + 1 # Number of haplotype clusters in windows
+	K_vec = np.max(Z_mat, axis=1) # Dummy encoding, removing last cluster
 
 	### Residualize and scale phenotypes by covariates
 	U_c, _, _ = functions.fastSVD(C)
@@ -127,7 +127,7 @@ def main(args):
 	L = np.zeros((B*r0, n), dtype=float) # Local predictors
 	for b in np.arange(B):
 		print(f"\rLevel 0 - Block {b+1}/{B}", end="")
-		B_num = np.sum(K_vec[B_arr[b]], dtype=int) - B_arr[b].shape[0]
+		B_num = np.sum(K_vec[B_arr[b]], dtype=int)
 
 		# Extract haplotype clusters, residualize and scale by covariates
 		Z = np.zeros((B_num, n), dtype=float)
@@ -262,7 +262,7 @@ def main(args):
 		s_env = np.linalg.norm(y_res)/sqrt(n - R_c)
 		for b in np.arange(B):
 			print(f"\rAssociation testing (clusters) - Block {b+1}/{B}", end="")
-			B_num = np.sum(K_vec[B_arr[b]], dtype=int) - B_arr[b].shape[0]
+			B_num = np.sum(K_vec[B_arr[b]], dtype=int)
 			
 			# Extract haplotype clusters and regress out covariates
 			Z = np.zeros((B_num, n), dtype=float)

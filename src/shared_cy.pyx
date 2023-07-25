@@ -10,12 +10,12 @@ from libc.math cimport sqrt
 cpdef void haplotypeAggregate(unsigned char[:,::1] Z_mat, unsigned char[:,::1] Z, \
 		double[::1] pi, double[::1] sd, unsigned char[::1] K_vec):
 	cdef:
-		int W = Z.shape[0]
-		int n = Z.shape[1]
+		int W = Z_mat.shape[0]
+		int n = Z_mat.shape[1]
 		int i, k, w
 		int j = 0
 	for w in range(W):
-		for k in range(K_vec[w]-1):
+		for k in range(K_vec[w]):
 			for i in range(n):
 				if Z_mat[w,i] == k:
 					Z[j,i//2] += 1

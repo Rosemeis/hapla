@@ -154,22 +154,6 @@ cpdef void convertHaplo(unsigned char[:,::1] Z, float[:,::1] G, \
 				j += 1
 			b += 1
 
-# Estimate haplotype cluster frequencies
-cpdef void estimateFreqs(unsigned char[:,::1] Z, unsigned char[::1] K_vec, \
-		double[::1] pi):
-	cdef:
-		int W = Z.shape[0]
-		int n = Z.shape[1]
-		int i, k, w
-		int j = 0
-	for w in range(W):
-		for k in range(K_vec[w]):
-			for i in range(n):
-				if Z[w,i] == k:
-					pi[j] += 1.0
-			pi[j] /= <double>n
-			j += 1
-
 ### Filter out variants from haplotype clustering and fix window sizes
 cpdef void filterSNPs(unsigned char[:,::1] Gt, long[::1] W, unsigned char[::1] mask):
 	cdef:

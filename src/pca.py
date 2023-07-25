@@ -50,8 +50,8 @@ def main(args):
 	n = Z_mat.shape[1]//2
 
 	# Estimate total number of haplotype cluster alleles
-	K_vec = np.max(Z_mat, axis=1) + 1
-	m = np.sum(K_vec, dtype=int) - W # Dummy encoding, removing last cluster
+	K_vec = np.max(Z_mat, axis=1) # Dummy encoding, removing last cluster
+	m = np.sum(K_vec, dtype=int)
 
 	# Populate full matrix and estimate summary statistics
 	Z = np.zeros((m, n), dtype=np.uint8)

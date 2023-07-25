@@ -84,14 +84,15 @@ if (args.clusters is not None) or (args.filelist is not None):
 		Z_mat = np.load(args.clusters)
 	print("\rLoaded haplotype cluster alleles of " + \
 		f"{Z_mat.shape[1]} haplotypes in {Z_mat.shape[0]} windows.")
+	W = Z_mat.shape[0]
 	n = Z_mat.shape[1]//2
 
 	# Estimate total number of haplotype cluster alleles
-	K_vec = np.max(Z_mat, axis=1) + 1
-	m = np.sum(K_vec)
+	K_vec = np.max(Z_mat, axis=1) # Dummy encoding, removing last cluster
+	m = np.sum(K_vec, dtype=int)
 
 ### Causal betas and sampling
-assert (args.h2 > 0) and (args.h2 < 10), "Invalid value for h2!" 
+assert (args.h2 > 0) and (args.h2 < 10), "Invalid value for h2!"
 h2 = float(f"0.{args.h2}")
 G = np.zeros((args.causal, n), dtype=np.float32) # Genotypes or haplotype clusters
 np.random.seed(args.seed) # Set random seed
