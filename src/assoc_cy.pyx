@@ -41,7 +41,7 @@ cpdef void haplotypeAssoc(unsigned char[:,::1] Z_mat, double[:,::1] Z, \
 		int i, k, w
 	for w in range(W):
 		for k in range(K_vec[B_arr[w]]):
-			for i in range(n):
+			for i in range(2*n):
 				if Z_mat[B_arr[w],i] == k:
 					Z[b,i//2] += 1.0
 					P[B_idx+b,3] += 1.0
