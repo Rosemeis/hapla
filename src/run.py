@@ -20,8 +20,8 @@ def main():
 		metavar="INT", help="Use fixed window length (128)")
 	parser_cluster.add_argument("-w", "--windows",
 		metavar="FILE", help="Use provided window lengths")
-	parser_cluster.add_argument("-l", "--lmbda", type=float, default=0.125,
-		metavar="FLOAT", help="Set lambda hyperparameter (0.125)")
+	parser_cluster.add_argument("-l", "--lmbda", type=float, default=0.1,
+		metavar="FLOAT", help="Set lambda hyperparameter (0.1)")
 	parser_cluster.add_argument("-e", "--max_iterations", type=int, default=100,
 		metavar="INT", help="Maximum number of iterations (100)")
 	parser_cluster.add_argument("-t", "--threads", type=int, default=1,
@@ -84,10 +84,10 @@ def main():
 		metavar="OUTPUT", help="Output prefix")
 	parser_regress.add_argument("--seed", type=int, default=42,
 		metavar="INT", help="Set random seed (42)")
-	parser_regress.add_argument("--folds", type=int, default=0,
-		metavar="INT", help="Number of folds for cross validations (0)")
-	parser_regress.add_argument("--ridge", type=int, default=5,
-		metavar="INT", help="Number of ridge regressors in each level (5)")
+	parser_regress.add_argument("--folds", type=int, default=10,
+		metavar="INT", help="Number of folds for cross validations (10)")
+	parser_regress.add_argument("--ridge", type=int, default=10,
+		metavar="INT", help="Number of ridge regressors in each level (10)")
 	parser_regress.add_argument("--linreg", action="store_true",
 		help="Use linear regression in level 0 instead of ridge")
 	parser_regress.add_argument("--haplo_asso", action="store_true",

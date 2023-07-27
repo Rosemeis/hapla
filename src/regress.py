@@ -59,6 +59,7 @@ def main(args):
 
 	# Load phenotype file (outcome)
 	y = np.loadtxt(args.pheno, dtype=float)
+	y -= np.mean(y) # Center phenotype vector
 	assert y.shape[0] == n, "Number of samples differ between files!"
 	print("Loaded phenotype file.")
 
@@ -172,7 +173,7 @@ def main(args):
 		del Z
 	print("")
 	
-	# Center and scale local predictors
+	# Scale local predictors
 	L -= np.mean(L, axis=1, keepdims=True)
 	L /= np.linalg.norm(L, axis=1, keepdims=True)/sqrt(n - 1)
 	L = np.ascontiguousarray(L.T)
