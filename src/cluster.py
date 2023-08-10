@@ -83,9 +83,9 @@ def main(args):
 		else:
 			print(f"\rWindow {w+1}/{W}", end="")
 
-		# Load haplotype segment
+		# Load haplotype window
 		if w < (W-1):
-			if args.windows is None:
+			if args.windows is None: # Re-use containers
 				M.fill(-9)
 				C.fill(0.0)
 				reader_cy.convertBit(G, H, C, winList[w], args.threads)
@@ -94,7 +94,7 @@ def main(args):
 				M = np.full((args.max_clusters, H.shape[0]), -9, dtype=np.int8)
 				C = np.zeros((args.max_clusters, H.shape[0]), dtype=np.float32)
 				reader_cy.convertBit(G, H, C, winList[w], args.threads)
-		else:
+		else: # Last window
 			H = np.zeros((m-winList[w], n), dtype=np.uint8)
 			M = np.full((args.max_clusters, H.shape[0]), -9, dtype=np.int8)
 			C = np.zeros((args.max_clusters, H.shape[0]), dtype=np.float32)
@@ -114,7 +114,7 @@ def main(args):
 			del H
 
 		# Perform DC-DP-Medians
-		for iter in np.arange(args.max_iterations):
+		for it in np.arange(args.max_iterations):
 			# Cluster assignment
 			cluster_cy.clusterAssignment(X, M, C, Z_mat, c_vec, N_vec, K, w, \
 				args.threads)
@@ -130,7 +130,7 @@ def main(args):
 				K += 1
 
 			# Check for convergence
-			if iter > 0:
+			if it > 0:
 				if np.allclose(Z_mat[w], z_prev):
 					if K > 1:
 						# Count sizes and construct marginal medians
@@ -148,7 +148,7 @@ def main(args):
 			z_prev = np.copy(Z_mat[w])
 			if args.verbose:
 				cost = np.sum(c_vec) + args.lmbda*mX*K
-				print(f"Epoch {iter}: Cost {cost}")
+				print(f"Epoch {it}: Cost {cost}")
 			# Count sizes and construct marginal medians
 			cluster_cy.countN(Z_mat, N_vec, K, w)
 			cluster_cy.marginalMedians(M, C, N_vec, K)
@@ -193,7 +193,7 @@ def main(args):
 				else:
 					M_mat[winList[w]:winList[w+1]] = \
 						np.ascontiguousarray(M.T)
-			else:
+			else: # Last window
 				M_mat[winList[w]:m] = np.ascontiguousarray(M.T)
 		if args.loglike:
 			cluster_cy.loglikeHaplo(L_mat, X, C, Z_mat, N_vec, K, w, args.threads)
@@ -205,7 +205,7 @@ def main(args):
 		N_vec.fill(0)
 	if not args.verbose:
 		print("")
-	K_max = np.max(K_vec)
+	K_max = np.max(K_vec) # Used in optional saves to reduce disk and memory allocation
 
 	##### Save output #####
 	np.save(f"{args.out}.z", Z_mat)

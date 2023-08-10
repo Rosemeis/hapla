@@ -37,7 +37,7 @@ def randomizedSVD(Z_tilde, pi, sd, K, batch, threads):
 
 
 ### hapla regress
-# SVD
+# Fast SVD function
 def fastSVD(A):
 	if A.shape[0] > A.shape[1]:
 		X = np.dot(A.T, A)

@@ -1,5 +1,5 @@
 # hapla
-***hapla*** is a software for performing window-based haplotype clustering in phased genotype data. The inferred haplotype cluster alleles can be used to infer fine-scale population structure, perform polygenic prediction and haplotype-based association studies.
+***hapla*** is a framework for performing window-based haplotype clustering in phased genotype data. The inferred haplotype cluster alleles can be used to infer fine-scale population structure, perform polygenic prediction and SNP-based or haplotype-based association studies.
 
 ### Citation
 Please cite our preprint on *BioRxiv*: Work in progress
@@ -21,8 +21,7 @@ A detailed tutorial on how to use all features in ***hapla*** with a toy dataset
 - cluster
 - pca
 - regress
-- predict
-- prs
+- asso
 
 **hapla cluster** (Haplotype clustering)
 
@@ -47,7 +46,7 @@ PCA is performed on the output from the haplotype clustering.
 hapla pca --filelist hapla.filelist --threads 20 --out hapla
 # Saves eigenvalues and eigenvectors in text-format ("hapla.eigenvec" and "hapla.eigenval")
 
-# Or perform PCA on a single chromosome
+# Or perform PCA on a single chromosome (not recommended)
 hapla pca --clusters hapla.chr1.z.npy --threads 20 --out hapla.chr1
 # Saves eigenvalues and eigenvectors in text-format ("hapla.chr1.eigenvec" and "hapla.chr1.eigenval")
 ```
@@ -57,29 +56,4 @@ The polygenic prediction and association testing in *hapla* are based on the *RE
 ```bash
 hapla regress --filelist hapla.filelist --eigen hapla.eigenvec --pheno trait.pheno --threads 20 --out hapla.trait
 # Saves association tests of haplotype clusters in text-format ("hapla.trait.assoc)
-```
-
-**hapla predict** (Predict haplotype clusters in new target file from pre-computed cluster medians)
-```bash
-# Cluster haplotypes in reference dataset and save cluster medians
-for c in {1..22}
-do
-	hapla cluster --bcf ref.chr${c}.bcf --medians --threads 20 --out ref.chr${c}
-	# Saves cluster medians in a binary NumPy file (ref.chr${c}.medians.npy) 
-	realpath ref.chr${c}.z.npy >> ref.filelist
-done
-
-# Predict haplotype clusters in new target dataset (assumes same SNP set, missingness allowed)
-for c in {1..22}
-do
-	hapla predict --bcf target.chr${c}.bcf --medians ref.chr${c}.medians.npy --threads 20 --out target.chr${c}
-	realpath target.chr${c}.z.npy >> target.filelist
-done
-```
-
-**hapla prs** (Polygenic risk score estimation using summary statistics)
-Polygenic risk scores are estimated using the haplotype clustering and summary statistics of genome-wide association testing from a reference dataset.
-```bash
-hapla prs --filelist target.filelist --regress reference.trait.assoc --threads 20 --out target.trait
-# Saves polygenic risk scores in text-format ("target.trait.sumstats.prs")
 ```

@@ -48,30 +48,8 @@ cpdef void haplotypeAssoc(unsigned char[:,::1] Z_mat, double[:,::1] Z, \
 			P[B_idx+b,3] /= <double>n
 			b += 1
 
-# Fast Level 0 LOOCV using SciPy BLAS routines
-cpdef void loocvLevel0(double[:,::1] Z, double[:,::1] L, double[:,::1] H, \
-		double[::1] p, double[::1] y, double[::1] x, int B) nogil:
-	cdef:
-		char *trans = "T"
-		int n = Z.shape[0]
-		int b = Z.shape[1]
-		int i1 = 1
-		int i2 = 1
-		int i
-		double alpha = 1.0
-		double beta = 0.0
-		double *H0 = &H[0,0]
-		double *x0 = &x[0]
-		double *Z0
-		double h
-	for i in range(n):
-		Z0 = &Z[i,0]
-		dgemv(trans, &b, &b, &alpha, H0, &b, Z0, &i1, &beta, x0, &i2)
-		h = ddot(&b, Z0, &i1, x0, &i2)
-		L[B,i] = p[i] - h*(y[i] - p[i])/(1.0 - h)
-
-# Fast Level 1 LOOCV using SciPy BLAS routines
-cpdef void loocvLevel1(double[:,::1] L, double[:,::1] y_prs, double[::1] y_mse, \
+# Fast LOOCV using SciPy BLAS routines
+cpdef void loocv(double[:,::1] L, double[:,::1] y_prs, double[::1] y_mse, \
 		double[:,::1] H, double[::1] p, double[::1] y, double[::1] x, int r) nogil:
 	cdef:
 		char *trans = "T"
@@ -95,8 +73,8 @@ cpdef void loocvLevel1(double[:,::1] L, double[:,::1] y_prs, double[::1] y_mse, 
 
 # LOCO prediction for LOOCV using SciPy BLAS routines
 cpdef void loocvLOCO(double[:,::1] L, double[:,::1] y_chr, double[::1] y_hat, \
-		double[:,::1] H, double[::1] p, double[::1] y, double[::1] a, double[::1] x, \
-		long[::1] B_list, int R) nogil:
+		double[:,::1] H, double[::1] p, double[::1] y, double[::1] a, double[::1] x) \
+		nogil:
 	cdef:
 		char *trans = "T"
 		int C = y_chr.shape[1]
@@ -104,7 +82,7 @@ cpdef void loocvLOCO(double[:,::1] L, double[:,::1] y_chr, double[::1] y_hat, \
 		int b = L.shape[1]
 		int i1 = 1
 		int i2 = 1
-		int B_blk, blk, c, i
+		int c, i
 		double alpha = 1.0
 		double beta = 0.0
 		double *H0 = &H[0,0]
@@ -116,27 +94,19 @@ cpdef void loocvLOCO(double[:,::1] L, double[:,::1] y_chr, double[::1] y_hat, \
 		dgemv(trans, &b, &b, &alpha, H0, &b, L0, &i1, &beta, x0, &i2)
 		h = ddot(&b, L0, &i1, x0, &i2)
 		e = y[i] - p[i]
-		B_blk = 0
 		for c in range(C):
-			y_chr[i,c] = y_hat[i]
-			for blk in range(B_blk*R, B_blk*R + B_list[c]*R):
-				y_chr[i,c] -= L[i,blk]*(a[blk] - x[blk]*e/(1.0 - h))
-			B_blk += B_list[c]
+			y_chr[i,c] = y_hat[i] - L[i,c]*(a[c] - x[c]*e/(1.0 - h))
 
 # LOCO prediction for K-fold CV
 cpdef void haplotypeLOCO(double[:,::1] L, double[:,::1] E_hat, double[:,::1] y_chr, \
-		double[::1] y_hat, unsigned char[::1] N_ind, long[::1] B_list, int R):
+		double[::1] y_hat, unsigned char[::1] N_ind):
 	cdef:
 		int n = y_chr.shape[0]
 		int C = y_chr.shape[1]
-		int B_blk, blk, c, i
+		int c, i
 	for i in range(n):
-		B_blk = 0
 		for c in range(C):
-			y_chr[i,c] = y_hat[i]
-			for blk in range(B_blk*R, B_blk*R + B_list[c]*R):
-				y_chr[i,c] -= L[i,blk]*E_hat[N_ind[i],blk]
-			B_blk += B_list[c]
+			y_chr[i,c] = y_hat[i] - L[i,c]*E_hat[N_ind[i],c]
 
 # Association testing of haplotype clusters
 cpdef void haplotypeTest(double[:,::1] Z, double[:,::1] P, double[::1] y_res, \

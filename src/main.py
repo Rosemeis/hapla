@@ -16,22 +16,22 @@ def main():
 	parser_cluster = subparsers.add_parser("cluster")
 	parser_cluster.add_argument("-g", "--vcf", "--bcf", metavar="FILE",
 		help="Input phased genotype file in VCF/BCF format")
-	parser_cluster.add_argument("-f", "--fixed", type=int, default=128,
-		metavar="INT", help="Use fixed window length (128)")
+	parser_cluster.add_argument("-f", "--fixed", type=int, default=100,
+		metavar="INT", help="Use fixed window length (100)")
 	parser_cluster.add_argument("-w", "--windows",
 		metavar="FILE", help="Use provided window lengths")
 	parser_cluster.add_argument("-l", "--lmbda", type=float, default=0.1,
 		metavar="FLOAT", help="Set lambda hyperparameter (0.1)")
-	parser_cluster.add_argument("-e", "--max_iterations", type=int, default=100,
-		metavar="INT", help="Maximum number of iterations (100)")
+	parser_cluster.add_argument("-e", "--max_iterations", type=int, default=500,
+		metavar="INT", help="Maximum number of iterations (500)")
 	parser_cluster.add_argument("-t", "--threads", type=int, default=1,
 		metavar="INT", help="Number of threads (1)")
 	parser_cluster.add_argument("-o", "--out", default="hapla.cluster",
 		metavar="OUTPUT", help="Output prefix")
 	parser_cluster.add_argument("--min_freq", type=float, default=0.01,
 		metavar="INT", help="Minimum frequency for haplotype cluster (0.01)")
-	parser_cluster.add_argument("--max_clusters", type=int, default=256,
-		metavar="INT", help="Maximum number of haplotype clusters per window (256)")
+	parser_cluster.add_argument("--max_clusters", type=int, default=200,
+		metavar="INT", help="Maximum number of haplotype clusters per window (200)")
 	parser_cluster.add_argument("--medians", action="store_true",
 		help="Save haplotype cluster medians")
 	parser_cluster.add_argument("--loglike", action="store_true",
@@ -44,7 +44,7 @@ def main():
 	# hapla pca
 	parser_pca = subparsers.add_parser("pca")
 	parser_pca.add_argument("-f", "--filelist", metavar="FILE",
-		help="Filelist with paths to multiple haplotype cluster alleles files")
+		help="Filelist with paths to haplotype cluster alleles files")
 	parser_pca.add_argument("-z", "--clusters", metavar="FILE",
 		help="Path to a single haplotype cluster alleles file")
 	parser_pca.add_argument("-e", "--n_eig", type=int, default=10,
@@ -68,8 +68,6 @@ def main():
 	parser_regress = subparsers.add_parser("regress")
 	parser_regress.add_argument("-f", "--filelist", metavar="FILE",
 		help="Filelist with paths to haplotype cluster alleles files")
-	parser_regress.add_argument("-z", "--clusters", metavar="FILE",
-		help="Path to a single haplotype cluster alleles file")
 	parser_regress.add_argument("-y", "--pheno", metavar="FILE",
 		help="Path to phenotype file")
 	parser_regress.add_argument("-e", "--eigen", metavar="FILE",
@@ -88,17 +86,11 @@ def main():
 		metavar="INT", help="Number of folds for cross validations (10)")
 	parser_regress.add_argument("--ridge", type=int, default=10,
 		metavar="INT", help="Number of ridge regressors in each level (10)")
-	parser_regress.add_argument("--linreg", action="store_true",
-		help="Use linear regression in level 0 instead of ridge")
-	parser_regress.add_argument("--haplo_asso", action="store_true",
-		help="Perform haplotype cluster-based association tests")
 
 	# hapla asso
 	parser_asso = subparsers.add_parser("asso")
 	parser_asso.add_argument("-f", "--filelist", metavar="FILE",
 		help="Filelist with paths to genotype files in VCF/BCF format")
-	parser_asso.add_argument("-g", "--vcf", "--bcf", metavar="FILE",
-		help="Path to single genotype file in VCF/BCF format")
 	parser_asso.add_argument("-y", "--pheno", metavar="FILE",
 		help="Path to phenotype file")
 	parser_asso.add_argument("-l", "--loco", metavar="FILE",
@@ -143,14 +135,14 @@ def main():
 		metavar="INT", help="Number of threads (1)")
 	parser_split.add_argument("-o", "--out", default="hapla.split",
 		metavar="OUTPUT", help="Output files")
-	parser_split.add_argument("--min_length", type=int, default=100,
+	parser_split.add_argument("--min_length", type=int, default=50,
 		metavar="INT", help="Minimum number of SNPs in windows (100)")
 	parser_split.add_argument("--max_length", type=int, default=1000,
 		metavar="INT", help="Maximum number of SNPs in windows (1000)")
 	parser_split.add_argument("--max_windows", type=int, default=5000,
 		metavar="INT", help="Maximum number of windows allowed")
-	parser_split.add_argument("--threshold", type=float, default=0.1,
-		metavar="FLOAT", help="Lower bound for r^2 in window creation (0.1)")
+	parser_split.add_argument("--threshold", type=float, default=0.05,
+		metavar="FLOAT", help="Lower bound for r^2 in window creation (0.05)")
 
 	# Parse arguments
 	args = parser.parse_args()
@@ -192,8 +184,8 @@ def main():
 			parser_asso.print_help()
 			sys.exit()
 		else:
-			from src import assoc
-			assoc.main(args)
+			from src import asso
+			asso.main(args)
 
 	# hapla prs
 	if sys.argv[1] == "prs":
