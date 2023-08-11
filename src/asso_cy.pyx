@@ -8,19 +8,19 @@ from libc.math cimport sqrt
 ### hapla regress
 # Setup standardized haplotype clusters for a block
 cpdef void haplotypeStandard(unsigned char[:,::1] Z_mat, double[:,::1] Z, \
-		long[::1] B_arr, unsigned char[::1] K_vec):
+		unsigned char[::1] K_chr, int c):
 	cdef:
 		int n = Z.shape[1]
-		int W = B_arr.shape[0]
+		int W = K_chr.shape[0]
 		int b = 0
 		int i, k, w
 		double pi, sd
 	for w in range(W):
-		for k in range(K_vec[B_arr[w]]):
+		for k in range(K_chr[b]):
 			pi = 0.0
 			sd = 0.0
 			for i in range(2*n):
-				if Z_mat[B_arr[w],i] == k:
+				if Z_mat[c+w,i] == k:
 					Z[b,i//2] += 1.0
 					pi += 1.0
 			pi /= <double>n
@@ -29,23 +29,6 @@ cpdef void haplotypeStandard(unsigned char[:,::1] Z_mat, double[:,::1] Z, \
 			sd = sqrt(sd/(<double>(n-1)))
 			for i in range(n):
 				Z[b,i] = (Z[b,i] - pi)/sd
-			b += 1
-
-# Setup haplotype clusters for a block and estimate frequencies
-cpdef void haplotypeAssoc(unsigned char[:,::1] Z_mat, double[:,::1] Z, \
-		double[:,::1] P, long[::1] B_arr, unsigned char[::1] K_vec, int B_idx):
-	cdef:
-		int n = Z.shape[1]
-		int W = B_arr.shape[0]
-		int b = 0
-		int i, k, w
-	for w in range(W):
-		for k in range(K_vec[B_arr[w]]):
-			for i in range(2*n):
-				if Z_mat[B_arr[w],i] == k:
-					Z[b,i//2] += 1.0
-					P[B_idx+b,3] += 1.0
-			P[B_idx+b,3] /= <double>n
 			b += 1
 
 # Fast LOOCV using SciPy BLAS routines
@@ -108,32 +91,26 @@ cpdef void haplotypeLOCO(double[:,::1] L, double[:,::1] E_hat, double[:,::1] y_c
 		for c in range(C):
 			y_chr[i,c] = y_hat[i] - L[i,c]*E_hat[N_ind[i],c]
 
-# Association testing of haplotype clusters
-cpdef void haplotypeTest(double[:,::1] Z, double[:,::1] P, double[::1] y_res, \
-		long[::1] B_arr, unsigned char[::1] K_vec, double s_env, int W_chr, int B):
+
+
+### hapla asso
+# Setup haplotype clusters for a block and estimate frequencies
+cpdef void haplotypeAssoc(unsigned char[:,::1] Z_mat, double[:,::1] Z, \
+		double[:,::1] P, long[::1] B_arr, unsigned char[::1] K_vec, int B_idx):
 	cdef:
 		int n = Z.shape[1]
 		int W = B_arr.shape[0]
 		int b = 0
 		int i, k, w
-		double gTg, gTy
 	for w in range(W):
 		for k in range(K_vec[B_arr[w]]):
-			gTg = 0.0
-			gTy = 0.0
-			for i in range(n):
-				gTg += Z[b,i]*Z[b,i]
-				gTy += Z[b,i]*y_res[i]
-			P[B+b,1] = W_chr+w+1 # Window
-			P[B+b,2] = k+1 # Cluster
-			P[B+b,4] = gTy/gTg # Beta
-			P[B+b,6] = gTy/(s_env*sqrt(gTg)) # Wald's
-			P[B+b,5] = P[B+b,4]/P[B+b,6] # SE(Beta)
-			P[B+b,6] *= P[B+b,6]
+			for i in range(2*n):
+				if Z_mat[B_arr[w],i] == k:
+					Z[b,i//2] += 1.0
+					P[B_idx+b,3] += 1.0
+			P[B_idx+b,3] /= <double>n
 			b += 1
 
-
-### hapla asso
 # Convert 1-bit into genotype block
 cpdef void genotypeAssoc(unsigned char[:,::1] G_mat, double[:,::1] G, \
 		double[:,::1] P, int B_idx):
@@ -158,6 +135,30 @@ cpdef void genotypeAssoc(unsigned char[:,::1] G_mat, double[:,::1] G, \
 				if i == n:
 					break
 		P[B_idx+j,2] /= 2.0*(<double>n)
+
+# Association testing of haplotype cluster alleles
+cpdef void haplotypeTest(double[:,::1] Z, double[:,::1] P, double[::1] y_res, \
+		long[::1] B_arr, unsigned char[::1] K_vec, double s_env, int W_chr, int B):
+	cdef:
+		int n = Z.shape[1]
+		int W = B_arr.shape[0]
+		int b = 0
+		int i, k, w
+		double gTg, gTy
+	for w in range(W):
+		for k in range(K_vec[B_arr[w]]):
+			gTg = 0.0
+			gTy = 0.0
+			for i in range(n):
+				gTg += Z[b,i]*Z[b,i]
+				gTy += Z[b,i]*y_res[i]
+			P[B+b,1] = W_chr+w+1 # Window
+			P[B+b,2] = k+1 # Cluster
+			P[B+b,4] = gTy/gTg # Beta
+			P[B+b,6] = gTy/(s_env*sqrt(gTg)) # Wald's
+			P[B+b,5] = P[B+b,4]/P[B+b,6] # SE(Beta)
+			P[B+b,6] *= P[B+b,6]
+			b += 1
 
 # Association testing of SNPs
 cpdef void genotypeTest(double[:,::1] G, double[:,::1] P, double[::1] y_res, \

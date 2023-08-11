@@ -86,7 +86,7 @@ def main(args):
 	U_c, _, _ = functions.fastSVD(C)
 	R_c = U_c.shape[1]
 	y -= np.dot(U_c, np.dot(U_c.T, y))
-	y /= np.linalg.norm(y)/sqrt(n - R_c)
+	y /= (np.linalg.norm(y)/sqrt(n - R_c))
 
 
 	##### Step 1 - Whole-genome regression #####
@@ -103,11 +103,11 @@ def main(args):
 		B_num = np.sum(K_chr, dtype=int)
 		lmbda = B_num*(1.0 - h2)/h2 # Lambda scaling
 
-		# Extract haplotype clusters, residualize and scale by covariates
+		# Standardize haplotype clusters, residualize and scale by covariates
 		Z = np.zeros((B_num, n), dtype=float)
-		asso_cy.haplotypeStandard(Z_mat, Z, C_arr[c_idx], K_vec)
+		asso_cy.haplotypeStandard(Z_mat, Z, K_chr, C_arr[c_idx])
 		Z -= np.dot(np.dot(Z, U_c), U_c.T)
-		Z /= np.linalg.norm(Z, axis=1, keepdims=True)/sqrt(n - R_c)
+		Z /= (np.linalg.norm(Z, axis=1, keepdims=True)/sqrt(n - R_c))
 		Z = np.ascontiguousarray(Z.T)
 
 		# Cross-validation scheme
