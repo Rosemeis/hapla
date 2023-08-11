@@ -85,6 +85,7 @@ def main(args):
 	### Residualize and scale phenotypes by covariates
 	U_c, _, _ = functions.fastSVD(C)
 	R_c = U_c.shape[1]
+	del C
 	y -= np.dot(U_c, np.dot(U_c.T, y))
 	y /= (np.linalg.norm(y)/sqrt(n - R_c))
 
@@ -138,6 +139,7 @@ def main(args):
 		L[c_idx,:] = y_prs[np.argmin(y_mse),:]
 		y_prs.fill(0.0)
 		y_mse.fill(0.0)
+	del Z_mat, K_vec
 	print("")
 
 	### Level 1 - Combined ridge regression

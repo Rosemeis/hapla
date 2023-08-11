@@ -96,20 +96,17 @@ cpdef void haplotypeLOCO(double[:,::1] L, double[:,::1] E_hat, double[:,::1] y_c
 ### hapla asso
 # Setup haplotype clusters for a block and estimate frequencies
 cpdef void haplotypeAssoc(unsigned char[:,::1] Z_mat, double[:,::1] Z, \
-		double[:,::1] P, long[::1] B_arr, unsigned char[::1] K_vec, int B_idx):
+		double[:,::1] P, int B, int w):
 	cdef:
+		int K = Z.shape[0]
 		int n = Z.shape[1]
-		int W = B_arr.shape[0]
-		int b = 0
-		int i, k, w
-	for w in range(W):
-		for k in range(K_vec[B_arr[w]]):
-			for i in range(2*n):
-				if Z_mat[B_arr[w],i] == k:
-					Z[b,i//2] += 1.0
-					P[B_idx+b,3] += 1.0
-			P[B_idx+b,3] /= <double>n
-			b += 1
+		int i, k
+	for k in range(K):
+		for i in range(2*n):
+			if Z_mat[w,i] == k:
+				Z[k,i//2] += 1.0
+				P[B+k,3] += 1.0
+		P[B+k,3] /= <double>n
 
 # Convert 1-bit into genotype block
 cpdef void genotypeAssoc(unsigned char[:,::1] G_mat, double[:,::1] G, \
@@ -138,27 +135,24 @@ cpdef void genotypeAssoc(unsigned char[:,::1] G_mat, double[:,::1] G, \
 
 # Association testing of haplotype cluster alleles
 cpdef void haplotypeTest(double[:,::1] Z, double[:,::1] P, double[::1] y_res, \
-		long[::1] B_arr, unsigned char[::1] K_vec, double s_env, int W_chr, int B):
+		double s_env, int B, int w):
 	cdef:
+		int K = Z.shape[0]
 		int n = Z.shape[1]
-		int W = B_arr.shape[0]
-		int b = 0
-		int i, k, w
+		int i, k
 		double gTg, gTy
-	for w in range(W):
-		for k in range(K_vec[B_arr[w]]):
-			gTg = 0.0
-			gTy = 0.0
-			for i in range(n):
-				gTg += Z[b,i]*Z[b,i]
-				gTy += Z[b,i]*y_res[i]
-			P[B+b,1] = W_chr+w+1 # Window
-			P[B+b,2] = k+1 # Cluster
-			P[B+b,4] = gTy/gTg # Beta
-			P[B+b,6] = gTy/(s_env*sqrt(gTg)) # Wald's
-			P[B+b,5] = P[B+b,4]/P[B+b,6] # SE(Beta)
-			P[B+b,6] *= P[B+b,6]
-			b += 1
+	for k in range(K):
+		gTg = 0.0
+		gTy = 0.0
+		for i in range(n):
+			gTg += Z[k,i]*Z[k,i]
+			gTy += Z[k,i]*y_res[i]
+		P[B+k,1] = w+1 # Window
+		P[B+k,2] = k+1 # Cluster
+		P[B+k,4] = gTy/gTg # Beta
+		P[B+k,6] = gTy/(s_env*sqrt(gTg)) # Wald's
+		P[B+k,5] = P[B+k,4]/P[B+k,6] # SE(Beta)
+		P[B+k,6] *= P[B+k,6]
 
 # Association testing of SNPs
 cpdef void genotypeTest(double[:,::1] G, double[:,::1] P, double[::1] y_res, \
