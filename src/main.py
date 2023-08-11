@@ -90,7 +90,7 @@ def main():
 	# hapla asso
 	parser_asso = subparsers.add_parser("asso")
 	parser_asso.add_argument("-f", "--filelist", metavar="FILE",
-		help="Filelist with paths to genotype files in VCF/BCF format")
+		help="Filelist with paths to files in VCF/BCF or NumPy format")
 	parser_asso.add_argument("-y", "--pheno", metavar="FILE",
 		help="Path to phenotype file")
 	parser_asso.add_argument("-l", "--loco", metavar="FILE",
