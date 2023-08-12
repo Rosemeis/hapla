@@ -50,7 +50,7 @@ def main(args):
 	n = Z_mat.shape[1]//2
 	print("\rLoaded haplotype cluster alleles of " + \
 		f"{Z_mat.shape[1]} haplotypes in {Z_mat.shape[0]} windows.")
-	K_vec = np.max(Z_mat, axis=1) + 1
+	K_vec = np.max(Z_mat, axis=1) # Dummy encoding
 
 	# Load phenotype file (outcome)
 	y = np.loadtxt(args.pheno, dtype=float)
