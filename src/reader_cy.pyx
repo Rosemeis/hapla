@@ -50,7 +50,7 @@ cpdef np.ndarray[DTYPE_t, ndim=2] readVCF(v_file, const int n, const int B):
 
 ### Convert 1-bit into full array and initialize cluster mean
 cpdef void convertBit(unsigned char[:,::1] Gt, unsigned char[:,::1] Xt, float[:,::1] C, \
-		int w0, int t):
+		int w0, int t) nogil:
 	cdef:
 		int B = Gt.shape[1]
 		int m = Xt.shape[0]
@@ -73,7 +73,8 @@ cpdef void convertBit(unsigned char[:,::1] Gt, unsigned char[:,::1] Xt, float[:,
 						break
 
 ### Convert 1-bit into full array for predicting target clusters
-cpdef void predictBit(unsigned char[:,::1] Gt, unsigned char[:,::1] Xt, int w0, int t):
+cpdef void predictBit(unsigned char[:,::1] Gt, unsigned char[:,::1] Xt, int w0, int t) \
+		nogil:
 	cdef:
 		int B = Gt.shape[1]
 		int m = Xt.shape[0]
@@ -94,7 +95,7 @@ cpdef void predictBit(unsigned char[:,::1] Gt, unsigned char[:,::1] Xt, int w0, 
 						break
 
 ### Convert 1-bit into standardized genotype array for phenotypes
-cpdef void genotypeBit(unsigned char[:,::1] G_mat, float[:,::1] G, long[::1] p):
+cpdef void genotypeBit(unsigned char[:,::1] G_mat, float[:,::1] G, long[::1] p) nogil:
 	cdef:
 		int m = G.shape[0]
 		int n = G.shape[1]
@@ -127,7 +128,7 @@ cpdef void genotypeBit(unsigned char[:,::1] G_mat, float[:,::1] G, long[::1] p):
 
 ### Convert haplotype cluster assignments to standardized array for phenotypes
 cpdef void convertHaplo(unsigned char[:,::1] Z, float[:,::1] G, \
-		unsigned char[::1] K_vec, long[::1] C):
+		unsigned char[::1] K_vec, long[::1] C) nogil:
 	cdef:
 		int W = Z.shape[0]
 		int m = G.shape[0]
@@ -155,7 +156,8 @@ cpdef void convertHaplo(unsigned char[:,::1] Z, float[:,::1] G, \
 			b += 1
 
 ### Filter out variants from haplotype clustering and fix window sizes
-cpdef void filterSNPs(unsigned char[:,::1] Gt, long[::1] W, unsigned char[::1] mask):
+cpdef void filterSNPs(unsigned char[:,::1] Gt, long[::1] W, unsigned char[::1] mask) \
+		nogil:
 	cdef:
 		int m = Gt.shape[0]
 		int B = Gt.shape[1]

@@ -8,7 +8,7 @@ from libc.math cimport sqrt
 ### hapla pca
 # Extract aggregated haplotype cluster counts
 cpdef void haplotypeAggregate(unsigned char[:,::1] Z_mat, unsigned char[:,::1] Z, \
-		double[::1] pi, double[::1] sd, unsigned char[::1] K_vec):
+		double[::1] pi, double[::1] sd, unsigned char[::1] K_vec) nogil:
 	cdef:
 		int W = Z_mat.shape[0]
 		int n = Z_mat.shape[1]
@@ -28,7 +28,7 @@ cpdef void haplotypeAggregate(unsigned char[:,::1] Z_mat, unsigned char[:,::1] Z
 
 # Array filtering
 cpdef void filterZ(unsigned char[:,::1] Z, double[::1] pi, \
-		double[::1] sd, unsigned char[::1] mask):
+		double[::1] sd, unsigned char[::1] mask) nogil:
 	cdef:
 		int m = Z.shape[0]
 		int n = Z.shape[1]
@@ -44,34 +44,32 @@ cpdef void filterZ(unsigned char[:,::1] Z, double[::1] pi, \
 
 # Standardize the batch haplotype cluster assignment matrix
 cpdef void batchZ(unsigned char[:,::1] Z, double[:,::1] Z_b, double[::1] pi, \
-		double[::1] sd, int m_b, int t):
+		double[::1] sd, int m_b, int t) nogil:
 	cdef:
 		int m = Z_b.shape[0]
 		int n = Z_b.shape[1]
 		int i, j
-	with nogil:
-		for j in prange(m, num_threads=t):
-			for i in range(n):
-				Z_b[j,i] = (Z[m_b+j,i] - 2*pi[m_b+j])/sd[m_b+j]
+	for j in prange(m, num_threads=t):
+		for i in range(n):
+			Z_b[j,i] = (Z[m_b+j,i] - 2*pi[m_b+j])/sd[m_b+j]
 
 # Standardize full matrix
 cpdef void standardizeZ(unsigned char[:,::1] Z, double[:,::1] Z_std, \
-		double[::1] pi, double[::1] sd, int t):
+		double[::1] pi, double[::1] sd, int t) nogil:
 	cdef:
 		int m = Z.shape[0]
 		int n = Z.shape[1]
 		int i, j
-	with nogil:
-		for j in prange(m, num_threads=t):
-			for i in range(n):
-				Z_std[j,i] = (Z[j,i] - 2*pi[j])/sd[j]
+	for j in prange(m, num_threads=t):
+		for i in range(n):
+			Z_std[j,i] = (Z[j,i] - 2*pi[j])/sd[j]
 
 
 
 ### hapla split
 # Estimate squared correlation between variants (r^2) and compute L matrix
 cpdef void estimateL(unsigned char[:,::1] Gt, double[::1] F, double[::1] S, \
-				float[:,::1] L, double thr, int n, int t):
+				float[:,::1] L, double thr, int n, int t) nogil:
 	cdef:
 		int m = Gt.shape[0]
 		int B = Gt.shape[1]
@@ -81,7 +79,7 @@ cpdef void estimateL(unsigned char[:,::1] Gt, double[::1] F, double[::1] S, \
 		unsigned char b1
 		unsigned char b2
 		double corr, r2
-	with nogil, parallel(num_threads=t):
+	with parallel(num_threads=t):
 		# Estimate means and standard deviations
 		for j in prange(m):
 			k = 0
@@ -132,7 +130,7 @@ cpdef void estimateL(unsigned char[:,::1] Gt, double[::1] F, double[::1] S, \
 				c = c - 1
 
 # Estimate E matrix used for cost estimation
-cpdef void estimateE(float[:,::1] L, float[:,::1] E):
+cpdef void estimateE(float[:,::1] L, float[:,::1] E) nogil:
 	cdef:
 		int m = E.shape[0]
 		int W = E.shape[1]
@@ -145,7 +143,7 @@ cpdef void estimateE(float[:,::1] L, float[:,::1] E):
 				E[j,k] = L[j,k] + E[j+1,k-1]
 
 # Compute cost for different number of splits
-cpdef void estimateC(float[:,::1] E, float[:,::1] C, int[:,::1] I, int w0, int t):
+cpdef void estimateC(float[:,::1] E, float[:,::1] C, int[:,::1] I, int w0, int t) nogil:
 	cdef:
 		int m = E.shape[0]
 		int W = E.shape[1]
@@ -166,7 +164,7 @@ cpdef void estimateC(float[:,::1] E, float[:,::1] C, int[:,::1] I, int w0, int t
 						I[k,j] = j+w+1
 
 # Reconstruct path of the lowest cost
-cpdef void reconstructPath(int[:,::1] I, int[::1] P, int k):
+cpdef void reconstructPath(int[:,::1] I, int[::1] P, int k) nogil:
 	cdef:
 		int j = 0
 		int i
@@ -179,21 +177,20 @@ cpdef void reconstructPath(int[:,::1] I, int[::1] P, int k):
 ### hapla predict
 # Haplotype cluster assignment based on pre-estimated medians
 cpdef void predictCluster(unsigned char[:,::1] X, signed char[:,::1] M, \
-		unsigned char[:,::1] Z, int K, int w, int t):
+		unsigned char[:,::1] Z, int K, int w, int t) nogil:
 	cdef:
 		int n = X.shape[0]
 		int m = X.shape[1]
 		int i, j, k, dist, m_val
-	with nogil:
-		for i in prange(n, num_threads=t):
-			m_val = m 
-			for k in range(K):
-				dist = 0
-				for j in range(m):
-					if X[i,j] != M[k,j]:
-						dist = dist + 1
-				# Assignment
-				if dist < m_val:
-					Z[w,i] = k # Cluster assignment
-					m_val = dist
+	for i in prange(n, num_threads=t):
+		m_val = m 
+		for k in range(K):
+			dist = 0
+			for j in range(m):
+				if X[i,j] != M[k,j]:
+					dist = dist + 1
+			# Assignment
+			if dist < m_val:
+				Z[w,i] = k # Cluster assignment
+				m_val = dist
 					

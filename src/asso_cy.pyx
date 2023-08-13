@@ -8,7 +8,7 @@ from libc.math cimport sqrt
 ### hapla regress
 # Setup standardized haplotype clusters for a block
 cpdef void haplotypeStandard(unsigned char[:,::1] Z_mat, double[:,::1] Z, \
-		unsigned char[::1] K_chr, int c):
+		unsigned char[::1] K_chr, int c) nogil:
 	cdef:
 		int n = Z.shape[1]
 		int W = K_chr.shape[0]
@@ -82,7 +82,7 @@ cpdef void loocvLOCO(double[:,::1] L, double[:,::1] y_chr, double[::1] y_hat, \
 
 # LOCO prediction for K-fold CV
 cpdef void haplotypeLOCO(double[:,::1] L, double[:,::1] E_hat, double[:,::1] y_chr, \
-		double[::1] y_hat, unsigned char[::1] N_ind):
+		double[::1] y_hat, unsigned char[::1] N_ind) nogil:
 	cdef:
 		int n = y_chr.shape[0]
 		int C = y_chr.shape[1]
@@ -96,7 +96,7 @@ cpdef void haplotypeLOCO(double[:,::1] L, double[:,::1] E_hat, double[:,::1] y_c
 ### hapla asso
 # Setup haplotype clusters for a block and estimate frequencies
 cpdef void haplotypeAssoc(unsigned char[:,::1] Z_mat, double[:,::1] Z, \
-		double[:,::1] P, int B, int w):
+		double[:,::1] P, int B, int w) nogil:
 	cdef:
 		int K = Z.shape[0]
 		int n = Z.shape[1]
@@ -110,7 +110,7 @@ cpdef void haplotypeAssoc(unsigned char[:,::1] Z_mat, double[:,::1] Z, \
 
 # Convert 1-bit into genotype block
 cpdef void genotypeAssoc(unsigned char[:,::1] G_mat, double[:,::1] G, \
-		double[:,::1] P, int B_idx):
+		double[:,::1] P, int B_idx) nogil:
 	cdef:
 		int m = G.shape[0]
 		int n = G.shape[1]
@@ -135,7 +135,7 @@ cpdef void genotypeAssoc(unsigned char[:,::1] G_mat, double[:,::1] G, \
 
 # Association testing of haplotype cluster alleles
 cpdef void haplotypeTest(double[:,::1] Z, double[:,::1] P, double[::1] y_res, \
-		double s_env, int B, int w):
+		double s_env, int B, int w) nogil:
 	cdef:
 		int K = Z.shape[0]
 		int n = Z.shape[1]
@@ -156,7 +156,7 @@ cpdef void haplotypeTest(double[:,::1] Z, double[:,::1] P, double[::1] y_res, \
 
 # Association testing of SNPs
 cpdef void genotypeTest(double[:,::1] G, double[:,::1] P, double[::1] y_res, \
-		double s_env, int B_idx):
+		double s_env, int B_idx) nogil:
 	cdef:
 		int m = G.shape[0]
 		int n = G.shape[1]
