@@ -46,7 +46,7 @@ def fastSVD(A):
 		X = np.dot(A, A.T)
 		trans = False
 	D, V = np.linalg.eigh(X)
-	D, V = D[D > 1e-10], V[:, D > 1e-10]
+	D, V = D[D > 1e-8], V[:, D > 1e-8]
 	S = np.sqrt(D)
 	if trans:
 		U = np.dot(A, V)/S

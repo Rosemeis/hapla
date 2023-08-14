@@ -64,11 +64,11 @@ def main(args):
 	assert C.shape[1] < n, "Number of covariates exceed indviduals!"
 
 	### Residualize and scale phenotypes by covariates
-	U_c, _, _ = functions.fastSVD(C)
-	R_c = U_c.shape[1]
+	U_cov, _, _ = functions.fastSVD(C)
+	R_cov = U_cov.shape[1]
 	del C
-	y -= np.dot(U_c, np.dot(U_c.T, y))
-	y /= np.linalg.norm(y)/sqrt(n - R_c)
+	y_res = y - np.dot(U_cov, np.dot(U_cov.T, y))
+	y_res /= np.linalg.norm(y_res)/sqrt(n - R_cov)
 
 
 	##### Step 2 - Association testing #####
@@ -88,6 +88,9 @@ def main(args):
 	
 	### Perform association testing
 	for c_idx in np.arange(N_chr):
+		y_loc = y_res - y_chr[c_idx,:] # Residualized phenotype
+		s_env = np.linalg.norm(y_loc)/sqrt(n - R_cov)
+
 		# Load input data per chromosome
 		if snp_based: # SNP testing
 			print(f"\rAssociation testing (SNP) - Chromosome {c_idx+1}/{N_chr}", end="")
@@ -101,8 +104,6 @@ def main(args):
 			P = np.zeros((m, 7), dtype=float) # Output matrix
 			B = ceil(m/args.block)
 			G = np.zeros((args.block, n), dtype=float)
-			y_res = y - y_chr[c_idx,:] # Residualized phenotype
-			s_env = np.linalg.norm(y_res)/sqrt(n - R_c)
 
 			# Extract SNP block, regress out covariates and test
 			for b in np.arange(B):
@@ -111,8 +112,8 @@ def main(args):
 					del G # Ensure no extra copy
 					G = np.zeros((m - B_idx, n), dtype=float)
 				asso_cy.genotypeAssoc(G_mat, G, P, B_idx)
-				G -= np.dot(np.dot(G, U_c), U_c.T)
-				asso_cy.genotypeTest(G, P, y_res, s_env, B_idx)
+				G -= np.dot(np.dot(G, U_cov), U_cov.T)
+				asso_cy.genotypeTest(G, P, y_loc, s_env, B_idx)
 			
 			# Save association results
 			P[:,0] = c_idx+1 # Chromosome number information
@@ -127,7 +128,7 @@ def main(args):
 				with open(f"{args.out}.snp.assoc", "a") as f:
 					np.savetxt(f, P, \
 						fmt=["%i", "%i", "%.7f", "%.7f", "%.7f", "%.7f", "%.7e"])
-			del v_file
+			del P, v_file
 		else: # Haplotype cluster allele testing
 			print("\rAssociation testing (Cluster) - Chromosome "+ \
 				f"{c_idx+1}/{N_chr}", end="")
@@ -140,58 +141,29 @@ def main(args):
 			# Setup parameters for chromosome
 			B = 0
 			P = np.zeros((m, 8), dtype=float) # Output matrix
-			y_res = y - y_chr[c_idx,:] # Residualized phenotype
-			s_env = np.linalg.norm(y_res)/sqrt(n - R_c)
 
 			# Extract haplotype cluster block, regress out covariates and test
 			for w in np.arange(W):
 				Z = np.zeros((K_chr[w], n), dtype=float)
 				assoc_cy.haplotypeAssoc(Z_mat, Z, P, B, w)
-				Z -= np.dot(np.dot(Z, U_c), U_c.T)
-				assoc_cy.haplotypeTest(Z, P, y_res, s_env, B, w)
+				Z -= np.dot(np.dot(Z, U_cov), U_cov.T)
+				assoc_cy.haplotypeTest(Z, P, y_loc, s_env, B, w)
 				B += K_chr[w]
 				del Z
 
 			# Save association results
 			P[:,0] = c_idx+1 # Chromosome number information
 			P[:,7] = chi2.sf(P[:,6], df=1) # P-values (1 - cdf) - Wald's
-
-			B_idx = 0 # Start index for haplotype clusters
-			s_env = np.linalg.norm(y_res)/sqrt(n - R_c)
-			for b in np.arange(B):
-				print(f"\rAssociation testing (clusters) - Block {b+1}/{B}", end="")
-				B_num = np.sum(K_vec[B_arr[b]], dtype=int)
-				
-				# Extract haplotype clusters and regress out covariates
-				Z = np.zeros((B_num, n), dtype=float)
-				assoc_cy.haplotypeAssoc(Z_mat, Z, P, B_arr[b], K_vec, B_idx)
-				Z -= np.dot(np.dot(Z, U_c), U_c.T)
-
-				# Create residualized phenotypes
-				if args.filelist is not None: # Extract LOCO prediction for block
-					if b == B_nxt: # Next chromosome
-						C_idx += 1
-						W_idx = 0
-						B_nxt += B_list[C_idx]
-						y_res = y - y_chr[C_idx,:]
-						s_env = np.linalg.norm(y_res)/sqrt(n - R_c)
-					P[B_idx:(B_idx + B_num),0] = C_idx + 1 # Chromosome info
-
-				# Test haplotype clusters
-				assoc_cy.haplotypeTest(Z, P, y_res, B_arr[b], K_vec, s_env, W_idx, B_idx)
-				B_idx += B_num
-				W_idx += B_arr[b].shape[0]
-
-				# Free memory
-				del Z
-			print("")
-
-			### Save association results
-			P[:,7] = chi2.sf(P[:,6], df=1) # P-values (1 - cdf) - Wald's
-			np.savetxt(f"{args.out}.assoc", P, fmt=["%i", "%i", "%i", "%.7f", "%.7f", \
-				"%.7f", "%.7f", "%.7e"], header="chrom window cluster freq beta se chisq p",
-				comments="")
-		del P
+			if c_idx == 0: # First chromosome
+				np.savetxt(f"{args.out}.haplo.assoc", P, \
+					fmt=["%i", "%i", "%i", "%.7f", "%.7f", "%.7f", "%.7f", "%.7e"], \
+					header="chrom window cluster freq beta se chisq p", comments="")
+			else: # Append other chromosomes
+				with open(f"{args.out}.haplo.assoc", "a") as f:
+					np.savetxt(f, P, \
+						fmt=["%i", "%i", "%i", "%.7f", "%.7f", "%.7f", "%.7f", "%.7e"])
+			del P
+		print("")
 	if snp_based:
 		print(f"\nSaved SNP association test statistics as {args.out}.snp.assoc")
 	else:

@@ -102,7 +102,7 @@ def main():
 	parser_asso.add_argument("-c", "--covar", metavar="FILE",
 		help="Path to file with covariates")
 	parser_asso.add_argument("-b", "--block", type=int, default=4096,
-		metavar="INT", help="Number of clusters or SNPs to read in blocks (4096)")
+		metavar="INT", help="Number of SNPs to read in blocks (4096)")
 	parser_asso.add_argument("-t", "--threads", type=int, default=1,
 		metavar="INT", help="Number of threads (1)")
 	parser_asso.add_argument("-o", "--out", default="hapla.asso",

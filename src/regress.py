@@ -54,7 +54,6 @@ def main(args):
 
 	# Load phenotype file (outcome)
 	y = np.loadtxt(args.pheno, dtype=float)
-	y -= np.mean(y) # Center phenotype vector
 	assert y.shape[0] == n, "Number of samples differ between files!"
 	print("Loaded phenotype file.")
 
@@ -83,11 +82,11 @@ def main(args):
 	h2 = np.clip(np.linspace(0.0, 1.0, args.ridge), 0.01, 0.99) # h^2_g
 
 	### Residualize and scale phenotypes by covariates
-	U_c, _, _ = functions.fastSVD(C)
-	R_c = U_c.shape[1]
+	U_cov, _, _ = functions.fastSVD(C)
+	R_cov = U_cov.shape[1]
 	del C
-	y -= np.dot(U_c, np.dot(U_c.T, y))
-	y /= (np.linalg.norm(y)/sqrt(n - R_c))
+	y_res = y - np.dot(U_cov, np.dot(U_cov.T, y))
+	y_res /= (np.linalg.norm(y_res)/sqrt(n - R_cov))
 
 
 	##### Step 1 - Whole-genome regression #####
@@ -106,9 +105,9 @@ def main(args):
 
 		# Standardize haplotype clusters, residualize and scale by covariates
 		Z = np.zeros((B_num, n), dtype=float)
-		asso_cy.haplotypeStandard(Z_mat, Z, K_chr, C_arr[c_idx])
-		Z -= np.dot(np.dot(Z, U_c), U_c.T)
-		Z /= (np.linalg.norm(Z, axis=1, keepdims=True)/sqrt(n - R_c))
+		asso_cy.haplotypeCenter(Z_mat, Z, K_chr, C_arr[c_idx])
+		Z -= np.dot(np.dot(Z, U_cov), U_cov.T)
+		Z /= (np.linalg.norm(Z, axis=1, keepdims=True)/sqrt(n - R_cov))
 		Z = np.ascontiguousarray(Z.T)
 
 		# Cross-validation scheme
@@ -120,20 +119,20 @@ def main(args):
 
 				# Regression
 				U, S, V = functions.fastSVD(Z[N_train,:])
-				UtY = np.dot(U.T, y[N_train])
+				UtY = np.dot(U.T, y_res[N_train])
 				for r in np.arange(args.ridge):
 					y_prs[r, N_test] = np.dot(Z[N_test,:], \
 						np.dot(V*(S/(S*S + lmbda[r])), UtY))
-					y_mse[r] += (np.linalg.norm(y[N_test] - y_prs[r, N_test]))**2
+					y_mse[r] += (np.linalg.norm(y_res[N_test] - y_prs[r, N_test]))**2
 				del N_test, N_train, U, S, V, UtY
 		else: # N-fold CV (LOOCV)
 			U, S, V = functions.fastSVD(Z)
-			UtY = np.dot(U.T, y)
+			UtY = np.dot(U.T, y_res)
 			x = np.zeros(B_num, dtype=float)
 			for r in np.arange(args.ridge):
 				H = np.dot(V*(1.0/(S*S + lmbda[r])), V.T)
 				p = np.dot(U*((S*S)/(S*S + lmbda[r])), UtY)
-				asso_cy.loocv(Z, y_prs, y_mse, H, p, y, x, r)
+				asso_cy.loocv(Z, y_prs, y_mse, H, p, y_res, x, r)
 			del U, S, V, UtY, H, p, x
 		del K_chr, Z
 		L[c_idx,:] = y_prs[np.argmin(y_mse),:]
@@ -157,11 +156,11 @@ def main(args):
 
 			# Regression
 			U, S, V = functions.fastSVD(L[N_train,:])
-			UtY = np.dot(U.T, y[N_train])
+			UtY = np.dot(U.T, y_res[N_train])
 			for r in np.arange(args.ridge):
 				E_mat[k,r,:] = np.dot(V*(S/(S*S + lmbda[r])), UtY)
 				y_prs[r, N_test] = np.dot(L[N_test,:], E_mat[k,r,:])
-				y_mse[r] += (np.linalg.norm(y[N_test] - y_prs[r, N_test]))**2
+				y_mse[r] += (np.linalg.norm(y_res[N_test] - y_prs[r, N_test]))**2
 			N_ind[N_test] = k
 			
 			# Free memory
@@ -170,12 +169,12 @@ def main(args):
 	else: # N-fold CV (LOOCV)
 		print("Level 1 - LOOCV")
 		U, S, V = functions.fastSVD(L)
-		UtY = np.dot(U.T, y)
+		UtY = np.dot(U.T, y_res)
 		x = np.zeros(L.shape[1], dtype=float)
 		for r in np.arange(args.ridge):
 			H = np.dot(V*(1.0/(S*S + lmbda[r])), V.T)
 			p = np.dot(U*(S*S/(S*S + lmbda[r])), UtY)
-			asso_cy.loocv(L, y_prs, y_mse, H, p, y, x, r)
+			asso_cy.loocv(L, y_prs, y_mse, H, p, y_res, x, r)
 		
 		# Free memory
 		del H, p
@@ -201,7 +200,7 @@ def main(args):
 		H = np.dot(V*(1.0/(S*S + lmbda[y_opt])), V.T)
 		p = np.dot(U*(S*S/(S*S + lmbda[y_opt])), UtY)
 		a = np.dot(V*(S/(S*S + lmbda[y_opt])), UtY)
-		asso_cy.loocvLOCO(L, y_chr, y_hat, H, p, y, a, x)
+		asso_cy.loocvLOCO(L, y_chr, y_hat, H, p, y_res, a, x)
 		del U, S, V, UtY, H, p, a, x
 	np.savetxt(f"{args.out}.loco", y_chr, fmt="%.7f")
 	print(f"Saved {N_chr} LOCO predictions as {args.out}.loco")
