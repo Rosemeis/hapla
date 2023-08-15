@@ -19,8 +19,6 @@ parser.add_argument("-g", "--vcf", "--bcf",
 	help="Genotype file in VCF/BCF format")
 parser.add_argument("-f", "--filelist",
 	help="Filelist with paths to haplotype cluster files")
-parser.add_argument("-z", "--clusters",
-	help="Path to a single haplotype cluster alleles file")
 parser.add_argument("-c", "--causal", type=int, default=10000,
 	help="Number of causal SNPs (10000)")
 parser.add_argument("-e", "--h2", type=int, default=5,
@@ -38,10 +36,11 @@ parser.add_argument("--save_regenie", action="store_true",
 args = parser.parse_args()
 
 # Check input
-if (args.filelist is None) and (args.clusters is None):
+if args.filelist is None:
 	assert (args.vcf is not None), "Please provide genotype file (--bcf or --vcf)!"
 if args.save_regenie:
 	assert args.vcf is not None, "VCF/BCF file is needed for sample list!"
+assert (args.h2 > 0) and (args.h2 < 10), "Invalid value for h2!"
 
 # Control threads of external numerical libraries
 os.environ["MKL_NUM_THREADS"] = str(args.threads)
@@ -62,26 +61,22 @@ if args.vcf is not None:
 	n = len(v_file.samples)
 	if args.save_regenie:
 		s_list = v_file.samples
-	if (args.clusters is None) and (args.filelist is None):
+	if args.filelist is None:
 		B = ceil(2*n/8)
 		G_mat = reader_cy.readVCF(v_file, n, B)
 		m = G_mat.shape[0]
 		print(f"\rLoaded genotype data: {n} samples and {m} SNPs.")
 	del v_file
-if (args.clusters is not None) or (args.filelist is not None):
-	if args.filelist is not None:
-		# Haplotype clusters
-		Z_list = []
-		with open(args.filelist) as f:
-			file_c = 1
-			for chr in f:
-				Z_list.append(np.load(chr.strip("\n")))
-				print(f"\rParsed file #{file_c}", end="")
-				file_c += 1
-		Z_mat = np.concatenate(Z_list, axis=0)
-		del Z_list
-	else:
-		Z_mat = np.load(args.clusters)
+if args.filelist is not None: # Haplotype clusters
+	Z_list = []
+	with open(args.filelist) as f:
+		file_c = 1
+		for chr in f:
+			Z_list.append(np.load(chr.strip("\n")))
+			print(f"\rParsed file #{file_c}", end="")
+			file_c += 1
+	Z_mat = np.concatenate(Z_list, axis=0)
+	del Z_list
 	print("\rLoaded haplotype cluster alleles of " + \
 		f"{Z_mat.shape[1]} haplotypes in {Z_mat.shape[0]} windows.")
 	W = Z_mat.shape[0]
@@ -92,12 +87,11 @@ if (args.clusters is not None) or (args.filelist is not None):
 	m = np.sum(K_vec, dtype=int)
 
 ### Causal betas and sampling
-assert (args.h2 > 0) and (args.h2 < 10), "Invalid value for h2!"
 h2 = float(f"0.{args.h2}")
 G = np.zeros((args.causal, n), dtype=np.float32) # Genotypes or haplotype clusters
 np.random.seed(args.seed) # Set random seed
 p = np.sort(np.random.permutation(m)[:args.causal]).astype(int) # Select causals
-if (args.clusters is not None) or (args.filelist is not None):
+if args.filelist is not None:
 	C_vec = np.arange(m, dtype=int)[p]
 	reader_cy.convertHaplo(Z_mat, G, K_vec, C_vec)
 	del Z_mat, K_vec, C_vec

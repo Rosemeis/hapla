@@ -113,14 +113,14 @@ cpdef void genotypeBit(unsigned char[:,::1] G_mat, float[:,::1] G, long[::1] p) 
 				byte = byte >> 1 # Right shift 1 bit
 				G[j,i] += <float>(byte & mask)
 				byte = byte >> 1 # Right shift 1 bit
-				pi += G[j,i] # Allele frequency
+				pi += G[j,i]
 				i = i + 1
 				if i == n:
 					break
 		pi /= <float>n
 		for i in range(n):
 			sd += (G[j,i] - pi)*(G[j,i] - pi)
-		sd = sqrt(sd/(<float>(n-1)))
+		sd = sqrt(sd/(<float>n))
 		for i in range(n):
 			G[j,i] = (G[j,i] - pi)/sd
 
@@ -147,7 +147,7 @@ cpdef void convertHaplo(unsigned char[:,::1] Z, float[:,::1] G, \
 				pi /= <float>n
 				for i in range(n):
 					sd += (G[j,i] - pi)*(G[j,i] - pi)
-				sd = sqrt(sd/(<float>(n-1)))
+				sd = sqrt(sd/(<float>n))
 				for i in range(n):
 					G[j,i] = (G[j,i] - pi)/sd
 				j += 1
