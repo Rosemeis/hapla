@@ -35,15 +35,19 @@ def main(args):
 	### Load data
 	# Load haplotype cluster alleles (and concatentate across windows)
 	Z_list = []
+	K_list = []
 	with open(args.filelist) as f:
 		N_chr = 0
+		K_tot = 0
 		for c_idx in f:
 			Z_list.append(np.load(c_idx.strip("\n")))
+			K_list.append(np.max(Z_list[-1], axis=1)) # Dummy encoding
 			print(f"\rParsed file #{N_chr+1}", end="")
 			N_chr += 1
+			K_tot += np.sum(K_list[-1], dtype=int)
 	n = Z_list[0].shape[1]//2
-	print("\rLoaded haplotype cluster alleles of " + \
-		f"{2*n} haplotypes in {len(Z_list)} chromosomes.")
+	print(f"\rLoaded {K_tot} haplotype cluster alleles of " + \
+		f"{n} individuals in {len(Z_list)} chromosomes.")
 
 	# Load phenotype file (outcome)
 	y = np.loadtxt(args.pheno, dtype=float)
@@ -88,17 +92,17 @@ def main(args):
 
 	### Level 0 - Per-chromosome ridge regression
 	L = np.zeros((N_chr, n), dtype=float) # Chromosome predictors
+	lmbda = K_tot*(1.0 - h2)/h2 # Lambda scaling
 
 	# Loop through chromosomes
 	for c_idx in np.arange(N_chr):
 		print(f"\rLevel 0 - Chromosome {c_idx+1}/{N_chr}", end="")
 		K_vec = np.max(Z_list[c_idx], axis=1) # Dummy encoding
-		K_num = np.sum(K_vec, dtype=int) # Number of haplotype clusters
-		lmbda = K_num*(1.0 - h2)/h2 # Lambda scaling
+		K_num = np.sum(K_list[c_idx], dtype=int) # Number of haplotype clusters
 
 		# Standardize haplotype clusters, residualize and scale by covariates
 		Z = np.zeros((K_num, n), dtype=float)
-		asso_cy.haplotypeCenter(Z_list[c_idx], Z, K_vec)
+		asso_cy.haplotypeCenter(Z_list[c_idx], Z, K_list[c_idx])
 		Z -= np.dot(np.dot(Z, U_cov), U_cov.T)
 		Z /= (np.linalg.norm(Z, axis=1, keepdims=True)/sqrt(n - R_cov))
 		Z = np.ascontiguousarray(Z.T)
@@ -127,11 +131,11 @@ def main(args):
 				p = np.dot(U*((S*S)/(S*S + lmbda[r])), UtY)
 				asso_cy.loocv(Z, y_prs, y_mse, H, p, y_res, x, r)
 			del U, S, V, UtY, H, p, x
-		del K_vec, Z
+		del Z
 		L[c_idx,:] = y_prs[np.argmin(y_mse),:]
 		y_prs.fill(0.0)
 		y_mse.fill(0.0)
-	del Z_list
+	del Z_list, K_list
 	print("")
 
 	### Level 1 - Combined ridge regression
