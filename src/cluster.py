@@ -205,7 +205,6 @@ def main(args):
 		N_vec.fill(0)
 	if not args.verbose:
 		print("")
-	K_max = np.max(K_vec) # Used in optional saves to reduce disk and memory allocation
 
 	##### Save output #####
 	np.save(f"{args.out}.z", Z_mat)
@@ -213,11 +212,9 @@ def main(args):
 	np.savetxt(f"{args.out}.num_clusters", K_vec, fmt="%i")
 	print(f"Saved the number of clusters per window as {args.out}.num_clusters")
 	if args.medians:
-		M_mat = M_mat[:,:K_max] # Reduce memory in downstream analyses
 		np.save(f"{args.out}.medians", M_mat)
 		print(f"Saved haplotype cluster medians as {args.out}.medians.npy")
 	if args.loglike:
-		L_mat = L_mat[:,:,:K_max] # Reduce memory in downstream analyses
 		np.save(f"{args.out}.loglike", L_mat)
 		print(f"Saved haplotype cluster log-likelihoods as {args.out}.loglike.npy")
 

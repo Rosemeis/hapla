@@ -3,7 +3,7 @@ import numpy as np
 cimport numpy as np
 from cpython.mem cimport PyMem_RawMalloc, PyMem_RawFree
 from cython.parallel import prange, parallel
-from libc.math cimport log
+from libc.math cimport fmaxf, fminf, log
 
 ##### hapla - haplotype clustering #####
 # Create marginal medians
@@ -21,13 +21,13 @@ cpdef void marginalMedians(signed char[:,::1] M, float[:,::1] C, int[::1] N, int
 
 # Compute distances and cluster assignment
 cpdef void clusterAssignment(unsigned char[:,::1] X, signed char[:,::1] M, float[:,::1] C, \
-		unsigned char[:,::1] Z, int[::1] c, int[::1] N, int K, int w, int t) nogil:
+		unsigned char[:,::1] Z, int[::1] c, int[::1] N, int K, int w, int t):
 	cdef:
 		int n = X.shape[0]
 		int m = X.shape[1]
 		int i, j, k, l, k2, j2, dist, m_val
 		float* tmp
-	with parallel(num_threads=t):
+	with nogil, parallel(num_threads=t):
 		tmp = <float*>PyMem_RawMalloc(sizeof(float)*K*m)
 		for l in range(K*m):
 			tmp[l] = 0.0
@@ -128,5 +128,5 @@ cpdef void loglikeHaplo(float[:,:,::1] L, unsigned char[:,::1] X, float[:,::1] C
 		for k in range(K):
 			L[w, i, k] = 0.0
 			for j in range(m):
-				p = min(max(C[k,j], 1e-6), 1-(1e-6))
+				p = fminf(fmaxf(C[k,j], 1e-6), 1-(1e-6))
 				L[w, i, k] += X[i,j]*log(p) + (1.0 - X[i,j])*log(1.0 - p)

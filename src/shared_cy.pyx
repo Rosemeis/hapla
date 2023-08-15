@@ -69,7 +69,7 @@ cpdef void standardizeZ(unsigned char[:,::1] Z, double[:,::1] Z_std, \
 ### hapla split
 # Estimate squared correlation between variants (r^2) and compute L matrix
 cpdef void estimateL(unsigned char[:,::1] Gt, double[::1] F, double[::1] S, \
-				float[:,::1] L, double thr, int n, int t) nogil:
+		float[:,::1] L, double thr, int n, int t):
 	cdef:
 		int m = Gt.shape[0]
 		int B = Gt.shape[1]
@@ -79,7 +79,7 @@ cpdef void estimateL(unsigned char[:,::1] Gt, double[::1] F, double[::1] S, \
 		unsigned char b1
 		unsigned char b2
 		double corr, r2
-	with parallel(num_threads=t):
+	with nogil, parallel(num_threads=t):
 		# Estimate means and standard deviations
 		for j in prange(m):
 			k = 0
@@ -143,7 +143,7 @@ cpdef void estimateE(float[:,::1] L, float[:,::1] E) nogil:
 				E[j,k] = L[j,k] + E[j+1,k-1]
 
 # Compute cost for different number of splits
-cpdef void estimateC(float[:,::1] E, float[:,::1] C, int[:,::1] I, int w0, int t) nogil:
+cpdef void estimateC(float[:,::1] E, float[:,::1] C, int[:,::1] I, int w0, int t):
 	cdef:
 		int m = E.shape[0]
 		int W = E.shape[1]
