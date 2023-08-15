@@ -74,8 +74,6 @@ def main():
 		help="Path to file with eigenvectors (PCs)")
 	parser_regress.add_argument("-c", "--covar", metavar="FILE",
 		help="Path to file with covariates")
-	parser_regress.add_argument("-b", "--block", type=int,
-		metavar="INT", help="Number of haplotype cluster windows in a block")
 	parser_regress.add_argument("-t", "--threads", type=int, default=1,
 		metavar="INT", help="Number of threads (1)")
 	parser_regress.add_argument("-o", "--out", default="hapla.asso",

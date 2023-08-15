@@ -8,23 +8,23 @@ from libc.math cimport sqrt
 ### hapla regress
 # Setup centered haplotype clusters for a block
 cpdef void haplotypeCenter(unsigned char[:,::1] Z_mat, double[:,::1] Z, \
-		unsigned char[::1] K_chr, int c) nogil:
+		unsigned char[::1] K_vec) nogil:
 	cdef:
-		int n = Z.shape[1]
-		int W = K_chr.shape[0]
+		int W = Z_mat.shape[0]
+		int n = Z_mat.shape[1]//2
 		int b = 0
 		int i, k, w
 		double pi
 	for w in range(W):
-		for k in range(K_chr[b]):
+		for k in range(K_vec[w]):
 			pi = 0.0
 			for i in range(2*n):
-				if Z_mat[c+w,i] == k:
+				if Z_mat[w,i] == k:
 					Z[b,i//2] += 1.0
 					pi += 1.0
 			pi /= <double>n
 			for i in range(n):
-				Z[b,i] -= Z[b,i]
+				Z[b,i] -= pi
 			b += 1
 
 # Fast LOOCV using SciPy BLAS routines

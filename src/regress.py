@@ -35,22 +35,15 @@ def main(args):
 	### Load data
 	# Load haplotype cluster alleles (and concatentate across windows)
 	Z_list = []
-	C_list = [0]
 	with open(args.filelist) as f:
 		N_chr = 0
 		for c_idx in f:
 			Z_list.append(np.load(c_idx.strip("\n")))
-			C_list.append(Z_list[-1].shape[0])
 			print(f"\rParsed file #{N_chr+1}", end="")
 			N_chr += 1
-	C_arr = np.cumsum(C_list)
-	Z_mat = np.concatenate(Z_list, axis=0)
-	del C_list, Z_list
-	W = Z_mat.shape[0]
-	n = Z_mat.shape[1]//2
+	n = Z_list[0].shape[1]//2
 	print("\rLoaded haplotype cluster alleles of " + \
-		f"{Z_mat.shape[1]} haplotypes in {Z_mat.shape[0]} windows.")
-	K_vec = np.max(Z_mat, axis=1) # Dummy encoding
+		f"{2*n} haplotypes in {len(Z_list)} chromosomes.")
 
 	# Load phenotype file (outcome)
 	y = np.loadtxt(args.pheno, dtype=float)
@@ -99,13 +92,13 @@ def main(args):
 	# Loop through chromosomes
 	for c_idx in np.arange(N_chr):
 		print(f"\rLevel 0 - Chromosome {c_idx+1}/{N_chr}", end="")
-		K_chr = K_vec[C_arr[c_idx]:C_arr[c_idx+1]]
-		B_num = np.sum(K_chr, dtype=int)
-		lmbda = B_num*(1.0 - h2)/h2 # Lambda scaling
+		K_vec = np.max(Z_list[c_idx], axis=1) # Dummy encoding
+		K_num = np.sum(K_vec, dtype=int) # Number of haplotype clusters
+		lmbda = K_num*(1.0 - h2)/h2 # Lambda scaling
 
 		# Standardize haplotype clusters, residualize and scale by covariates
-		Z = np.zeros((B_num, n), dtype=float)
-		asso_cy.haplotypeCenter(Z_mat, Z, K_chr, C_arr[c_idx])
+		Z = np.zeros((K_num, n), dtype=float)
+		asso_cy.haplotypeCenter(Z_list[c_idx], Z, K_vec)
 		Z -= np.dot(np.dot(Z, U_cov), U_cov.T)
 		Z /= (np.linalg.norm(Z, axis=1, keepdims=True)/sqrt(n - R_cov))
 		Z = np.ascontiguousarray(Z.T)
@@ -128,17 +121,17 @@ def main(args):
 		else: # N-fold CV (LOOCV)
 			U, S, V = functions.fastSVD(Z)
 			UtY = np.dot(U.T, y_res)
-			x = np.zeros(B_num, dtype=float)
+			x = np.zeros(K_num, dtype=float)
 			for r in np.arange(args.ridge):
 				H = np.dot(V*(1.0/(S*S + lmbda[r])), V.T)
 				p = np.dot(U*((S*S)/(S*S + lmbda[r])), UtY)
 				asso_cy.loocv(Z, y_prs, y_mse, H, p, y_res, x, r)
 			del U, S, V, UtY, H, p, x
-		del K_chr, Z
+		del K_vec, Z
 		L[c_idx,:] = y_prs[np.argmin(y_mse),:]
 		y_prs.fill(0.0)
 		y_mse.fill(0.0)
-	del Z_mat, K_vec
+	del Z_list
 	print("")
 
 	### Level 1 - Combined ridge regression
