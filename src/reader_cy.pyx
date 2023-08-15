@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, initializedcheck=False, cdivision=True
 import numpy as np
 cimport numpy as np
-from cpython.mem cimport PyMem_Malloc, PyMem_Free
+from cpython.mem cimport PyMem_RawMalloc, PyMem_RawFree
 from cython.parallel import prange
 from libcpp.vector cimport vector
 from libc.math cimport sqrt
@@ -58,23 +58,22 @@ cpdef void convertBit(unsigned char[:,::1] Gt, unsigned char[:,::1] Xt, float[:,
 		int b, i, j, bit
 		unsigned char mask = 1
 		unsigned char byte
-	with nogil:
-		for j in prange(m, num_threads=t):
-			i = 0
-			C[0,j] = 0.0
-			for b in range(B):
-				byte = Gt[w0+j,b]
-				for bit in range(8):
-					Xt[j,i] = byte & mask
-					C[0,j] = C[0,j] + Xt[j,i]
-					byte = byte >> 1 # Right shift 1 bit
-					i = i + 1
-					if i == n:
-						break
+	for j in prange(m, num_threads=t):
+		i = 0
+		C[0,j] = 0.0
+		for b in range(B):
+			byte = Gt[w0+j,b]
+			for bit in range(8):
+				Xt[j,i] = byte & mask
+				C[0,j] = C[0,j] + Xt[j,i]
+				byte = byte >> 1 # Right shift 1 bit
+				i = i + 1
+				if i == n:
+					break
 
 ### Convert 1-bit into full array for predicting target clusters
-cpdef void predictBit(unsigned char[:,::1] Gt, unsigned char[:,::1] Xt, int w0, int t) \
-		nogil:
+cpdef void predictBit(unsigned char[:,::1] Gt, unsigned char[:,::1] Xt, int w0, \
+		int t) nogil:
 	cdef:
 		int B = Gt.shape[1]
 		int m = Xt.shape[0]
@@ -82,17 +81,16 @@ cpdef void predictBit(unsigned char[:,::1] Gt, unsigned char[:,::1] Xt, int w0, 
 		int b, i, j, bit
 		unsigned char mask = 1
 		unsigned char byte
-	with nogil:
-		for j in prange(m, num_threads=t):
-			i = 0
-			for b in range(B):
-				byte = Gt[w0+j,b]
-				for bit in range(8):
-					Xt[j,i] = byte & mask
-					byte = byte >> 1 # Right shift 1 bit
-					i = i + 1
-					if i == n:
-						break
+	for j in prange(m, num_threads=t):
+		i = 0
+		for b in range(B):
+			byte = Gt[w0+j,b]
+			for bit in range(8):
+				Xt[j,i] = byte & mask
+				byte = byte >> 1 # Right shift 1 bit
+				i = i + 1
+				if i == n:
+					break
 
 ### Convert 1-bit into standardized genotype array for phenotypes
 cpdef void genotypeBit(unsigned char[:,::1] G_mat, float[:,::1] G, long[::1] p) nogil:
@@ -165,7 +163,7 @@ cpdef void filterSNPs(unsigned char[:,::1] Gt, long[::1] W, unsigned char[::1] m
 		int c = 0
 		int b, j, k
 		int* count
-	count = <int*>PyMem_Malloc(sizeof(int)*s)
+	count = <int*>PyMem_RawMalloc(sizeof(int)*s)
 	for k in range(s):
 		count[k] = 0
 	for j in range(m):
@@ -178,7 +176,7 @@ cpdef void filterSNPs(unsigned char[:,::1] Gt, long[::1] W, unsigned char[::1] m
 				if (W[k] + count[k]) >= j:
 					W[k] -= 1
 					count[k] += 1
-	PyMem_Free(count)
+	PyMem_RawFree(count)
 
 ### Read VCF/BCF position information
 cpdef void readPOS(v_file, double[:,::1] P):
