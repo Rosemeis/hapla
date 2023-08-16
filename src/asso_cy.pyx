@@ -21,11 +21,11 @@ cpdef void haplotypeCenter(unsigned char[:,::1] Z_mat, double[:,::1] Z, \
 			for i in range(2*n):
 				if Z_mat[w,i] == k:
 					Z[b,i//2] += 1.0
-					pi += 1.0
-			pi /= <double>n
+					pi = pi + 1.0
+			pi = pi/(<double>n)
 			for i in range(n):
 				Z[b,i] -= pi
-			b += 1
+			b = b + 1
 
 # Fast LOOCV using SciPy BLAS routines
 cpdef void loocv(double[:,::1] L, double[:,::1] y_prs, double[::1] y_mse, \
@@ -142,8 +142,8 @@ cpdef void haplotypeTest(double[:,::1] Z, double[:,::1] P, double[::1] y_loc, \
 		gTg = 0.0
 		gTy = 0.0
 		for i in range(n):
-			gTg += Z[k,i]*Z[k,i]
-			gTy += Z[k,i]*y_loc[i]
+			gTg = gTg + Z[k,i]*Z[k,i]
+			gTy = gTy + Z[k,i]*y_loc[i]
 		P[B+k,1] = w+1 # Window
 		P[B+k,2] = k+1 # Cluster
 		P[B+k,4] = gTy/gTg # Beta
@@ -163,8 +163,8 @@ cpdef void genotypeTest(double[:,::1] G, double[:,::1] P, double[::1] y_loc, \
 		gTg = 0.0
 		gTy = 0.0
 		for i in range(n):
-			gTg += G[j,i]*G[j,i]
-			gTy += G[j,i]*y_loc[i]
+			gTg = gTg + G[j,i]*G[j,i]
+			gTy = gTy + G[j,i]*y_loc[i]
 		P[B_idx+j,3] = gTy/gTg # Beta
 		P[B_idx+j,5] = gTy/(s_env*sqrt(gTg)) # Wald's
 		P[B_idx+j,4] = P[B_idx+j,3]/P[B_idx+j,5] # SE(Beta)

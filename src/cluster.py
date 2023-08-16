@@ -214,9 +214,48 @@ def main(args):
 	if args.medians:
 		np.save(f"{args.out}.medians", M_mat)
 		print(f"Saved haplotype cluster medians as {args.out}.medians.npy")
+		del M_mat
 	if args.loglike:
 		np.save(f"{args.out}.loglike", L_mat)
 		print(f"Saved haplotype cluster log-likelihoods as {args.out}.loglike.npy")
+		del L_mat
+	if args.plink:
+		print("\rGenerating binary PLINK output.", end="")
+		v_file = VCF(args.vcf, threads=args.threads)
+		s_list = v_file.samples
+		for variant in v_file: # Extract chromosome name from first entry
+			chrom = np.array([variant.CHROM])
+			break
+		del v_file
+		K_vec -= 1 # Dummy encoding
+		K_tot = np.sum(K_vec, dtype=int)
+		Z_vec = np.zeros(n//2, dtype=np.uint8)
+		Z_bin = np.zeros((np.sum(K_vec, dtype=int), B), dtype=np.uint8)
+		reader_cy.convertPlink(Z_mat, Z_bin, Z_vec, K_vec)
+
+		# Save .bim file
+		pos = np.zeros((K_tot, 2), dtype=int)
+		reader_cy.clusterID(Z_mat, pos, K_vec)
+		tmp = [f"{w}_{k}" for w,k in pos]
+		bim = np.hstack((chrom.repeat(K_tot), tmp, np.zeros(K_tot, dtype=int), \
+			np.arange(1, K_tot+1), np.array(["A"]).repeat(K_tot), \
+			np.array(["T"]).repeat(K_tot)))
+		np.savetxt(f"{args.out}.bim", bim, delimiter="\t", fmt="%s")
+		del bim, pos, tmp
+
+		# Save .bed file
+		with open(f"{args.out}.bed", "w") as bfile:
+			np.array([108,27,1], dtype=np.uint8).tofile(bfile) # Magic numbers
+			Z_bin.tofile(bfile)
+		del K_vec, Z_vec, Z_mat, Z_bin
+		
+		# Save .fam file
+		tmp = np.zeros((n//2, 4), dtype=int)
+		tmp[:,3] = -9
+		fam = np.hstack((np.zeros(n//2, dtype=int), np.array(s_list), tmp))
+		np.savetxt(f"{args.out}.fam", fam, delimiter="\t", fmt="%s")
+		print(f"\rSaved haplotype cluster alleles in binary PLINK format as " + \
+			f"{args.out}.(bed,bim,fam)")
 
 
 

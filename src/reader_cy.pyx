@@ -113,19 +113,54 @@ cpdef void genotypeBit(unsigned char[:,::1] G_mat, float[:,::1] G, long[::1] p) 
 				byte = byte >> 1 # Right shift 1 bit
 				G[j,i] += <float>(byte & mask)
 				byte = byte >> 1 # Right shift 1 bit
-				pi += G[j,i]
+				pi = pi + G[j,i]
 				i = i + 1
 				if i == n:
 					break
-		pi /= <float>n
+		pi = pi/(<float>n)
 		for i in range(n):
-			sd += (G[j,i] - pi)*(G[j,i] - pi)
+			sd = sd + (G[j,i] - pi)*(G[j,i] - pi)
 		sd = sqrt(sd/(<float>n))
 		for i in range(n):
 			G[j,i] = (G[j,i] - pi)/sd
 
-### Convert haplotype cluster assignments to standardized array for phenotypes
-cpdef void convertHaplo(unsigned char[:,::1] Z, float[:,::1] G, \
+### Convert haplotype cluster alleles to 2-bit PLINK format
+cpdef void convertPlink(unsigned char[:,::1] Z_mat, unsigned char[:,::1] Z, \
+		unsigned char[:,::1] Z_vec, unsigned char[::1] K_vec) nogil:
+	cdef:
+		int W = Z_mat.shape[0]
+		int n = Z_mat.shape[1]//2
+		int B = Z.shape[1]
+		int b, i, bit
+		int j = 0
+	for w in range(W):
+		for k in range(K_vec[w]):
+			# Create haplotype cluster alleles
+			for i in range(0, 2*n, 2):
+				Z_vec[i] = 0
+				if Z_mat[w,i] == k:
+					Z_vec[i] += 1
+				if Z_mat[w,i+1] == k:
+					Z_vec[i] += 1
+
+			# Save in 2-bit form with bit-wise operations
+			i = 0
+			for b in range(B):
+				for bit in range(0, 8, 2):
+					if Z_vec[i] == 1:
+						Z[j,b] |= (1<<(bit+1))
+					if Z_vec[i] == 2:
+						Z[j,b] |= (1<<bit)
+						Z[j,b] |= (1<<(bit+1))
+
+					# Increase counter and check for break
+					i = i + 1
+					if i == n:
+						break
+			j = j + 1
+
+### Convert haplotype cluster alleles to standardized array for phenotypes
+cpdef void convertHaplo(unsigned char[:,::1] Z, double[:,::1] G, \
 		unsigned char[::1] K_vec, long[::1] C) nogil:
 	cdef:
 		int W = Z.shape[0]
@@ -134,24 +169,24 @@ cpdef void convertHaplo(unsigned char[:,::1] Z, float[:,::1] G, \
 		int i, k, w
 		int b = 0
 		int j = 0
-		float p, s
+		double mu, si
 	for w in range(W):
 		for k in range(K_vec[w]):
 			if b == C[j]:
-				pi = 0.0
-				sd = 0.0
+				mu = 0.0
+				si = 0.0
 				for i in range(2*n):
 					if Z[w,i] == k:
 						G[j,i//2] += 1
-						pi += G[j,i//2]
-				pi /= <float>n
+						mu += G[j,i//2]
+				mu = mu/(<double>n)
 				for i in range(n):
-					sd += (G[j,i] - pi)*(G[j,i] - pi)
-				sd = sqrt(sd/(<float>n))
+					si = si + (G[j,i] - mu)*(G[j,i] - mu)
+				si = sqrt(si/(<double>n))
 				for i in range(n):
-					G[j,i] = (G[j,i] - pi)/sd
-				j += 1
-			b += 1
+					G[j,i] = (G[j,i] - mu)/si
+				j = j + 1
+			b = b + 1
 
 ### Filter out variants from haplotype clustering and fix window sizes
 cpdef void filterSNPs(unsigned char[:,::1] Gt, long[::1] W, unsigned char[::1] mask) \
@@ -170,7 +205,7 @@ cpdef void filterSNPs(unsigned char[:,::1] Gt, long[::1] W, unsigned char[::1] m
 		if mask[j] == 1:
 			for b in range(B):
 				Gt[c,b] = Gt[j,b]
-			c += 1
+			c = c + 1
 		else:
 			for k in range(1, s):
 				if (W[k] + count[k]) >= j:
@@ -184,4 +219,4 @@ cpdef void readPOS(v_file, double[:,::1] P):
 		int j = 0
 	for var in v_file: # Loop through VCF file
 		P[j,1] = <double>var.POS
-		j += 1
+		j = j + 1

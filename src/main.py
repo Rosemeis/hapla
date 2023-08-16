@@ -36,6 +36,8 @@ def main():
 		help="Save haplotype cluster medians")
 	parser_cluster.add_argument("--loglike", action="store_true",
 		help="Compute log-likelihoods for ancestry estimation")
+	parser_cluster.add_argument("--plink", action="store_true",
+		help="Generate binary PLINK output")
 	parser_cluster.add_argument("--verbose", action="store_true",
 		help="Verbose output from each iteration")
 	parser_cluster.add_argument("--filter",

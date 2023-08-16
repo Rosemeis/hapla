@@ -88,7 +88,7 @@ if args.filelist is not None: # Haplotype clusters
 
 ### Causal betas and sampling
 h2 = float(f"0.{args.h2}")
-G = np.zeros((args.causal, n), dtype=np.float32) # Genotypes or haplotype clusters
+G = np.zeros((args.causal, n), dtype=float) # Genotypes or haplotype clusters
 np.random.seed(args.seed) # Set random seed
 p = np.sort(np.random.permutation(m)[:args.causal]).astype(int) # Select causals
 if args.filelist is not None:

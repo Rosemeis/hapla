@@ -33,7 +33,7 @@ def main(args):
 	from src import asso_cy
 
 	### Load data
-	# Load haplotype cluster alleles (and concatentate across windows)
+	# Load haplotype cluster alleles
 	Z_list = []
 	K_list = []
 	with open(args.filelist) as f:
@@ -97,7 +97,6 @@ def main(args):
 	# Loop through chromosomes
 	for c_idx in np.arange(N_chr):
 		print(f"\rLevel 0 - Chromosome {c_idx+1}/{N_chr}", end="")
-		K_vec = np.max(Z_list[c_idx], axis=1) # Dummy encoding
 		K_num = np.sum(K_list[c_idx], dtype=int) # Number of haplotype clusters
 
 		# Standardize haplotype clusters, residualize and scale by covariates

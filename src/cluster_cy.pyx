@@ -108,7 +108,7 @@ cpdef void medianFix(signed char[:,::1] M, unsigned char[:,::1] Z, \
 						Z[w,i] = c
 				N[c] = N[k]
 				N[k] = 0
-			c += 1
+			c = c + 1
 		else:
 			for j in range(m):
 				M[k,j] = -9

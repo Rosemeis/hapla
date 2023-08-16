@@ -40,7 +40,7 @@ cpdef void filterZ(unsigned char[:,::1] Z, double[::1] pi, \
 				Z[c,i] = Z[j,i]
 			pi[c] = pi[j]
 			sd[c] = sd[j]
-			c += 1
+			c = c + 1
 
 # Standardize the batch haplotype cluster assignment matrix
 cpdef void batchZ(unsigned char[:,::1] Z, double[:,::1] Z_b, double[::1] pi, \
