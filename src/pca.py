@@ -55,28 +55,28 @@ def main(args):
 
 	# Populate full matrix and estimate summary statistics
 	Z = np.zeros((m, n), dtype=np.uint8)
-	pi = np.zeros(m, dtype=float)
-	sd = np.zeros(m, dtype=float)
-	shared_cy.haplotypeAggregate(Z_mat, Z, pi, sd, K_vec)
+	mu = np.zeros(m, dtype=float)
+	si = np.zeros(m, dtype=float)
+	shared_cy.haplotypeAggregate(Z_mat, Z, mu, si, K_vec)
 	del Z_mat
 
 	# Mask non-rare haplotype clusters
 	if args.min_freq is not None:
-		mask = (pi >= args.min_freq) & (pi <= (1 - args.min_freq))
+		mask = (mu >= args.min_freq) & (mu <= (1 - args.min_freq))
 		mask = mask.astype(np.uint8)
 		m = np.sum(mask, dtype=int)
 
 		# Filter out masked haplotype clusters
-		shared_cy.filterZ(Z, pi, sd, mask)
+		shared_cy.filterZ(Z, mu, si, mask)
 		Z = Z[:m,:]
-		pi = pi[:m]
-		sd = sd[:m]
+		mu = mu[:m]
+		si = si[:m]
 
 	# Perform PCA
 	if args.randomized:
 		# Randomized SVD
 		print(f"Performing randomized SVD, extracting {args.n_eig} eigenvectors.")
-		U, S, V = functions.randomizedSVD(Z, pi, sd, args.n_eig, args.batch, \
+		U, S, V = functions.randomizedSVD(Z, mu, si, args.n_eig, args.batch, \
 			args.threads)
 
 		# Save matrices
@@ -89,7 +89,7 @@ def main(args):
 			print(f"Saved loadings as {args.out}.loadings")
 	else:
 		Z_std = np.zeros((m, n), dtype=float)
-		shared_cy.standardizeZ(Z, Z_std, pi, sd, args.threads)
+		shared_cy.standardizeZ(Z, Z_std, mu, si, args.threads)
 		del Z
 		if args.grm:
 			# Estimate GRM

@@ -20,11 +20,11 @@ cpdef void marginalMedians(signed char[:,::1] M, float[:,::1] C, int[::1] N, int
 				C[k,j] = 0.0
 
 # Compute distances and cluster assignment
-cpdef void clusterAssignment(unsigned char[:,::1] X, signed char[:,::1] M, float[:,::1] C, \
+cpdef void clusterAssignment(unsigned char[:,::1] H, signed char[:,::1] M, float[:,::1] C, \
 		unsigned char[:,::1] Z, int[::1] c, int[::1] N, int K, int w, int t):
 	cdef:
-		int n = X.shape[0]
-		int m = X.shape[1]
+		int n = H.shape[0]
+		int m = H.shape[1]
 		int i, j, k, l, k2, j2, dist, m_val
 		float* tmp
 	with nogil, parallel(num_threads=t):
@@ -41,7 +41,7 @@ cpdef void clusterAssignment(unsigned char[:,::1] X, signed char[:,::1] M, float
 				if N[k] > 0: # Safety measure
 					dist = 0
 					for j in range(m):
-						if X[i,j] != M[k,j]:
+						if H[i,j] != M[k,j]:
 							dist = dist + 1
 				else:
 					dist = m
@@ -53,7 +53,7 @@ cpdef void clusterAssignment(unsigned char[:,::1] X, signed char[:,::1] M, float
 
 			# Add individual contributions to thread local array
 			for j in range(m):
-				tmp[Z[w,i]*m + j] += <float>X[i,j]
+				tmp[Z[w,i]*m + j] += <float>H[i,j]
 
 		# Construct new centroids (unnormalized)
 		with gil:
@@ -114,19 +114,19 @@ cpdef void medianFix(signed char[:,::1] M, unsigned char[:,::1] Z, \
 				M[k,j] = -9
 
 # Generate haplotype log-likelihoods (Bernoulli)
-cpdef void loglikeHaplo(float[:,:,::1] L, unsigned char[:,::1] X, float[:,::1] C, \
+cpdef void loglikeHaplo(float[:,:,::1] L, unsigned char[:,::1] H, float[:,::1] C, \
 		unsigned char[:,::1] Z, int[::1] N, int K, int w, int t) nogil:
 	cdef:
-		int n = X.shape[0]
-		int m = X.shape[1]
+		int n = H.shape[0]
+		int m = H.shape[1]
 		int i, j, k
 		float p
 	for i in range(n):
 		for j in range(m):
-			C[Z[w,i],j] += <float>X[i,j]/<float>N[Z[w,i]]
+			C[Z[w,i],j] += <float>H[i,j]/<float>N[Z[w,i]]
 	for i in prange(n, num_threads=t):
 		for k in range(K):
 			L[w, i, k] = 0.0
 			for j in range(m):
 				p = fminf(fmaxf(C[k,j], 1e-6), 1-(1e-6))
-				L[w, i, k] += X[i,j]*log(p) + (1.0 - X[i,j])*log(1.0 - p)
+				L[w, i, k] += H[i,j]*log(p) + (1.0 - H[i,j])*log(1.0 - p)

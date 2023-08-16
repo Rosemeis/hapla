@@ -125,38 +125,42 @@ cpdef void genotypeBit(unsigned char[:,::1] G_mat, float[:,::1] G, long[::1] p) 
 			G[j,i] = (G[j,i] - pi)/sd
 
 ### Convert haplotype cluster alleles to 2-bit PLINK format
-cpdef void convertPlink(unsigned char[:,::1] Z_mat, unsigned char[:,::1] Z, \
-		unsigned char[:,::1] Z_vec, unsigned char[::1] K_vec) nogil:
+cpdef void convertPlink(unsigned char[:,::1] Z_mat, unsigned char[:,::1] Z_bin, \
+		int[:,::1] P_mat, unsigned char[::1] Z_vec, unsigned char[::1] K_vec) nogil:
 	cdef:
 		int W = Z_mat.shape[0]
 		int n = Z_mat.shape[1]//2
-		int B = Z.shape[1]
-		int b, i, bit
+		int B = Z_bin.shape[1]
+		int b, i, k, w, bit
 		int j = 0
 	for w in range(W):
 		for k in range(K_vec[w]):
 			# Create haplotype cluster alleles
 			for i in range(0, 2*n, 2):
-				Z_vec[i] = 0
+				Z_vec[i//2] = 0
 				if Z_mat[w,i] == k:
-					Z_vec[i] += 1
+					Z_vec[i//2] += 1
 				if Z_mat[w,i+1] == k:
-					Z_vec[i] += 1
+					Z_vec[i//2] += 1
 
 			# Save in 2-bit form with bit-wise operations
 			i = 0
 			for b in range(B):
 				for bit in range(0, 8, 2):
+					if Z_vec[i] == 0:
+						Z_bin[j,b] |= (1<<bit)
+						Z_bin[j,b] |= (1<<(bit+1))
 					if Z_vec[i] == 1:
-						Z[j,b] |= (1<<(bit+1))
-					if Z_vec[i] == 2:
-						Z[j,b] |= (1<<bit)
-						Z[j,b] |= (1<<(bit+1))
+						Z_bin[j,b] |= (1<<(bit+1))
 
 					# Increase counter and check for break
 					i = i + 1
 					if i == n:
 						break
+			
+			# Save window and cluster information
+			P_mat[j,0] = w + 1
+			P_mat[j,1] = k + 1
 			j = j + 1
 
 ### Convert haplotype cluster alleles to standardized array for phenotypes
@@ -178,7 +182,7 @@ cpdef void convertHaplo(unsigned char[:,::1] Z, double[:,::1] G, \
 				for i in range(2*n):
 					if Z[w,i] == k:
 						G[j,i//2] += 1
-						mu += G[j,i//2]
+						mu = mu + G[j,i//2]
 				mu = mu/(<double>n)
 				for i in range(n):
 					si = si + (G[j,i] - mu)*(G[j,i] - mu)

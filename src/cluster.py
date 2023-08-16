@@ -99,33 +99,33 @@ def main(args):
 			M = np.full((args.max_clusters, H.shape[0]), -9, dtype=np.int8)
 			C = np.zeros((args.max_clusters, H.shape[0]), dtype=np.float32)
 			reader_cy.convertBit(G, H, C, winList[w], args.threads)
-		mX = H.shape[0]
+		mH = H.shape[0]
 
 		# Setup log-likelihood container
 		if args.loglike:
-			L_mat[w,:,:].fill(-16*mX) # Approximate -log(1e-7)*m
+			L_mat[w,:,:].fill(-16*mH) # Approximate -log(1e-7)*m
 
 		# Compute mean and initialize first median
 		K = 1
 		N_vec[0] = n
 		cluster_cy.marginalMedians(M, C, N_vec, K)
-		X = np.ascontiguousarray(H.T) # Re-order NxB in contiguous memory
+		Ht = np.ascontiguousarray(H.T) # Re-order NxB in contiguous memory
 		if args.windows is not None:
 			del H
 
 		# Perform DC-DP-Medians
 		for it in np.arange(args.max_iterations):
 			# Cluster assignment
-			cluster_cy.clusterAssignment(X, M, C, Z_mat, c_vec, N_vec, K, w, \
+			cluster_cy.clusterAssignment(Ht, M, C, Z_mat, c_vec, N_vec, K, w, \
 				args.threads)
 
 			# Check for extra cluster
 			c_max = np.max(c_vec)
 			c_arg = np.argmax(c_vec)
-			if (c_max > args.lmbda*mX) & (K < args.max_clusters):
-				M[K,:] = X[c_arg,:]
-				C[K,:] = X[c_arg,:]
-				C[Z_mat[w,c_arg],:] -= X[c_arg,:]
+			if (c_max > args.lmbda*mH) & (K < args.max_clusters):
+				M[K,:] = Ht[c_arg,:]
+				C[K,:] = Ht[c_arg,:]
+				C[Z_mat[w,c_arg],:] -= Ht[c_arg,:]
 				Z_mat[w,c_arg] = K
 				K += 1
 
@@ -140,14 +140,14 @@ def main(args):
 							print("Converged! No label switching.")
 						break
 					else: # Make sure two haplotype clusters are generated
-						M[K,:] = X[c_arg,:]
-						C[K,:] = X[c_arg,:]
-						C[Z_mat[w,c_arg],:] -= X[c_arg,:]
+						M[K,:] = Ht[c_arg,:]
+						C[K,:] = Ht[c_arg,:]
+						C[Z_mat[w,c_arg],:] -= Ht[c_arg,:]
 						Z_mat[w,c_arg] = K
 						K += 1
 			z_prev = np.copy(Z_mat[w])
 			if args.verbose:
-				cost = np.sum(c_vec) + args.lmbda*mX*K
+				cost = np.sum(c_vec) + args.lmbda*mH*K
 				print(f"Epoch {it}: Cost {cost}")
 			# Count sizes and construct marginal medians
 			cluster_cy.countN(Z_mat, N_vec, K, w)
@@ -164,7 +164,7 @@ def main(args):
 				N_min = cluster_cy.findZero(N_vec, n, N_thr, K)
 				if N_min > N_thr:
 					break
-				cluster_cy.clusterAssignment(X, M, C, Z_mat, c_vec, N_vec, K, w, \
+				cluster_cy.clusterAssignment(Ht, M, C, Z_mat, c_vec, N_vec, K, w, \
 					args.threads)
 				cluster_cy.countN(Z_mat, N_vec, K, w)
 				cluster_cy.marginalMedians(M, C, N_vec, K)
@@ -175,7 +175,7 @@ def main(args):
 					N_sur = np.sum(N_vec > N_thr)
 					print(f"{N_sur}/{K_tmp} clusters reaching threshold. {N_min}/{N_thr}.")
 		else:
-			cluster_cy.clusterAssignment(X, M, C, Z_mat, c_vec, N_vec, K, w, \
+			cluster_cy.clusterAssignment(Ht, M, C, Z_mat, c_vec, N_vec, K, w, \
 				args.threads)
 			cluster_cy.countN(Z_mat, N_vec, K, w)
 
@@ -196,13 +196,14 @@ def main(args):
 			else: # Last window
 				M_mat[winList[w]:m] = np.ascontiguousarray(M.T)
 		if args.loglike:
-			cluster_cy.loglikeHaplo(L_mat, X, C, Z_mat, N_vec, K, w, args.threads)
+			cluster_cy.loglikeHaplo(L_mat, Ht, C, Z_mat, N_vec, K, w, args.threads)
 			
 		# Clean up
 		if args.windows is not None:
 			del M, C
-		del X
+		del Ht
 		N_vec.fill(0)
+	del G
 	if not args.verbose:
 		print("")
 
@@ -221,41 +222,44 @@ def main(args):
 		del L_mat
 	if args.plink:
 		print("\rGenerating binary PLINK output.", end="")
-		v_file = VCF(args.vcf, threads=args.threads)
-		s_list = v_file.samples
+		v_file = VCF(args.vcf)
+		s_list = np.array(v_file.samples).reshape(-1,1)
 		for variant in v_file: # Extract chromosome name from first entry
 			chrom = np.array([variant.CHROM])
 			break
 		del v_file
 		K_vec -= 1 # Dummy encoding
 		K_tot = np.sum(K_vec, dtype=int)
+		P_mat = np.zeros((K_tot, 2), dtype=np.int32)
 		Z_vec = np.zeros(n//2, dtype=np.uint8)
-		Z_bin = np.zeros((np.sum(K_vec, dtype=int), B), dtype=np.uint8)
-		reader_cy.convertPlink(Z_mat, Z_bin, Z_vec, K_vec)
-
-		# Save .bim file
-		pos = np.zeros((K_tot, 2), dtype=int)
-		reader_cy.clusterID(Z_mat, pos, K_vec)
-		tmp = [f"{w}_{k}" for w,k in pos]
-		bim = np.hstack((chrom.repeat(K_tot), tmp, np.zeros(K_tot, dtype=int), \
-			np.arange(1, K_tot+1), np.array(["A"]).repeat(K_tot), \
-			np.array(["T"]).repeat(K_tot)))
-		np.savetxt(f"{args.out}.bim", bim, delimiter="\t", fmt="%s")
-		del bim, pos, tmp
-
+		Z_bin = np.zeros((K_tot, B), dtype=np.uint8)
+		reader_cy.convertPlink(Z_mat, Z_bin, P_mat, Z_vec, K_vec)
+		
 		# Save .bed file
 		with open(f"{args.out}.bed", "w") as bfile:
 			np.array([108,27,1], dtype=np.uint8).tofile(bfile) # Magic numbers
 			Z_bin.tofile(bfile)
-		del K_vec, Z_vec, Z_mat, Z_bin
+		del K_vec, Z_bin, Z_mat, Z_vec
+
+		# Save .bim file
+		tmp = np.array([f"{w}_{k}" for w,k in P_mat]).reshape(-1,1)
+		bim = np.hstack((chrom.repeat(K_tot).reshape(-1,1), \
+			tmp, np.zeros((K_tot, 1), dtype=np.uint8), \
+			np.arange(1, K_tot+1).reshape(-1,1), \
+			np.array(["A"]).repeat(K_tot).reshape(-1,1), \
+			np.array(["T"]).repeat(K_tot).reshape(-1,1)))
+		np.savetxt(f"{args.out}.bim", bim, delimiter="\t", fmt="%s")
+		del bim, tmp, P_mat
 		
 		# Save .fam file
-		tmp = np.zeros((n//2, 4), dtype=int)
+		tmp = np.zeros((n//2, 4), dtype=np.int8)
 		tmp[:,3] = -9
-		fam = np.hstack((np.zeros(n//2, dtype=int), np.array(s_list), tmp))
+		fam = np.hstack((np.zeros((n//2, 1), dtype=np.uint8), \
+			s_list, tmp))
 		np.savetxt(f"{args.out}.fam", fam, delimiter="\t", fmt="%s")
 		print(f"\rSaved haplotype cluster alleles in binary PLINK format as " + \
 			f"{args.out}.(bed,bim,fam)")
+		del fam, tmp, s_list
 
 
 

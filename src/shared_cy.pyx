@@ -8,7 +8,7 @@ from libc.math cimport sqrt
 ### hapla pca
 # Extract aggregated haplotype cluster counts
 cpdef void haplotypeAggregate(unsigned char[:,::1] Z_mat, unsigned char[:,::1] Z, \
-		double[::1] pi, double[::1] sd, unsigned char[::1] K_vec) nogil:
+		double[::1] mu, double[::1] si, unsigned char[::1] K_vec) nogil:
 	cdef:
 		int W = Z_mat.shape[0]
 		int n = Z_mat.shape[1]
@@ -19,16 +19,16 @@ cpdef void haplotypeAggregate(unsigned char[:,::1] Z_mat, unsigned char[:,::1] Z
 			for i in range(n):
 				if Z_mat[w,i] == k:
 					Z[j,i//2] += 1
-					pi[j] += 1
-			pi[j] /= <double>n
+					mu[j] += 1
+			mu[j] /= <double>n
 			for i in range(n//2):
-				sd[j] += (<double>Z[j,i]-2*pi[j])*(<double>Z[j,i]-2*pi[j])
-			sd[j] = sqrt(sd[j]/(<double>(n//2)-1))
+				si[j] += (<double>Z[j,i]-2*mu[j])*(<double>Z[j,i]-2*mu[j])
+			si[j] = sqrt(si[j]/(<double>(n//2)-1))
 			j += 1
 
 # Array filtering
-cpdef void filterZ(unsigned char[:,::1] Z, double[::1] pi, \
-		double[::1] sd, unsigned char[::1] mask) nogil:
+cpdef void filterZ(unsigned char[:,::1] Z, double[::1] mu, \
+		double[::1] si, unsigned char[::1] mask) nogil:
 	cdef:
 		int m = Z.shape[0]
 		int n = Z.shape[1]
@@ -38,31 +38,31 @@ cpdef void filterZ(unsigned char[:,::1] Z, double[::1] pi, \
 		if mask[j] == 1:
 			for i in range(n):
 				Z[c,i] = Z[j,i]
-			pi[c] = pi[j]
-			sd[c] = sd[j]
+			mu[c] = mu[j]
+			si[c] = si[j]
 			c = c + 1
 
 # Standardize the batch haplotype cluster assignment matrix
-cpdef void batchZ(unsigned char[:,::1] Z, double[:,::1] Z_b, double[::1] pi, \
-		double[::1] sd, int m_b, int t) nogil:
+cpdef void batchZ(unsigned char[:,::1] Z, double[:,::1] Z_b, double[::1] mu, \
+		double[::1] si, int m_b, int t) nogil:
 	cdef:
 		int m = Z_b.shape[0]
 		int n = Z_b.shape[1]
 		int i, j
 	for j in prange(m, num_threads=t):
 		for i in range(n):
-			Z_b[j,i] = (Z[m_b+j,i] - 2*pi[m_b+j])/sd[m_b+j]
+			Z_b[j,i] = (Z[m_b+j,i] - 2*mu[m_b+j])/si[m_b+j]
 
 # Standardize full matrix
 cpdef void standardizeZ(unsigned char[:,::1] Z, double[:,::1] Z_std, \
-		double[::1] pi, double[::1] sd, int t) nogil:
+		double[::1] mu, double[::1] si, int t) nogil:
 	cdef:
 		int m = Z.shape[0]
 		int n = Z.shape[1]
 		int i, j
 	for j in prange(m, num_threads=t):
 		for i in range(n):
-			Z_std[j,i] = (Z[j,i] - 2*pi[j])/sd[j]
+			Z_std[j,i] = (Z[j,i] - 2*mu[j])/si[j]
 
 
 
