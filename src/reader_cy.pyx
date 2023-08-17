@@ -92,38 +92,6 @@ cpdef void predictBit(unsigned char[:,::1] Gt, unsigned char[:,::1] Xt, int w0, 
 				if i == n:
 					break
 
-### Convert 1-bit into standardized genotype array for phenotypes
-cpdef void genotypeBit(unsigned char[:,::1] G_mat, double[:,::1] G, long[::1] p) nogil:
-	cdef:
-		int m = G.shape[0]
-		int n = G.shape[1]
-		int B = G_mat.shape[1]
-		int b, i, j, bit
-		double pi, sd 
-		unsigned char mask = 1
-		unsigned char byte
-	for j in range(m):
-		i = 0
-		pi = 0.0
-		sd = 0.0
-		for b in range(B):
-			byte = G_mat[p[j],b]
-			for bit in range(0, 8, 2):
-				G[j,i] = <double>(byte & mask)
-				byte = byte >> 1 # Right shift 1 bit
-				G[j,i] += <double>(byte & mask)
-				byte = byte >> 1 # Right shift 1 bit
-				pi = pi + G[j,i]
-				i = i + 1
-				if i == n:
-					break
-		pi = pi/(<double>n)
-		for i in range(n):
-			sd = sd + (G[j,i] - pi)*(G[j,i] - pi)
-		sd = sqrt(sd/(<double>n))
-		for i in range(n):
-			G[j,i] = (G[j,i] - pi)/sd
-
 ### Convert haplotype cluster alleles to 2-bit PLINK format
 cpdef void convertPlink(unsigned char[:,::1] Z_mat, unsigned char[:,::1] Z_bin, \
 		int[:,::1] P_mat, unsigned char[::1] Z_vec, unsigned char[::1] K_vec) nogil:
@@ -163,6 +131,28 @@ cpdef void convertPlink(unsigned char[:,::1] Z_mat, unsigned char[:,::1] Z_bin, 
 			P_mat[j,1] = k + 1
 			j = j + 1
 
+### Convert 1-bit into genotype array for phenotypes
+cpdef void genotypeBit(unsigned char[:,::1] G_mat, double[:,::1] G, long[::1] p) nogil:
+	cdef:
+		int m = G.shape[0]
+		int n = G.shape[1]
+		int B = G_mat.shape[1]
+		int b, i, j, bit
+		unsigned char mask = 1
+		unsigned char byte
+	for j in range(m):
+		i = 0
+		for b in range(B):
+			byte = G_mat[p[j],b]
+			for bit in range(0, 8, 2):
+				G[j,i] = <double>(byte & mask)
+				byte = byte >> 1 # Right shift 1 bit
+				G[j,i] += <double>(byte & mask)
+				byte = byte >> 1 # Right shift 1 bit
+				i = i + 1
+				if i == n:
+					break
+
 ### Convert haplotype cluster alleles to standardized array for phenotypes
 cpdef void convertHaplo(unsigned char[:,::1] Z, double[:,::1] G, \
 		unsigned char[::1] K_vec, long[::1] C) nogil:
@@ -173,22 +163,12 @@ cpdef void convertHaplo(unsigned char[:,::1] Z, double[:,::1] G, \
 		int i, k, w
 		int b = 0
 		int j = 0
-		double mu, si
 	for w in range(W):
 		for k in range(K_vec[w]):
 			if b == C[j]:
-				mu = 0.0
-				si = 0.0
 				for i in range(2*n):
 					if Z[w,i] == k:
 						G[j,i//2] += 1
-						mu = mu + G[j,i//2]
-				mu = mu/(<double>n)
-				for i in range(n):
-					si = si + (G[j,i] - mu)*(G[j,i] - mu)
-				si = sqrt(si/(<double>n))
-				for i in range(n):
-					G[j,i] = (G[j,i] - mu)/si
 				j = j + 1
 			b = b + 1
 

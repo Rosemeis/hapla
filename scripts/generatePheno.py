@@ -31,14 +31,14 @@ parser.add_argument("-o", "--out", default="pheno.generate",
 	help="Prefix for output files")
 parser.add_argument("--save_beta", action="store_true",
 	help="Save the sampled causal betas")
-parser.add_argument("--save_regenie", action="store_true",
-	help="Save extra phenotype file in regenie format")
+parser.add_argument("--save_plink", action="store_true",
+	help="Save extra phenotype file in PLINK format")
 args = parser.parse_args()
 
 # Check input
 if args.filelist is None:
 	assert (args.vcf is not None), "Please provide genotype file (--bcf or --vcf)!"
-if args.save_regenie:
+if args.save_plink:
 	assert args.vcf is not None, "VCF/BCF file is needed for sample list!"
 assert (args.h2 > 0) and (args.h2 < 10), "Invalid value for h2!"
 
@@ -122,13 +122,12 @@ np.savetxt(f"{args.out}.pheno", Y, fmt="%.7f")
 print(f"Saved continuous phenotypes as {args.out}.pheno")
 np.savetxt(f"{args.out}.prs", G_liab, fmt="%.7f")
 print(f"Saved PRS as {args.out}.prs")
-if args.save_regenie:
-	Y_regenie = np.repeat(np.array(s_list), 2).reshape(n, 2)
-	Y_regenie = np.hstack((Y_regenie, np.round(Y.reshape(-1,1), 7)))
-	np.savetxt(f"{args.out}.regenie.pheno", Y_regenie, delimiter="\t", \
-		comments="", header="FID\tIID\tY1", fmt="%s")
-	print("Saved continuous phenotypes in regenie format as " + \
-	f"{args.out}.regenie.pheno")
+if args.save_plink:
+	Y_plink = np.repeat(np.array(s_list), 2).reshape(n, 2)
+	Y_plink = np.hstack((Y_plink, np.round(Y.reshape(-1,1), 7)))
+	np.savetxt(f"{args.out}.plink.pheno", Y_plink, delimiter="\t", fmt="%s")
+	print("Saved continuous phenotypes in plink format as " + \
+	f"{args.out}.plink.pheno")
 if args.save_beta:
 	np.savetxt(f"{args.out}.beta", B*G_scal, fmt="%.7f")
 	print(f"Saved causal betas as {args.out}.beta")
