@@ -254,7 +254,7 @@ def main(args):
 		
 		# Save .fam file
 		fam = np.hstack((s_list, np.zeros((n//2, 3), dtype=np.uint8), \
-			np.full((n//2, 3), -9, dtype=np.int8)))
+			np.full((n//2, 1), -9, dtype=np.int8)))
 		np.savetxt(f"{args.out}.fam", fam, delimiter="\t", fmt="%s")
 		print(f"\rSaved alleles in PLINK format as {args.out}.(bed,bim,fam)")
 		del fam, s_list
