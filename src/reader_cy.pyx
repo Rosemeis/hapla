@@ -93,13 +93,13 @@ cpdef void predictBit(unsigned char[:,::1] Gt, unsigned char[:,::1] Xt, int w0, 
 					break
 
 ### Convert 1-bit into standardized genotype array for phenotypes
-cpdef void genotypeBit(unsigned char[:,::1] G_mat, float[:,::1] G, long[::1] p) nogil:
+cpdef void genotypeBit(unsigned char[:,::1] G_mat, double[:,::1] G, long[::1] p) nogil:
 	cdef:
 		int m = G.shape[0]
 		int n = G.shape[1]
 		int B = G_mat.shape[1]
 		int b, i, j, bit
-		float pi, sd 
+		double pi, sd 
 		unsigned char mask = 1
 		unsigned char byte
 	for j in range(m):
@@ -109,18 +109,18 @@ cpdef void genotypeBit(unsigned char[:,::1] G_mat, float[:,::1] G, long[::1] p) 
 		for b in range(B):
 			byte = G_mat[p[j],b]
 			for bit in range(0, 8, 2):
-				G[j,i] = <float>(byte & mask)
+				G[j,i] = <double>(byte & mask)
 				byte = byte >> 1 # Right shift 1 bit
-				G[j,i] += <float>(byte & mask)
+				G[j,i] += <double>(byte & mask)
 				byte = byte >> 1 # Right shift 1 bit
 				pi = pi + G[j,i]
 				i = i + 1
 				if i == n:
 					break
-		pi = pi/(<float>n)
+		pi = pi/(<double>n)
 		for i in range(n):
 			sd = sd + (G[j,i] - pi)*(G[j,i] - pi)
-		sd = sqrt(sd/(<float>n))
+		sd = sqrt(sd/(<double>n))
 		for i in range(n):
 			G[j,i] = (G[j,i] - pi)/sd
 
