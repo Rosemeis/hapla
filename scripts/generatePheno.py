@@ -59,7 +59,7 @@ if args.vcf is not None:
 	print("\rLoading VCF/BCF file...", end="")
 	v_file = VCF(args.vcf, threads=args.threads)
 	n = len(v_file.samples)
-	if args.save_regenie:
+	if args.save_plink:
 		s_list = v_file.samples
 	if args.filelist is None:
 		B = ceil(2*n/8)
