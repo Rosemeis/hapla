@@ -173,7 +173,8 @@ def main(args):
 					break
 				if args.verbose:
 					N_sur = np.sum(N_vec > N_thr)
-					print(f"{N_sur}/{K_tmp} clusters reaching threshold. {N_min}/{N_thr}.")
+					print(f"{N_sur}/{K_tmp} clusters reaching threshold. " + \
+						f"{N_min}/{N_thr}.")
 		else:
 			cluster_cy.clusterAssignment(Ht, M, C, Z_mat, c_vec, N_vec, K, w, \
 				args.threads)
@@ -209,7 +210,7 @@ def main(args):
 
 	##### Save output #####
 	np.save(f"{args.out}.z", Z_mat)
-	print(f"Saved haplotype cluster alleles as {args.out}.z.npy")
+	print(f"Saved haplotype cluster assignments as {args.out}.z.npy")
 	np.savetxt(f"{args.out}.num_clusters", K_vec, fmt="%i")
 	print(f"Saved the number of clusters per window as {args.out}.num_clusters")
 	if args.medians:
@@ -225,7 +226,7 @@ def main(args):
 		v_file = VCF(args.vcf)
 		s_list = np.array(v_file.samples).reshape(-1,1)
 		for variant in v_file: # Extract chromosome name from first entry
-			chrom = np.array([variant.CHROM])
+			chrom = variant.CHROM
 			break
 		del v_file
 		K_vec -= 1 # Dummy encoding
@@ -242,8 +243,8 @@ def main(args):
 		del K_vec, Z_bin, Z_mat, Z_vec
 
 		# Save .bim file
-		tmp = np.array([f"{w}_{k}" for w,k in P_mat]).reshape(-1,1)
-		bim = np.hstack((chrom.repeat(K_tot).reshape(-1,1), \
+		tmp = np.array([f"{chrom}_{w}_{k}" for w,k in P_mat]).reshape(-1,1)
+		bim = np.hstack((np.array([chrom]).repeat(K_tot).reshape(-1,1), \
 			tmp, np.zeros((K_tot, 1), dtype=np.uint8), \
 			np.arange(1, K_tot+1).reshape(-1,1), \
 			np.array(["A"]).repeat(K_tot).reshape(-1,1), \
@@ -257,8 +258,7 @@ def main(args):
 		fam = np.hstack((np.zeros((n//2, 1), dtype=np.uint8), \
 			s_list, tmp))
 		np.savetxt(f"{args.out}.fam", fam, delimiter="\t", fmt="%s")
-		print(f"\rSaved haplotype cluster alleles in binary PLINK format as " + \
-			f"{args.out}.(bed,bim,fam)")
+		print(f"\rSaved alleles in PLINK format as {args.out}.(bed,bim,fam)")
 		del fam, tmp, s_list
 
 

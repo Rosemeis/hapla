@@ -44,7 +44,7 @@ def main(args):
 		del Z_list
 	else:
 		Z_mat = np.load(args.clusters)
-	print("\rLoaded haplotype cluster alleles of " + \
+	print("\rLoaded haplotype cluster assignments of " + \
 		f"{Z_mat.shape[1]} haplotypes in {Z_mat.shape[0]} windows.")
 	W = Z_mat.shape[0]
 	n = Z_mat.shape[1]//2
