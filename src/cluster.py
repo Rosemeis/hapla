@@ -224,7 +224,7 @@ def main(args):
 	if args.plink:
 		print("\rGenerating binary PLINK output.", end="")
 		v_file = VCF(args.vcf)
-		s_list = np.array(v_file.samples).reshape(-1,1)
+		s_list = np.array(v_file.samples).reshape(-1,1).repeat(2, axis=1)
 		for variant in v_file: # Extract chromosome name from first entry
 			chrom = variant.CHROM
 			break
@@ -253,13 +253,11 @@ def main(args):
 		del bim, tmp, P_mat
 		
 		# Save .fam file
-		tmp = np.zeros((n//2, 4), dtype=np.int8)
-		tmp[:,3] = -9
-		fam = np.hstack((np.zeros((n//2, 1), dtype=np.uint8), \
-			s_list, tmp))
+		fam = np.hstack((s_list, np.zeros((n//2, 3), dtype=np.uint8), \
+			np.full((n//2, 3), -9, dtype=np.int8)))
 		np.savetxt(f"{args.out}.fam", fam, delimiter="\t", fmt="%s")
 		print(f"\rSaved alleles in PLINK format as {args.out}.(bed,bim,fam)")
-		del fam, tmp, s_list
+		del fam, s_list
 
 
 
