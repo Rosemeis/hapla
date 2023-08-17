@@ -223,10 +223,11 @@ def main(args):
 		del L_mat
 	if args.plink:
 		print("\rGenerating binary PLINK output.", end="")
+		import re
 		v_file = VCF(args.vcf)
 		s_list = np.array(v_file.samples).reshape(-1,1).repeat(2, axis=1)
 		for variant in v_file: # Extract chromosome name from first entry
-			chrom = variant.CHROM
+			chrom = re.findall(r'\d+', variant.CHROM)[-1]
 			break
 		del v_file
 		K_vec -= 1 # Dummy encoding
