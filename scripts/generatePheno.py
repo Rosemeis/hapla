@@ -3,8 +3,7 @@ Generate continuous phenotypes for simulated data.
 Sample causal effect sizes.
 
 Usage:
-python3 generatePheno.py --bcf file.bcf --causal 100 --seed 1 --threads 16 \
-	--out output.prefix
+python3 generatePheno.py --bcf file.bcf --causal 100 --seed 1 --out output.prefix
 """
 
 __author__ = "Jonas Meisner"
@@ -33,8 +32,6 @@ parser.add_argument("-e", "--h2", type=int, default=5,
 	help="Heritability of trait as integer (5 = 0.5)")
 parser.add_argument("-s", "--seed", type=int, default=42,
 	help="Set random seed (42)")
-parser.add_argument("-t", "--threads", type=int, default=1,
-	help="Number of threads (1)")
 parser.add_argument("-o", "--out", default="pheno.generate",
 	help="Prefix for output files")
 parser.add_argument("--save_beta", action="store_true",
@@ -52,12 +49,6 @@ if args.save_plink:
 		"VCF/BCF or PLINK files are needed for sample list!"
 assert (args.h2 > 0) and (args.h2 < 10), "Invalid value for h2!"
 
-# Control threads of external numerical libraries
-os.environ["MKL_NUM_THREADS"] = str(args.threads)
-os.environ["OMP_NUM_THREADS"] = str(args.threads)
-os.environ["NUMEXPR_NUM_THREADS"] = str(args.threads)
-os.environ["OPENBLAS_NUM_THREADS"] = str(args.threads)
-
 # Import numerical libraries
 import numpy as np
 from cyvcf2 import VCF
@@ -67,7 +58,7 @@ from src import reader_cy
 ### Load data
 if args.vcf is not None: # VCF/BCF file
 	print("\rLoading VCF/BCF file...", end="")
-	v_file = VCF(args.vcf, threads=args.threads)
+	v_file = VCF(args.vcf)
 	n = len(v_file.samples)
 	if args.save_plink:
 		s_list = np.array([v_file.samples]).reshape(-1,1)
@@ -83,6 +74,8 @@ elif args.bfile is not None: # Binary PLINK files
 	# Finding length of .fam and .bim file
 	n = extract_length(f"{args.bfile}.fam")
 	m = extract_length(f"{args.bfile}.bim")
+	if args.save_plink:
+		fam = np.loadtxt(f"{args.bfile}.fam", usecols=[0,1], dtype=np.str_)
 
 	# Read .bed file
 	with open(f"{args.bfile}.bed", "rb") as bed:
@@ -146,21 +139,22 @@ E_liab = E*(sqrt(1.0 - h2)/(np.linalg.norm(E)/np.sqrt(n)))
 Y = G_liab + E_liab
 
 ### Save output
-np.savetxt(f"{args.out}.pheno", Y, fmt="%.7f")
-print(f"Saved continuous phenotypes as {args.out}.pheno")
-np.savetxt(f"{args.out}.prs", G_liab, fmt="%.7f")
-print(f"Saved PRS as {args.out}.prs")
-np.savetxt(f"{args.out}.set", p, fmt="%i")
-print(f"Saved causal SNP set as {args.out}.set")
 if args.save_plink:
 	if args.bfile:
-		Y_plink = np.hstack((f_list, s_list))
+		Y_plink = fam
 	else:
 		Y_plink = s_list.repeat(2, axis=1)
 	Y_plink = np.hstack((Y_plink, np.round(Y.reshape(-1,1), 7)))
 	np.savetxt(f"{args.out}.plink.pheno", Y_plink, delimiter="\t", fmt="%s")
 	print("Saved continuous phenotypes in plink format as " + \
 	f"{args.out}.plink.pheno")
+else:
+	np.savetxt(f"{args.out}.pheno", Y, fmt="%.7f")
+	print(f"Saved continuous phenotypes as {args.out}.pheno")
+np.savetxt(f"{args.out}.prs", G_liab, fmt="%.7f")
+print(f"Saved PRS as {args.out}.prs")
+np.savetxt(f"{args.out}.set", p, fmt="%i")
+print(f"Saved causal SNP set as {args.out}.set")
 if args.save_beta:
 	np.savetxt(f"{args.out}.beta", B*G_scal, fmt="%.7f")
 	print(f"Saved causal betas as {args.out}.beta")

@@ -164,7 +164,7 @@ cpdef void phenoVCF(unsigned char[:,::1] G_mat, double[:,::1] G, long[::1] p) no
 			G[j,i] = (G[j,i] - mu)/si
 
 ### Convert 2-bit into standardized genotype array for phenotypes
-cpdef void phenoPlink(unsigned char[:,::1] G_mat, double[:,::1] X, long[::1] p) nogil:
+cpdef void phenoPlink(unsigned char[:,::1] G_mat, double[:,::1] G, long[::1] p) nogil:
 	cdef:
 		int m = G.shape[0]
 		int n = G.shape[1]
