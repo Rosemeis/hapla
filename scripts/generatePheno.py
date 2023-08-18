@@ -12,15 +12,23 @@ __author__ = "Jonas Meisner"
 # Libraries
 import argparse
 import os
+import subprocess
+
+def extract_length(filename):
+	process = subprocess.Popen(['wc', '-l', filename], stdout=subprocess.PIPE)
+	result, _ = process.communicate()
+	return int(result.split()[0])
 
 ### Argparse
 parser = argparse.ArgumentParser()
 parser.add_argument("-g", "--vcf", "--bcf",
 	help="Genotype file in VCF/BCF format")
+parser.add_argument("-b", "--bfile",
+	help="Genotype file in binary PLINK format")
 parser.add_argument("-f", "--filelist",
 	help="Filelist with paths to haplotype cluster files")
-parser.add_argument("-c", "--causal", type=int, default=10000,
-	help="Number of causal SNPs (10000)")
+parser.add_argument("-c", "--causal", type=int, default=1000,
+	help="Number of causal SNPs (1000)")
 parser.add_argument("-e", "--h2", type=int, default=5,
 	help="Heritability of trait as integer (5 = 0.5)")
 parser.add_argument("-s", "--seed", type=int, default=42,
@@ -37,9 +45,11 @@ args = parser.parse_args()
 
 # Check input
 if args.filelist is None:
-	assert (args.vcf is not None), "Please provide genotype file (--bcf or --vcf)!"
+	assert (args.vcf is not None) or (args.bfile is not None), \
+		"Please provide genotype file (--bcf, --vcf or --bfile)!"
 if args.save_plink:
-	assert args.vcf is not None, "VCF/BCF file is needed for sample list!"
+	assert (args.vcf is not None) or (args.bfile is not None), \
+		"VCF/BCF or PLINK files are needed for sample list!"
 assert (args.h2 > 0) and (args.h2 < 10), "Invalid value for h2!"
 
 # Control threads of external numerical libraries
@@ -55,18 +65,31 @@ from math import ceil, sqrt
 from src import reader_cy
 
 ### Load data
-if args.vcf is not None:
+if args.vcf is not None: # VCF/BCF file
 	print("\rLoading VCF/BCF file...", end="")
 	v_file = VCF(args.vcf, threads=args.threads)
 	n = len(v_file.samples)
 	if args.save_plink:
-		s_list = v_file.samples
+		s_list = np.array([v_file.samples]).reshape(-1,1)
 	if args.filelist is None:
 		B = ceil(2*n/8)
 		G_mat = reader_cy.readVCF(v_file, n, B)
 		m = G_mat.shape[0]
 		print(f"\rLoaded genotype data: {n} samples and {m} SNPs.")
 	del v_file
+elif args.bfile is not None: # Binary PLINK files
+	print("\rLoading binary PLINK files...", end="")
+	
+	# Finding length of .fam and .bim file
+	n = extract_length(f"{args.bfile}.fam")
+	m = extract_length(f"{args.bfile}.bim")
+
+	# Read .bed file
+	with open(f"{args.bfile}.bed", "rb") as bed:
+		G_mat = np.fromfile(bed, dtype=np.uint8, offset=3)
+	B = ceil(n/4)
+	G_mat.shape = (m, B)
+	print(f"\rLoaded genotype data: {n} samples and {m} SNPs.")
 if args.filelist is not None: # Haplotype clusters
 	Z_list = []
 	with open(args.filelist) as f:
@@ -90,15 +113,20 @@ if args.filelist is not None: # Haplotype clusters
 h2 = float(f"0.{args.h2}")
 G = np.zeros((args.causal, n), dtype=float) # Genotypes or haplotype clusters
 np.random.seed(args.seed) # Set random seed
-p = np.sort(np.random.permutation(m)[:args.causal]).astype(int) # Select causals
-if args.filelist is not None:
-	C_vec = np.arange(m, dtype=int)[p]
-	reader_cy.convertHaplo(Z_mat, G, K_vec, C_vec)
-	del Z_mat, K_vec, C_vec
-else:
-	reader_cy.genotypeBit(G_mat, G, p)
+p = np.sort(np.random.permutation(m)[:args.causal]).astype(int) # Select causal loci
+if args.vcf is not None: # VCF/BCF
+	reader_cy.phenoVCF(G_mat, G, p)
 	del G_mat
-b = np.random.normal(loc=0.0, scale=sqrt(h2/args.causal), size=args.causal)
+elif args.bfile is not None: # binary PLINK
+	reader_cy.phenoPlink(G_mat, G, p)
+	del G_mat
+else: # Haplotype cluster alleles
+	C_vec = np.arange(m, dtype=int)[p]
+	reader_cy.phenoHaplo(Z_mat, G, K_vec, C_vec)
+	del Z_mat, K_vec, C_vec
+
+# Sample causal effects
+b = np.random.normal(loc=0.0, scale=1.0, size=args.causal)
 B = np.zeros(m)
 B[p] = b
 
@@ -122,8 +150,13 @@ np.savetxt(f"{args.out}.pheno", Y, fmt="%.7f")
 print(f"Saved continuous phenotypes as {args.out}.pheno")
 np.savetxt(f"{args.out}.prs", G_liab, fmt="%.7f")
 print(f"Saved PRS as {args.out}.prs")
+np.savetxt(f"{args.out}.set", p, fmt="%i")
+print(f"Saved causal SNP set as {args.out}.set")
 if args.save_plink:
-	Y_plink = np.repeat(np.array(s_list), 2).reshape(n, 2)
+	if args.bfile:
+		Y_plink = np.hstack((f_list, s_list))
+	else:
+		Y_plink = s_list.repeat(2, axis=1)
 	Y_plink = np.hstack((Y_plink, np.round(Y.reshape(-1,1), 7)))
 	np.savetxt(f"{args.out}.plink.pheno", Y_plink, delimiter="\t", fmt="%s")
 	print("Saved continuous phenotypes in plink format as " + \
