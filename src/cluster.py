@@ -12,7 +12,7 @@ from time import time
 ##### hapla cluster #####
 def main(args):
 	print("hapla by Jonas Meisner (v0.2)")
-	print(f"hapla cluster using {args.threads} thread(s).")
+	print(f"hapla cluster using {args.threads} thread(s).\n")
 	
 	# Check input
 	assert args.vcf is not None, \
@@ -155,19 +155,18 @@ def main(args):
 			cluster_cy.countN(Z_mat, N_vec, K, w)
 			cluster_cy.marginalMedians(M, C, N_vec, K)
 
-		# Filtering out small haplotype clusters
+		# Remove small haplotype clusters and rescue as many as possible
 		if K > 2:
-			N_thr = max(2, int(args.min_freq*n)) # At least size of 2
-
-			# Remove singleton clusters all together
+			# Remove singletons
+			N_thr = max(2, int(args.min_freq*n))
 			N_vec[N_vec == 1] = 0
-			K_tmp = np.sum(N_vec > 0, dtype=int)
+			K_tmp = np.sum(N_vec > 0)
 			cluster_cy.clusterAssignment(Ht, M, C, Z_mat, c_vec, N_vec, K, w, \
 				args.threads)
 			cluster_cy.countN(Z_mat, N_vec, K, w)
 			cluster_cy.marginalMedians(M, C, N_vec, K)
 
-			# Loop rescue
+			# Remove small clusters iterativly
 			if args.verbose:
 				N_sur = np.sum(N_vec > N_thr)
 				print(f"{N_sur}/{K_tmp} clusters reaching threshold.")
@@ -281,7 +280,7 @@ def main(args):
 	t_sec = int(t_tot - t_min*60)
 	print(f"Total elapsed time: {t_min}m{t_sec}s")
 
-
+	
 
 ##### Main exception #####
 assert __name__ != "__main__", "Please use the 'hapla cluster' command!"
