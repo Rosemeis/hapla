@@ -113,7 +113,7 @@ else: # Haplotype cluster alleles
 	del Z_mat, K_vec, C_vec
 
 # Sample causal effects
-b = np.random.normal(loc=0.0, scale=1.0, size=args.causal)
+b = np.random.normal(loc=0.0, scale=sqrt(h2/float(args.causal)), size=args.causal)
 B = np.zeros(m)
 B[p] = b
 

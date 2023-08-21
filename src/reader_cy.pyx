@@ -138,13 +138,10 @@ cpdef void phenoVCF(unsigned char[:,::1] G_mat, double[:,::1] G, long[::1] p) no
 		int n = G.shape[1]
 		int B = G_mat.shape[1]
 		int b, i, j, bit
-		double mu, si
 		unsigned char mask = 1
 		unsigned char byte
 	for j in range(m):
 		i = 0
-		mu = 0.0
-		si = 0.0
 		for b in range(B):
 			byte = G_mat[p[j],b]
 			for bit in range(0, 8, 2):
@@ -152,16 +149,9 @@ cpdef void phenoVCF(unsigned char[:,::1] G_mat, double[:,::1] G, long[::1] p) no
 				byte = byte >> 1 # Right shift 1 bit
 				G[j,i] += <double>(byte & mask)
 				byte = byte >> 1 # Right shift 1 bit
-				mu = mu + G[j,i]
 				i = i + 1
 				if i == n:
 					break
-		mu = mu/(<double>n)
-		for i in range(n):
-			si = si + (<double>G[j,i] - mu)*(<double>G[j,i] - mu)
-		si = sqrt(si/(<double>n))
-		for i in range(n):
-			G[j,i] = (G[j,i] - mu)/si
 
 ### Convert 2-bit into standardized genotype array for phenotypes
 cpdef void phenoPlink(unsigned char[:,::1] G_mat, double[:,::1] G, long[::1] p) nogil:
@@ -170,29 +160,19 @@ cpdef void phenoPlink(unsigned char[:,::1] G_mat, double[:,::1] G, long[::1] p) 
 		int n = G.shape[1]
 		int B = G_mat.shape[1]
 		int b, i, j, bytepart
-		double mu, si
 		unsigned char[4] recode = [0, 9, 1, 2]
 		unsigned char mask = 3
 		unsigned char byte
 	for j in range(m):
 		i = 0
-		mu = 0.0
-		si = 0.0
 		for b in range(B):
 			byte = G_mat[p[j],b]
 			for bytepart in range(4):
 				G[j,i] = <double>recode[byte & mask]
 				byte = byte >> 2
-				mu = mu + G[j,i]
 				i = i + 1
 				if i == n:
 					break
-		mu = mu/(<double>n)
-		for i in range(n):
-			si = si + (<double>G[j,i] - mu)*(<double>G[j,i] - mu)
-		si = sqrt(si/(<double>n))
-		for i in range(n):
-			G[j,i] = (G[j,i] - mu)/si
 
 ### Convert haplotype cluster alleles to standardized array for phenotypes
 cpdef void phenoHaplo(unsigned char[:,::1] Z, double[:,::1] G, \
@@ -204,22 +184,12 @@ cpdef void phenoHaplo(unsigned char[:,::1] Z, double[:,::1] G, \
 		int i, k, w
 		int b = 0
 		int j = 0
-		double mu, si
 	for w in range(W):
 		for k in range(K_vec[w]):
 			if b == C[j]:
-				mu = 0.0
-				si = 0.0
 				for i in range(2*n):
 					if Z[w,i] == k:
 						G[j,i//2] += 1
-						mu = mu + 1
-				mu = mu/(<double>n)
-				for i in range(n):
-					si = si + (<double>G[j,i] - mu)*(<double>G[j,i] - mu)
-				si = sqrt(si/(<double>n))
-				for i in range(n):
-					G[j,i] = (G[j,i] - mu)/si
 				j = j + 1
 			b = b + 1
 
