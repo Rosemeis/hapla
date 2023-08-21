@@ -36,15 +36,15 @@ parser.add_argument("-o", "--out", default="pheno.generate",
 	help="Prefix for output files")
 parser.add_argument("--save_beta", action="store_true",
 	help="Save the sampled causal betas")
-parser.add_argument("--save_plink", action="store_true",
-	help="Save extra phenotype file in PLINK format")
+parser.add_argument("--plink", action="store_true",
+	help="Save phenotype file in PLINK format")
 args = parser.parse_args()
 
 # Check input
 if args.filelist is None:
 	assert (args.vcf is not None) or (args.bfile is not None), \
 		"Please provide genotype file (--bcf, --vcf or --bfile)!"
-if args.save_plink:
+if args.plink:
 	assert (args.vcf is not None) or (args.bfile is not None), \
 		"VCF/BCF or PLINK files are needed for sample list!"
 assert (args.h2 > 0) and (args.h2 < 10), "Invalid value for h2!"
@@ -60,7 +60,7 @@ if args.vcf is not None: # VCF/BCF file
 	print("\rLoading VCF/BCF file...", end="")
 	v_file = VCF(args.vcf)
 	n = len(v_file.samples)
-	if args.save_plink:
+	if args.plink:
 		s_list = np.array([v_file.samples]).reshape(-1,1)
 	if args.filelist is None:
 		B = ceil(2*n/8)
@@ -74,7 +74,7 @@ elif args.bfile is not None: # Binary PLINK files
 	# Finding length of .fam and .bim file
 	n = extract_length(f"{args.bfile}.fam")
 	m = extract_length(f"{args.bfile}.bim")
-	if args.save_plink:
+	if args.plink:
 		fam = np.loadtxt(f"{args.bfile}.fam", usecols=[0,1], dtype=np.str_)
 
 	# Read .bed file
@@ -139,7 +139,7 @@ E_liab = E*(sqrt(1.0 - h2)/(np.linalg.norm(E)/np.sqrt(n)))
 Y = G_liab + E_liab
 
 ### Save output
-if args.save_plink:
+if args.plink:
 	if args.bfile:
 		Y_plink = fam
 	else:

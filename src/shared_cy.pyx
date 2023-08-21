@@ -8,7 +8,7 @@ from libc.math cimport sqrt
 ### hapla pca
 # Extract aggregated haplotype cluster counts
 cpdef void haplotypeAggregate(unsigned char[:,::1] Z_mat, unsigned char[:,::1] Z, \
-		double[::1] mu, double[::1] si, unsigned char[::1] K_vec) nogil:
+		float[::1] mu, float[::1] si, unsigned char[::1] K_vec) nogil:
 	cdef:
 		int W = Z_mat.shape[0]
 		int n = Z_mat.shape[1]
@@ -20,15 +20,15 @@ cpdef void haplotypeAggregate(unsigned char[:,::1] Z_mat, unsigned char[:,::1] Z
 				if Z_mat[w,i] == k:
 					Z[j,i//2] += 1
 					mu[j] += 1
-			mu[j] /= <double>n
+			mu[j] /= <float>n
 			for i in range(n//2):
-				si[j] += (<double>Z[j,i]-2*mu[j])*(<double>Z[j,i]-2*mu[j])
-			si[j] = sqrt(si[j]/(<double>(n//2)-1))
+				si[j] += (<float>Z[j,i]-2*mu[j])*(<float>Z[j,i]-2*mu[j])
+			si[j] = sqrt(si[j]/(<float>(n//2)-1))
 			j += 1
 
 # Array filtering
-cpdef void filterZ(unsigned char[:,::1] Z, double[::1] mu, \
-		double[::1] si, unsigned char[::1] mask) nogil:
+cpdef void filterZ(unsigned char[:,::1] Z, float[::1] mu, \
+		float[::1] si, unsigned char[::1] mask) nogil:
 	cdef:
 		int m = Z.shape[0]
 		int n = Z.shape[1]
@@ -43,8 +43,8 @@ cpdef void filterZ(unsigned char[:,::1] Z, double[::1] mu, \
 			c = c + 1
 
 # Standardize the batch haplotype cluster assignment matrix
-cpdef void batchZ(unsigned char[:,::1] Z, double[:,::1] Z_b, double[::1] mu, \
-		double[::1] si, int m_b, int t) nogil:
+cpdef void batchZ(unsigned char[:,::1] Z, double[:,::1] Z_b, float[::1] mu, \
+		float[::1] si, int m_b, int t) nogil:
 	cdef:
 		int m = Z_b.shape[0]
 		int n = Z_b.shape[1]
@@ -54,8 +54,8 @@ cpdef void batchZ(unsigned char[:,::1] Z, double[:,::1] Z_b, double[::1] mu, \
 			Z_b[j,i] = (Z[m_b+j,i] - 2*mu[m_b+j])/si[m_b+j]
 
 # Standardize full matrix
-cpdef void standardizeZ(unsigned char[:,::1] Z, double[:,::1] Z_std, \
-		double[::1] mu, double[::1] si, int t) nogil:
+cpdef void standardizeZ(unsigned char[:,::1] Z, float[:,::1] Z_std, \
+		float[::1] mu, float[::1] si, int t) nogil:
 	cdef:
 		int m = Z.shape[0]
 		int n = Z.shape[1]
@@ -68,8 +68,8 @@ cpdef void standardizeZ(unsigned char[:,::1] Z, double[:,::1] Z_std, \
 
 ### hapla split
 # Estimate squared correlation between variants (r^2) and compute L matrix
-cpdef void estimateL(unsigned char[:,::1] Gt, double[::1] F, double[::1] S, \
-		float[:,::1] L, double thr, int n, int t):
+cpdef void estimateL(unsigned char[:,::1] Gt, float[::1] F, float[::1] S, \
+		float[:,::1] L, float thr, int n, int t):
 	cdef:
 		int m = Gt.shape[0]
 		int B = Gt.shape[1]
@@ -78,7 +78,7 @@ cpdef void estimateL(unsigned char[:,::1] Gt, double[::1] F, double[::1] S, \
 		unsigned char mask = 1
 		unsigned char b1
 		unsigned char b2
-		double corr, r2
+		float corr, r2
 	with nogil, parallel(num_threads=t):
 		# Estimate means and standard deviations
 		for j in prange(m):
@@ -86,22 +86,22 @@ cpdef void estimateL(unsigned char[:,::1] Gt, double[::1] F, double[::1] S, \
 			for b in range(B):
 				b1 = Gt[j,b]
 				for bit in range(8):
-					F[j] += <double>(b1 & mask)
+					F[j] += <float>(b1 & mask)
 					b1 = b1 >> 1
 					k = k + 1
 					if k == n:
 						break
-			F[j] /= <double>n
+			F[j] /= <float>n
 			k = 0
 			for b in range(B):
 				b1 = Gt[j,b]
 				for bit in range(8):
-					S[j] += (<double>(b1 & mask)-F[j])*(<double>(b1 & mask)-F[j])
+					S[j] += (<float>(b1 & mask)-F[j])*(<float>(b1 & mask)-F[j])
 					b1 = b1 >> 1
 					k = k + 1
 					if k == n:
 						break
-			S[j] = sqrt(S[j]/(<double>n-1))
+			S[j] = sqrt(S[j]/(<float>n-1))
 		# Estimate squared correlations
 		for j in prange(m-1):
 			if j > (m - W):
@@ -116,13 +116,13 @@ cpdef void estimateL(unsigned char[:,::1] Gt, double[::1] F, double[::1] S, \
 					b2 = Gt[i,b]
 					for bit in range(8):
 						corr = corr + \
-							(<double>(b1 & mask)-F[j])*(<double>(b2 & mask)-F[i])/(S[j]*S[i])
+							(<float>(b1 & mask)-F[j])*(<float>(b2 & mask)-F[i])/(S[j]*S[i])
 						b1 = b1 >> 1
 						b2 = b2 >> 1
 						k = k + 1
 						if k == n:
 							break
-				corr = corr/<double>n
+				corr = corr/<float>n
 				r2 = corr*corr
 				if r2 > thr:
 					L[j,c] = <float>r2

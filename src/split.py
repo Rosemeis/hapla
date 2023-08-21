@@ -48,8 +48,8 @@ def main(args):
 	### Optimal window splitting
 	# Estimating L matrix
 	print("Estimating correlations and L matrix.")
-	F = np.zeros(m, dtype=float) # Means
-	S = np.zeros(m, dtype=float) # Standard deviations
+	F = np.zeros(m, dtype=np.float32) # Means
+	S = np.zeros(m, dtype=np.float32) # Standard deviations
 	L = np.zeros((m, args.max_length), dtype=np.float32)
 	shared_cy.estimateL(Gt, F, S, L, args.threshold, n, args.threads)
 	del Gt, F, S

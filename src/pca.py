@@ -16,6 +16,9 @@ def main(args):
 	# Check input
 	assert (args.filelist is not None) or (args.clusters is not None), \
 		"No input data (--filelist or --clusters)!"
+	if args.gcta:
+		assert (args.grm) and (args.iid is not None), \
+			"Toggle GRM output and provide sample list for GCTA output!"
 	if args.min_freq is not None:
 		assert args.min_freq > 0.0, "Empty haplotype clusters not allowed!"
 
@@ -55,8 +58,8 @@ def main(args):
 
 	# Populate full matrix and estimate summary statistics
 	Z = np.zeros((m, n), dtype=np.uint8)
-	mu = np.zeros(m, dtype=float)
-	si = np.zeros(m, dtype=float)
+	mu = np.zeros(m, dtype=np.float32)
+	si = np.zeros(m, dtype=np.float32)
 	shared_cy.haplotypeAggregate(Z_mat, Z, mu, si, K_vec)
 	del Z_mat
 
@@ -88,7 +91,7 @@ def main(args):
 			np.savetxt(f"{args.out}.loadings", U, fmt="%.7f")
 			print(f"Saved loadings as {args.out}.loadings")
 	else:
-		Z_std = np.zeros((m, n), dtype=float)
+		Z_std = np.zeros((m, n), dtype=np.float32)
 		shared_cy.standardizeZ(Z, Z_std, mu, si, args.threads)
 		del Z
 		if args.grm:
@@ -97,8 +100,23 @@ def main(args):
 			G = np.dot(Z_std.T, Z_std)/float(m)
 		
 			# Save matrix
-			np.savetxt(f"{args.out}.grm", G, fmt="%.7f")
-			print(f"Saved genome-wide relationship matrix (GRM) as {args.out}.grm")
+			if args.gcta: # GCTA binary format
+				G[np.tril_indices(n)].tofile(f"{args.out}.grm.bin")
+				np.full(G.shape[0], m, dtype=np.float32).tofile(f"{args.out}.grm.N.bin")
+				iid = np.loadtxt(f"{args.iid}", dtype=np.str_).reshape(-1,1)
+				if args.fid is not None:
+					fid = np.loadtxt(f"{args.fid}", dtype=np.str_).reshape(-1,1)
+					fam = np.hstack((fid, iid))
+				else:
+					fam = np.hstack((np.zeros((n, 1), dtype=np.uint8), iid))
+				np.savetxt(f"{args.out}.grm.id", fam, delimiter="\t", fmt="%s")
+				print("Saved genome-wide relationship matrix (GRM) in GCTA format:")
+				print(f"- {args.out}.grm.bin\n" + \
+					f"- {args.out}.grm.N.bin\n" + \
+					f"- {args.out}.grm.id")
+			else:
+				np.savetxt(f"{args.out}.grm", G, fmt="%.7f")
+				print(f"Saved genome-wide relationship matrix (GRM) as {args.out}.grm")
 		else:
 			# Truncated SVD (Arnoldi)
 			print(f"Performing truncated SVD, extracting {args.n_eig} eigenvectors.")

@@ -16,8 +16,8 @@ def main():
 	parser_cluster = subparsers.add_parser("cluster")
 	parser_cluster.add_argument("-g", "--vcf", "--bcf", metavar="FILE",
 		help="Input phased genotype file in VCF/BCF format")
-	parser_cluster.add_argument("-f", "--fixed", type=int, default=128,
-		metavar="INT", help="Use fixed window length (128)")
+	parser_cluster.add_argument("-f", "--fixed", type=int, default=100,
+		metavar="INT", help="Use fixed window length (100)")
 	parser_cluster.add_argument("-w", "--windows",
 		metavar="FILE", help="Use provided window lengths")
 	parser_cluster.add_argument("-l", "--lmbda", type=float, default=0.1,
@@ -38,6 +38,8 @@ def main():
 		help="Compute log-likelihoods for ancestry estimation")
 	parser_cluster.add_argument("--plink", action="store_true",
 		help="Generate binary PLINK output")
+	parser_cluster.add_argument("--duplicate_fid", action="store_true",
+		help="Use sample list as FID")
 	parser_cluster.add_argument("--verbose", action="store_true",
 		help="Verbose output from each iteration")
 	parser_cluster.add_argument("--filter",
@@ -63,6 +65,12 @@ def main():
 		help="Use randomized SVD (use for very large data)")
 	parser_pca.add_argument("--grm", action="store_true",
 		help="Estimate genome-wide relationship matrix (only small data)")
+	parser_pca.add_argument("--gcta", action="store_true",
+		help="Estimate genome-wide relationship matrix in GCTA format")
+	parser_pca.add_argument("--iid", metavar="FILE",
+		help="Sample ID list for GCTA format")
+	parser_pca.add_argument("--fid", metavar="FILE",
+		help="Family ID list for GCTA format")
 	parser_pca.add_argument("--batch", type=int, default=1024,
 		metavar="INT", help="Number of clusters in batched SVD")
 
@@ -136,13 +144,13 @@ def main():
 	parser_split.add_argument("-o", "--out", default="hapla.split",
 		metavar="OUTPUT", help="Output files")
 	parser_split.add_argument("--min_length", type=int, default=50,
-		metavar="INT", help="Minimum number of SNPs in windows (100)")
-	parser_split.add_argument("--max_length", type=int, default=1000,
-		metavar="INT", help="Maximum number of SNPs in windows (1000)")
+		metavar="INT", help="Minimum number of SNPs in windows (50)")
+	parser_split.add_argument("--max_length", type=int, default=5000,
+		metavar="INT", help="Maximum number of SNPs in windows (5000)")
 	parser_split.add_argument("--max_windows", type=int, default=5000,
 		metavar="INT", help="Maximum number of windows allowed")
-	parser_split.add_argument("--threshold", type=float, default=0.05,
-		metavar="FLOAT", help="Lower bound for r^2 in window creation (0.05)")
+	parser_split.add_argument("--threshold", type=float, default=0.1,
+		metavar="FLOAT", help="Lower bound for r^2 in window creation (0.1)")
 
 	# Parse arguments
 	args = parser.parse_args()

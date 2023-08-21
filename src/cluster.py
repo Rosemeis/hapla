@@ -7,6 +7,7 @@ __author__ = "Jonas Meisner"
 
 # Libraries
 import os
+from time import time
 
 ##### hapla cluster #####
 def main(args):
@@ -17,6 +18,7 @@ def main(args):
 	assert args.vcf is not None, \
 		"Please provide phased genotype file (--bcf or --vcf)!"
 	assert args.min_freq > 0.0, "Empty haplotype clusters not allowed!"
+	start = time()
 
 	# Control threads of external numerical libraries
 	os.environ["MKL_NUM_THREADS"] = str(args.threads)
@@ -153,10 +155,19 @@ def main(args):
 			cluster_cy.countN(Z_mat, N_vec, K, w)
 			cluster_cy.marginalMedians(M, C, N_vec, K)
 
-		# Remove small haplotype clusters and rescue as many as possible
+		# Filtering out small haplotype clusters
 		if K > 2:
-			N_thr = int(args.min_freq*n)
-			K_tmp = K
+			N_thr = max(2, int(args.min_freq*n)) # At least size of 2
+
+			# Remove singleton clusters all together
+			N_vec[N_vec == 1] = 0
+			K_tmp = np.sum(N_vec > 0, dtype=int)
+			cluster_cy.clusterAssignment(Ht, M, C, Z_mat, c_vec, N_vec, K, w, \
+				args.threads)
+			cluster_cy.countN(Z_mat, N_vec, K, w)
+			cluster_cy.marginalMedians(M, C, N_vec, K)
+
+			# Loop rescue
 			if args.verbose:
 				N_sur = np.sum(N_vec > N_thr)
 				print(f"{N_sur}/{K_tmp} clusters reaching threshold.")
@@ -225,7 +236,7 @@ def main(args):
 		print("\rGenerating binary PLINK output.", end="")
 		import re
 		v_file = VCF(args.vcf)
-		s_list = np.array(v_file.samples).reshape(-1,1).repeat(2, axis=1)
+		s_list = np.array(v_file.samples).reshape(-1,1)
 		for variant in v_file: # Extract chromosome name from first entry
 			chrom = re.findall(r'\d+', variant.CHROM)[-1]
 			break
@@ -254,11 +265,21 @@ def main(args):
 		del bim, tmp, P_mat
 		
 		# Save .fam file
+		if args.duplicate_fid:
+			s_list = s_list.repeat(2, axis=1)
+		else:
+			s_list = np.hstack((np.zeros((n//2, 1), dtype=np.uint8), s_list))
 		fam = np.hstack((s_list, np.zeros((n//2, 3), dtype=np.uint8), \
 			np.full((n//2, 1), -9, dtype=np.int8)))
 		np.savetxt(f"{args.out}.fam", fam, delimiter="\t", fmt="%s")
 		print(f"\rSaved alleles in PLINK format as {args.out}.(bed,bim,fam)")
 		del fam, s_list
+
+	# Print elapsed time for estimation
+	t_tot = time()-start
+	t_min = int(t_tot//60)
+	t_sec = int(t_tot - t_min*60)
+	print(f"Total elapsed time: {t_min}m{t_sec}s")
 
 
 
