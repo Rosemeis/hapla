@@ -1,3 +1,4 @@
+import subprocess
 import numpy as np
 from math import ceil
 from src import shared_cy
@@ -54,3 +55,11 @@ def fastSVD(A):
 	else:
 		U = np.dot(A.T, V)/S
 		return V, S, U
+
+
+
+### Phenotype generation
+def extract_length(filename):
+	process = subprocess.Popen(['wc', '-l', filename], stdout=subprocess.PIPE)
+	result, _ = process.communicate()
+	return int(result.split()[0])

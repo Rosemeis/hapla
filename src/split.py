@@ -12,7 +12,7 @@ import os
 def main(args):
 	print("hapla by Jonas Meisner (v0.2)")
 	print(f"hapla split using {args.threads} thread(s).")
-	print("Cite original paper: https://doi.org/10.1093/bioinformatics/btab519")
+	print("Cite original paper: https://doi.org/10.1093/bioinformatics/btab519\n")
 
 	# Check input
 	assert args.vcf is not None, \

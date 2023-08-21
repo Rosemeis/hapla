@@ -8,7 +8,7 @@ __author__ = "Jonas Meisner"
 ##### hapla regress #####
 def main(args):
 	print("hapla by Jonas Meisner (v0.2)")
-	print(f"hapla asso using {args.threads} thread(s).")
+	print(f"hapla asso using {args.threads} thread(s).\n")
 
 	# Check input
 	assert args.filelist is not None, "No input data provided!"

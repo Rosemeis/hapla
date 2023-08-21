@@ -10,13 +10,6 @@ __author__ = "Jonas Meisner"
 
 # Libraries
 import argparse
-import os
-import subprocess
-
-def extract_length(filename):
-	process = subprocess.Popen(['wc', '-l', filename], stdout=subprocess.PIPE)
-	result, _ = process.communicate()
-	return int(result.split()[0])
 
 ### Argparse
 parser = argparse.ArgumentParser()
@@ -53,6 +46,7 @@ assert (args.h2 > 0) and (args.h2 < 10), "Invalid value for h2!"
 import numpy as np
 from cyvcf2 import VCF
 from math import ceil, sqrt
+from src import functions
 from src import reader_cy
 
 ### Load data
@@ -72,8 +66,8 @@ elif args.bfile is not None: # Binary PLINK files
 	print("\rLoading binary PLINK files...", end="")
 	
 	# Finding length of .fam and .bim file
-	n = extract_length(f"{args.bfile}.fam")
-	m = extract_length(f"{args.bfile}.bim")
+	n = functions.extract_length(f"{args.bfile}.fam")
+	m = functions.extract_length(f"{args.bfile}.bim")
 	if args.plink:
 		fam = np.loadtxt(f"{args.bfile}.fam", usecols=[0,1], dtype=np.str_)
 

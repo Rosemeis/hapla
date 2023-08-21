@@ -11,7 +11,7 @@ import os
 ##### hapla pca #####
 def main(args):
 	print("hapla by Jonas Meisner (v0.2)")
-	print(f"hapla pca using {args.threads} thread(s).")
+	print(f"hapla pca using {args.threads} thread(s).\n")
 
 	# Check input
 	assert (args.filelist is not None) or (args.clusters is not None), \
