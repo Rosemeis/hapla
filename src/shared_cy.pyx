@@ -2,13 +2,41 @@
 import numpy as np
 cimport numpy as np
 from cython.parallel import prange, parallel
-from libc.math cimport sqrt
+from libc.math cimport pow, sqrt
 
 ##### hapla - analyses on haplotype cluster assignments #####
 ### hapla pca
+# Estimate haplotype sharing matrix
+cpdef void haplotypeSharing(unsigned char[:,::1] Z, float[::1] G, int t) \
+		nogil:
+	cdef:
+		int n = Z.shape[0]//2
+		int W = Z.shape[1]
+		int K = G.shape[0]
+		int i, j, k, w, g1, g2
+		unsigned char *i0
+		unsigned char *i1
+		unsigned char *j0
+		unsigned char *j1
+	for k in prange(K, num_threads=t):
+		i = <int>((sqrt(1 + 8*k) - 1)//2) # Row index in condensed form
+		j = k - <int>(i*(i + 3)//2) + i # Column index in condensed form
+		if i == j: # Diagonal
+			G[k] = 1.0
+		else:
+			i0 = &Z[2*i+0,0]
+			i1 = &Z[2*i+1,0]
+			j0 = &Z[2*j+0,0]
+			j1 = &Z[2*j+1,0]
+			for w in range(W):
+				g1 = <int>(i0[w] == j0[w]) + <int>(i1[w] == j1[w])
+				g2 = <int>(i1[w] == j0[w]) + <int>(i0[w] == j1[w])
+				G[k] += <float>(max(g1, g2))
+			G[k] /= <float>(2*W)
+
 # Extract aggregated haplotype cluster counts
 cpdef void haplotypeAggregate(unsigned char[:,::1] Z_mat, unsigned char[:,::1] Z, \
-		float[::1] mu, float[::1] si, unsigned char[::1] K_vec) nogil:
+		float[::1] pi, unsigned char[::1] K_vec) nogil:
 	cdef:
 		int W = Z_mat.shape[0]
 		int n = Z_mat.shape[1]
@@ -19,16 +47,13 @@ cpdef void haplotypeAggregate(unsigned char[:,::1] Z_mat, unsigned char[:,::1] Z
 			for i in range(n):
 				if Z_mat[w,i] == k:
 					Z[j,i//2] += 1
-					mu[j] += 1
-			mu[j] /= <float>n
-			for i in range(n//2):
-				si[j] += (<float>Z[j,i]-2*mu[j])*(<float>Z[j,i]-2*mu[j])
-			si[j] = sqrt(si[j]/(<float>(n//2)-1))
+					pi[j] += 1
+			pi[j] /= <float>n
 			j += 1
 
 # Array filtering
-cpdef void filterZ(unsigned char[:,::1] Z, float[::1] mu, \
-		float[::1] si, unsigned char[::1] mask) nogil:
+cpdef void filterZ(unsigned char[:,::1] Z, float[::1] pi, \
+		unsigned char[::1] mask) nogil:
 	cdef:
 		int m = Z.shape[0]
 		int n = Z.shape[1]
@@ -38,31 +63,31 @@ cpdef void filterZ(unsigned char[:,::1] Z, float[::1] mu, \
 		if mask[j] == 1:
 			for i in range(n):
 				Z[c,i] = Z[j,i]
-			mu[c] = mu[j]
-			si[c] = si[j]
+			pi[c] = pi[j]
 			c = c + 1
 
 # Standardize the batch haplotype cluster assignment matrix
-cpdef void batchZ(unsigned char[:,::1] Z, double[:,::1] Z_b, float[::1] mu, \
-		float[::1] si, int m_b, int t) nogil:
+cpdef void batchZ(unsigned char[:,::1] Z, double[:,::1] Z_b, float[::1] pi, \
+		float alpha, int m_b, int t) nogil:
 	cdef:
 		int m = Z_b.shape[0]
 		int n = Z_b.shape[1]
-		int i, j
+		int b, i, j
 	for j in prange(m, num_threads=t):
+		b = m_b+j
 		for i in range(n):
-			Z_b[j,i] = (Z[m_b+j,i] - 2*mu[m_b+j])/si[m_b+j]
+			Z_b[j,i] = (Z[b,i] - 2*pi[b])/pow(2*pi[b]*(1-pi[b]), 0.5*alpha)
 
 # Standardize full matrix
 cpdef void standardizeZ(unsigned char[:,::1] Z, float[:,::1] Z_std, \
-		float[::1] mu, float[::1] si, int t) nogil:
+		float[::1] pi, float alpha, int t) nogil:
 	cdef:
 		int m = Z.shape[0]
 		int n = Z.shape[1]
 		int i, j
 	for j in prange(m, num_threads=t):
 		for i in range(n):
-			Z_std[j,i] = (Z[j,i] - 2*mu[j])/si[j]
+			Z_std[j,i] = (Z[j,i] - 2*pi[j])/pow(2*pi[j]*(1-pi[j]), 0.5*alpha)
 
 
 

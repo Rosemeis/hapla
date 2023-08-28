@@ -16,8 +16,8 @@ def main():
 	parser_cluster = subparsers.add_parser("cluster")
 	parser_cluster.add_argument("-g", "--vcf", "--bcf", metavar="FILE",
 		help="Input phased genotype file in VCF/BCF format")
-	parser_cluster.add_argument("-f", "--fixed", type=int, default=100,
-		metavar="INT", help="Use fixed window length (100)")
+	parser_cluster.add_argument("-f", "--fixed", type=int, default=32,
+		metavar="INT", help="Use fixed window length (32)")
 	parser_cluster.add_argument("-w", "--windows",
 		metavar="FILE", help="Use provided window lengths")
 	parser_cluster.add_argument("-l", "--lmbda", type=float, default=0.1,
@@ -51,22 +51,26 @@ def main():
 		help="Filelist with paths to haplotype cluster alleles files")
 	parser_pca.add_argument("-z", "--clusters", metavar="FILE",
 		help="Path to a single haplotype cluster alleles file")
-	parser_pca.add_argument("-e", "--n_eig", type=int, default=10,
+	parser_pca.add_argument("-e", "--eig", type=int, default=10,
 		metavar="INT", help="Number of eigenvectors to extract (10)")
 	parser_pca.add_argument("-t", "--threads", type=int, default=1,
 		metavar="INT", help="Number of threads (1)")
 	parser_pca.add_argument("-o", "--out", default="hapla.pca",
 		metavar="OUTPUT", help="Output prefix")
 	parser_pca.add_argument("--min_freq", type=float,
-		metavar="INT", help="Minimum frequency for haplotype cluster")
+		metavar="FLOAT", help="Minimum frequency for haplotype cluster")
+	parser_pca.add_argument("--alpha", type=float, default=0.25,
+		metavar="FLOAT", help="Selection parameter")
 	parser_pca.add_argument("--loadings", action="store_true",
 		help="Save loadings of SVD")
 	parser_pca.add_argument("--randomized", action="store_true",
 		help="Use randomized SVD (use for very large data)")
+	parser_pca.add_argument("--sharing", action="store_true",
+		help="Estimate haplotype sharing matrix (HSM)")
 	parser_pca.add_argument("--grm", action="store_true",
-		help="Estimate genome-wide relationship matrix (only small data)")
-	parser_pca.add_argument("--gcta", action="store_true",
-		help="Estimate genome-wide relationship matrix in GCTA format")
+		help="Estimate genome-wide relationship matrix (GRM)")
+	parser_pca.add_argument("--gower", action="store_true",
+		help="Perform Gower's centering on GRM matrix")
 	parser_pca.add_argument("--iid", metavar="FILE",
 		help="Sample ID list for GCTA format")
 	parser_pca.add_argument("--fid", metavar="FILE",

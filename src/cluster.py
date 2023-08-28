@@ -11,13 +11,16 @@ from time import time
 
 ##### hapla cluster #####
 def main(args):
+	print("--------------------------------")
 	print("hapla by Jonas Meisner (v0.2)")
-	print(f"hapla cluster using {args.threads} thread(s).\n")
+	print(f"hapla cluster using {args.threads} thread(s)")
+	print("--------------------------------\n")
 	
 	# Check input
 	assert args.vcf is not None, \
 		"Please provide phased genotype file (--bcf or --vcf)!"
 	assert args.min_freq > 0.0, "Empty haplotype clusters not allowed!"
+	assert args.max_clusters <= 256, "Max clusters allowed exceeded!"
 	start = time()
 
 	# Control threads of external numerical libraries
@@ -160,11 +163,11 @@ def main(args):
 			# Remove singletons
 			N_thr = max(2, int(args.min_freq*n))
 			N_vec[N_vec == 1] = 0
-			K_tmp = np.sum(N_vec > 0)
 			cluster_cy.clusterAssignment(Ht, M, C, Z_mat, c_vec, N_vec, K, w, \
 				args.threads)
 			cluster_cy.countN(Z_mat, N_vec, K, w)
 			cluster_cy.marginalMedians(M, C, N_vec, K)
+			K_tmp = np.sum(N_vec > 0)
 
 			# Remove small clusters iterativly
 			if args.verbose:
