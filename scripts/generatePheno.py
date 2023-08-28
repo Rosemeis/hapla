@@ -121,13 +121,16 @@ B[p] = b
 # Genetic contribution
 X = np.dot(G.T, b)
 X -= np.mean(X)
-G_scal = sqrt(h2)/(np.linalg.norm(X)/np.sqrt(n))
+G_scal = sqrt(h2)/np.std(X)
 G_liab = X*G_scal
 
-# Environmental contribution
+# Environmental contribution (variance of phenotype will be exactly 1)
 E = np.random.normal(loc=0.0, scale=sqrt(1 - h2), size=n)
 E -= np.mean(E)
-E_liab = E*(sqrt(1.0 - h2)/(np.linalg.norm(E)/np.sqrt(n)))
+E_vari = np.var(E)
+C_vari = np.cov(G_liab, E, ddof=0)[0,1]
+E_scal = (np.sqrt(C_vari**2 + (1 - h2)*E_vari) - C_vari)/E_vari
+E_liab = E*E_scal
 
 # Generate phenotype
 Y = G_liab + E_liab

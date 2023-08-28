@@ -59,7 +59,7 @@ def main():
 		metavar="OUTPUT", help="Output prefix")
 	parser_pca.add_argument("--min_freq", type=float,
 		metavar="FLOAT", help="Minimum frequency for haplotype cluster")
-	parser_pca.add_argument("--alpha", type=float, default=0.25,
+	parser_pca.add_argument("--alpha", type=float, default=1.0,
 		metavar="FLOAT", help="Selection parameter")
 	parser_pca.add_argument("--loadings", action="store_true",
 		help="Save loadings of SVD")
