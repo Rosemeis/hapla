@@ -58,10 +58,22 @@ def main(args):
 	if args.sharing:
 		print("Estimating haplotype sharing matrix (HSM).")
 		K = n*(n+1)//2
-		G = np.zeros(K, dtype=np.float32)
 		Z = np.ascontiguousarray(Z_mat.T)
 		del Z_mat
-		shared_cy.haplotypeSharing(Z, G, args.threads)
+		if args.gower:
+			G = np.zeros((n, n), dtype=np.float32)
+			shared_cy.sharingFull(Z, G, K, args.threads)
+			
+			# Gower's centering
+			print("Performing Gower's centering on HSM.")
+			P = np.eye(n, dtype=np.float32) - 1.0/float(n)
+			G = (float(n-1)/np.trace(np.dot(P, np.dot(G, P))))*G
+			
+			# Save matrix
+			G = G[np.tril_indices(n)]
+		else:
+			G = np.zeros(K, dtype=np.float32)
+			shared_cy.sharingCondensed(Z, G, args.threads)
 		
 		# Save matrix
 		G.tofile(f"{args.out}.hsm.grm.bin")

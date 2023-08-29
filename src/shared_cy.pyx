@@ -6,8 +6,36 @@ from libc.math cimport pow, sqrt
 
 ##### hapla - analyses on haplotype cluster assignments #####
 ### hapla pca
-# Estimate haplotype sharing matrix
-cpdef void haplotypeSharing(unsigned char[:,::1] Z, float[::1] G, int t) \
+# Estimate haplotype sharing matrix in full form
+cpdef void sharingFull(unsigned char[:,::1] Z, float[:,::1] G, int K, int t) \
+		nogil:
+	cdef:
+		int n = Z.shape[0]//2
+		int W = Z.shape[1]
+		int i, j, k, w, g1, g2
+		unsigned char *i0
+		unsigned char *i1
+		unsigned char *j0
+		unsigned char *j1
+	for k in prange(K, num_threads=t):
+		i = <int>((sqrt(1 + 8*k) - 1)//2) # Row index in condensed form
+		j = k - <int>(i*(i + 3)//2) + i # Column index in condensed form
+		if i == j: # Diagonal
+			G[i,j] = 1.0
+		else:
+			i0 = &Z[2*i+0,0]
+			i1 = &Z[2*i+1,0]
+			j0 = &Z[2*j+0,0]
+			j1 = &Z[2*j+1,0]
+			for w in range(W):
+				g1 = <int>(i0[w] == j0[w]) + <int>(i1[w] == j1[w])
+				g2 = <int>(i1[w] == j0[w]) + <int>(i0[w] == j1[w])
+				G[i,j] += <float>(max(g1, g2))
+			G[i,j] /= <float>(2*W)
+			G[j,i] = G[i,j]
+
+# Estimate haplotype sharing matrix in condensed form
+cpdef void sharingCondensed(unsigned char[:,::1] Z, float[::1] G, int t) \
 		nogil:
 	cdef:
 		int n = Z.shape[0]//2
