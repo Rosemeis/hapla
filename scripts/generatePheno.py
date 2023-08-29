@@ -126,10 +126,10 @@ G_liab = X*G_scal
 
 # Environmental contribution (variance of phenotype will be exactly 1)
 E = np.random.normal(loc=0.0, scale=sqrt(1 - h2), size=n)
-E -= np.mean(E)
+E = ((E - np.mean(E))/np.std(E))*sqrt(1 - h2)
 E_vari = np.var(E)
 C_vari = np.cov(G_liab, E, ddof=0)[0,1]
-E_scal = (np.sqrt(C_vari**2 + (1 - h2)*E_vari) - C_vari)/E_vari
+E_scal = (sqrt(C_vari**2 + (1 - h2)*E_vari) - C_vari)/E_vari
 E_liab = E*E_scal
 
 # Generate phenotype
