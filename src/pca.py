@@ -120,7 +120,6 @@ def main(args):
 			shared_cy.grmCondensed(Z, G, p, s, args.threads)
 
 		# Save matrix
-		G = G[np.tril_indices(n)]
 		G.tofile(f"{args.out}.grm.bin")
 		np.full(K, m, dtype=np.float32).tofile(f"{args.out}.grm.N.bin")
 		iid = np.loadtxt(f"{args.iid}", dtype=np.str_).reshape(-1,1)
