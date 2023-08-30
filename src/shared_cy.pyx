@@ -2,7 +2,7 @@
 import numpy as np
 cimport numpy as np
 from cython.parallel import prange, parallel
-from libc.math cimport pow, sqrt
+from libc.math cimport sqrt
 
 ##### hapla - analyses on haplotype cluster assignments #####
 ### hapla pca
@@ -62,44 +62,6 @@ cpdef void hsmFull(unsigned char[:,::1] Z, float[:,::1] G, int K, int t) \
 			G[i,j] /= <float>(2*W)
 			G[j,i] = G[i,j]
 
-# Estimate genome-wide relationship matrix in condensed form
-cpdef void grmCondensed(unsigned char[:,::1] Z, float[::1] G, float[::1] p, \
-		float[::1] s, int t) nogil:
-	cdef:
-		int n = Z.shape[0]
-		int m = Z.shape[1]
-		int K = G.shape[0]
-		int i, j, k, l
-		unsigned char *il
-		unsigned char *jl
-	for k in prange(K, num_threads=t):
-		i = <int>((sqrt(1 + 8*k) - 1)//2) # Row index in condensed form
-		j = k - <int>(i*(i + 3)//2) + i # Column index in condensed form
-		il = &Z[i,0]
-		jl = &Z[j,0]
-		for l in range(m):
-			G[k] += (<float>il[l] - 2*p[l])*(<float>jl[l] - 2*p[l])/s[l]
-		G[k] /= <float>(m)
-
-# Estimate genome-wide relationship matrix in full form
-cpdef void grmFull(unsigned char[:,::1] Z, float[:,::1] G, float[::1] p, \
-		float[::1] s, int K, int t) nogil:
-	cdef:
-		int n = Z.shape[0]
-		int m = Z.shape[1]
-		int i, j, k, l
-		unsigned char *il
-		unsigned char *jl
-	for k in prange(K, num_threads=t):
-		i = <int>((sqrt(1 + 8*k) - 1)//2) # Row index in condensed form
-		j = k - <int>(i*(i + 3)//2) + i # Column index in condensed form
-		il = &Z[i,0]
-		jl = &Z[j,0]
-		for l in range(m):
-			G[i,j] += (<float>il[l] - 2*p[l])*(<float>jl[l] - 2*p[l])/s[l]
-		G[i,j] /= <float>(m)
-		G[j,i] = G[i,j]
-
 # Extract aggregated haplotype cluster counts
 cpdef void haplotypeAggregate(unsigned char[:,::1] Z_mat, unsigned char[:,::1] Z, \
 		float[::1] p, unsigned char[::1] K_vec) nogil:
@@ -134,7 +96,7 @@ cpdef void filterZ(unsigned char[:,::1] Z, float[::1] p, \
 
 # Standardize the batch haplotype cluster assignment matrix
 cpdef void batchZ(unsigned char[:,::1] Z, float[:,::1] Z_b, float[::1] p, \
-		int m_b, int t) nogil:
+		float[::1] s, int m_b, int t) nogil:
 	cdef:
 		int m = Z_b.shape[0]
 		int n = Z_b.shape[1]
@@ -142,18 +104,18 @@ cpdef void batchZ(unsigned char[:,::1] Z, float[:,::1] Z_b, float[::1] p, \
 	for j in prange(m, num_threads=t):
 		b = m_b+j
 		for i in range(n):
-			Z_b[j,i] = (Z[b,i] - 2*p[b])/sqrt(2*p[b]*(1-p[b]))
+			Z_b[j,i] = (Z[b,i] - 2*p[b])/s[b]
 
 # Standardize full matrix
 cpdef void standardizeZ(unsigned char[:,::1] Z, float[:,::1] Z_std, \
-		float[::1] p, int t) nogil:
+		float[::1] p, float[::1] s, int t) nogil:
 	cdef:
 		int m = Z.shape[0]
 		int n = Z.shape[1]
 		int i, j
 	for j in prange(m, num_threads=t):
 		for i in range(n):
-			Z_std[j,i] = (Z[j,i] - 2*p[j])/sqrt(2*p[j]*(1-p[j]))
+			Z_std[j,i] = (Z[j,i] - 2*p[j])/s[j]
 
 
 

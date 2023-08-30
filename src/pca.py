@@ -68,8 +68,6 @@ def main(args):
 			print("Performing Gower centering on HSM.")
 			P = np.eye(n, dtype=np.float32) - 1.0/float(n)
 			G = (float(n-1)/np.trace(np.dot(P, np.dot(G, P))))*G
-			
-			# Save matrix
 			G = G[np.tril_indices(n)]
 		else:
 			G = np.zeros(K, dtype=np.float32)
@@ -90,51 +88,7 @@ def main(args):
 		print(f"- {args.out}.hsm.grm.bin\n" + \
 			f"- {args.out}.hsm.grm.N.bin\n" + \
 			f"- {args.out}.hsm.grm.id")
-	elif args.grm: # Genome-wide relationship matrix
-		print("Estimating genome-wide relationship matrix (GRM).")
-		K = n*(n+1)//2
-		K_vec = np.max(Z_mat, axis=1) # Dummy encoding
-		m = np.sum(K_vec, dtype=int)
-
-		# Populate full matrix and estimate frequencies
-		Z_pop = np.zeros((m, n), dtype=np.uint8)
-		p = np.zeros(m, dtype=np.float32)
-		shared_cy.haplotypeAggregate(Z_mat, Z_pop, p, K_vec)
-		del Z_mat
-		s = np.power(2*p*(1-p), args.alpha)
-		Z = np.ascontiguousarray(Z_pop.T)
-		del Z_pop
-		if args.gower:
-			G = np.zeros((n, n), dtype=np.float32)
-			shared_cy.grmFull(Z, G, p, s, K, args.threads)
-
-			# Gower centering
-			print("Performing Gower centering on GRM.")
-			P = np.eye(n, dtype=np.float32) - 1.0/float(n)
-			G = (float(n-1)/np.trace(np.dot(P, np.dot(G, P))))*G
-			
-			# Save matrix
-			G = G[np.tril_indices(n)]
-		else:
-			G = np.zeros(K, dtype=np.float32)
-			shared_cy.grmCondensed(Z, G, p, s, args.threads)
-
-		# Save matrix
-		G.tofile(f"{args.out}.grm.bin")
-		np.full(K, m, dtype=np.float32).tofile(f"{args.out}.grm.N.bin")
-		iid = np.loadtxt(f"{args.iid}", dtype=np.str_).reshape(-1,1)
-		if args.fid is not None:
-			fid = np.loadtxt(f"{args.fid}", dtype=np.str_).reshape(-1,1)
-			fam = np.hstack((fid, iid))
-		else:
-			fam = np.hstack((np.zeros((n, 1), dtype=np.uint8), iid))
-		np.savetxt(f"{args.out}.grm.id", fam, delimiter="\t", fmt="%s")
-		print("Saved genome-wide relationship matrix (GRM) in GCTA format:")
-		print(f"- {args.out}.grm.bin\n" + \
-			f"- {args.out}.grm.N.bin\n" + \
-			f"- {args.out}.grm.id")
-	else: # Principal component analysis
-		print("Performing principal component analysis (PCA).")
+	else: # Haplotype cluster allele analyses
 		K_vec = np.max(Z_mat, axis=1) # Dummy encoding
 		m = np.sum(K_vec, dtype=int)
 
@@ -148,19 +102,77 @@ def main(args):
 		if args.min_freq is not None:
 			mask = (p >= args.min_freq) & (p <= (1 - args.min_freq))
 			mask = mask.astype(np.uint8)
-			print(f"Removed {m-np.sum(np.sum(mask, dtype=int))} haplotype clusters.")
+			print(f"Removed {m-np.sum(np.sum(mask, dtype=int))}/{m} haplotype clusters.")
 			m = np.sum(mask, dtype=int)
 
 			# Filter out masked haplotype clusters
 			shared_cy.filterZ(Z, p, mask)
 			Z = Z[:m,:]
 			p = p[:m]
+		
+		# Estimate GRM or perform truncated SVD	
+		if not args.randomized:
+			if args.grm: # Genome-wide relationship matrix
+				print("Estimating genome-wide relationship matrix (GRM).")
+				K = n*(n+1)//2
+				
+				# Standardize
+				s = np.sqrt(np.power(2*p*(1-p), args.alpha))
+				Z_std = np.zeros((m, n), dtype=np.float32)
+				shared_cy.standardizeZ(Z, Z_std, p, s, args.threads)
+				del Z
 
-		# Perform PCA or estimate genome-wide relationship matrices
-		if args.randomized:
-			# Randomized SVD
+				# Estimate GRM
+				G = np.dot(Z_std.T, Z_std)/float(m)
+				del Z_std
+				if args.gower: # Gower centering
+					print("Performing Gower centering on GRM.")
+					P = np.eye(n, dtype=np.float32) - 1.0/float(n)
+					G = (float(n-1)/np.trace(np.dot(P, np.dot(G, P))))*G
+
+				# Save matrix
+				G = G[np.tril_indices(n)]
+				G.tofile(f"{args.out}.grm.bin")
+				np.full(K, m, dtype=np.float32).tofile(f"{args.out}.grm.N.bin")
+				iid = np.loadtxt(f"{args.iid}", dtype=np.str_).reshape(-1,1)
+				if args.fid is not None:
+					fid = np.loadtxt(f"{args.fid}", dtype=np.str_).reshape(-1,1)
+					fam = np.hstack((fid, iid))
+				else:
+					fam = np.hstack((np.zeros((n, 1), dtype=np.uint8), iid))
+				np.savetxt(f"{args.out}.grm.id", fam, delimiter="\t", fmt="%s")
+				print("Saved genome-wide relationship matrix (GRM) in GCTA format:")
+				print(f"- {args.out}.grm.bin\n" + \
+					f"- {args.out}.grm.N.bin\n" + \
+					f"- {args.out}.grm.id")
+			else: # Truncated SVD
+				print(f"Computing truncated SVD, extracting {args.eig} eigenvectors.")
+
+				# Standardize
+				s = np.sqrt(2*p*(1-p))
+				Z_std = np.zeros((m, n), dtype=np.float32)
+				shared_cy.standardizeZ(Z, Z_std, p, s, args.threads)
+				del Z
+
+				# Truncated SVD (Arnoldi)
+				U, S, Vt = svds(Z_std, k=args.eig)
+
+				# Save matrices
+				np.savetxt(f"{args.out}.eigenvec", Vt[::-1,:].T, fmt="%.7f")
+				print(f"Saved eigenvectors as {args.out}.eigenvec")
+				np.savetxt(f"{args.out}.eigenval", (S[::-1]*S[::-1])/float(m), \
+					fmt="%.7f")
+				print(f"Saved eigenvalues as {args.out}.eigenval")
+				if args.loadings:
+					np.savetxt(f"{args.out}.loadings", U[:,::-1], fmt="%.7f")
+					print(f"Saved loadings as {args.out}.loadings")
+		else: # Randomized SVD
 			print(f"Computing randomized SVD, extracting {args.eig} eigenvectors.")
-			U, S, V = functions.randomizedSVD(Z, p, args.eig, args.batch, args.threads)
+
+			# Randomized SVD in batches
+			s = np.sqrt(2*p*(1-p))
+			U, S, V = functions.randomizedSVD(Z, p, s, args.eig, args.batch, \
+				args.threads)
 
 			# Save matrices
 			np.savetxt(f"{args.out}.eigenvec", V, fmt="%.7f")
@@ -169,24 +181,6 @@ def main(args):
 			print(f"Saved eigenvalues as {args.out}.eigenval")
 			if args.loadings:
 				np.savetxt(f"{args.out}.loadings", U, fmt="%.7f")
-				print(f"Saved loadings as {args.out}.loadings")
-		else:
-			Z_std = np.zeros((m, n), dtype=np.float32)
-			shared_cy.standardizeZ(Z, Z_std, p, args.threads)
-			del Z
-
-			# Truncated SVD (Arnoldi)
-			print(f"Computing truncated SVD, extracting {args.eig} eigenvectors.")
-			U, S, Vt = svds(Z_std, k=args.eig)
-
-			# Save matrices
-			np.savetxt(f"{args.out}.eigenvec", Vt[::-1,:].T, fmt="%.7f")
-			print(f"Saved eigenvectors as {args.out}.eigenvec")
-			np.savetxt(f"{args.out}.eigenval", (S[::-1]*S[::-1])/float(m), \
-				fmt="%.7f")
-			print(f"Saved eigenvalues as {args.out}.eigenval")
-			if args.loadings:
-				np.savetxt(f"{args.out}.loadings", U[:,::-1], fmt="%.7f")
 				print(f"Saved loadings as {args.out}.loadings")
 
 	# Print elapsed time for estimation
