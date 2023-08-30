@@ -158,7 +158,17 @@ def main(args):
 				U, S, Vt = svds(Z_std, k=args.eig)
 
 				# Save matrices
-				np.savetxt(f"{args.out}.eigenvec", Vt[::-1,:].T, fmt="%.7f")
+				if args.iid is not None:
+					iid = np.loadtxt(f"{args.iid}", dtype=np.str_).reshape(-1,1)
+					if args.fid is not None:
+						fid = np.loadtxt(f"{args.fid}", dtype=np.str_).reshape(-1,1)
+						fam = np.hstack((fid, iid))
+					else:
+						fam = np.hstack((np.zeros((n, 1), dtype=np.uint8), iid))
+					out = np.hstack((fam, np.round(Vt[::-1,:].T.reshape(-1,1), 7)))
+					np.savetxt(f"{args.out}.eigenvec", out, delimiter="\t", fmt="%s")
+				else:
+					np.savetxt(f"{args.out}.eigenvec", Vt[::-1,:].T, fmt="%.7f")
 				print(f"Saved eigenvectors as {args.out}.eigenvec")
 				np.savetxt(f"{args.out}.eigenval", (S[::-1]*S[::-1])/float(m), \
 					fmt="%.7f")
@@ -175,7 +185,17 @@ def main(args):
 				args.threads)
 
 			# Save matrices
-			np.savetxt(f"{args.out}.eigenvec", V, fmt="%.7f")
+			if args.iid is not None:
+				iid = np.loadtxt(f"{args.iid}", dtype=np.str_).reshape(-1,1)
+				if args.fid is not None:
+					fid = np.loadtxt(f"{args.fid}", dtype=np.str_).reshape(-1,1)
+					fam = np.hstack((fid, iid))
+				else:
+					fam = np.hstack((np.zeros((n, 1), dtype=np.uint8), iid))
+				out = np.hstack((fam, np.round(V.reshape(-1,1), 7)))
+				np.savetxt(f"{args.out}.eigenvec", out, delimiter="\t", fmt="%s")
+			else:
+				np.savetxt(f"{args.out}.eigenvec", V, fmt="%.7f")
 			print(f"Saved eigenvectors as {args.out}.eigenvec")
 			np.savetxt(f"{args.out}.eigenval", (S*S)/float(m), fmt="%.7f")
 			print(f"Saved eigenvalues as {args.out}.eigenval")
