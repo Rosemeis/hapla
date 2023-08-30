@@ -14,9 +14,9 @@ def randomizedSVD(Z, p, s, K, batch, threads):
 	O = np.random.standard_normal(size=(n, L)).astype(np.float32)
 	A = np.zeros((m, L), dtype=np.float32)
 	H = np.zeros((n, L), dtype=np.float32)
-	for p in range(11):
+	for power in range(11):
 		Z_b = np.zeros((batch, n), dtype=np.float32)
-		if p > 0:
+		if power > 0:
 			O, _ = np.linalg.qr(H, mode="reduced")
 			H.fill(0.0)
 		for b in range(B):

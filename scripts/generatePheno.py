@@ -142,7 +142,7 @@ if args.plink:
 	else:
 		Y_plink = s_list.repeat(2, axis=1)
 	Y_plink = np.hstack((Y_plink, np.round(Y.reshape(-1,1), 7)))
-	np.savetxt(f"{args.out}.plink.pheno", Y_plink, delimiter="\t", fmt="%s")
+	np.savetxt(f"{args.out}.plink.pheno", Y_plink, fmt="%s")
 	print("Saved continuous phenotypes in plink format as " + \
 	f"{args.out}.plink.pheno")
 else:

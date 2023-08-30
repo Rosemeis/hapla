@@ -165,8 +165,8 @@ def main(args):
 						fam = np.hstack((fid, iid))
 					else:
 						fam = np.hstack((np.zeros((n, 1), dtype=np.uint8), iid))
-					out = np.hstack((fam, np.round(Vt[::-1,:].T.reshape(-1,1), 7)))
-					np.savetxt(f"{args.out}.eigenvec", out, delimiter="\t", fmt="%s")
+					out = np.hstack((fam, np.round(Vt[::-1,:].T, 7)))
+					np.savetxt(f"{args.out}.eigenvec", out, fmt="%s")
 				else:
 					np.savetxt(f"{args.out}.eigenvec", Vt[::-1,:].T, fmt="%.7f")
 				print(f"Saved eigenvectors as {args.out}.eigenvec")
@@ -192,8 +192,8 @@ def main(args):
 					fam = np.hstack((fid, iid))
 				else:
 					fam = np.hstack((np.zeros((n, 1), dtype=np.uint8), iid))
-				out = np.hstack((fam, np.round(V.reshape(-1,1), 7)))
-				np.savetxt(f"{args.out}.eigenvec", out, delimiter="\t", fmt="%s")
+				out = np.hstack((fam, np.round(V, 7)))
+				np.savetxt(f"{args.out}.eigenvec", out, fmt="%s")
 			else:
 				np.savetxt(f"{args.out}.eigenvec", V, fmt="%.7f")
 			print(f"Saved eigenvectors as {args.out}.eigenvec")
