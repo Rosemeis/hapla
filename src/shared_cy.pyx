@@ -6,36 +6,8 @@ from libc.math cimport pow, sqrt
 
 ##### hapla - analyses on haplotype cluster assignments #####
 ### hapla pca
-# Estimate haplotype sharing matrix in full form
-cpdef void sharingFull(unsigned char[:,::1] Z, float[:,::1] G, int K, int t) \
-		nogil:
-	cdef:
-		int n = Z.shape[0]//2
-		int W = Z.shape[1]
-		int i, j, k, w, g1, g2
-		unsigned char *i0
-		unsigned char *i1
-		unsigned char *j0
-		unsigned char *j1
-	for k in prange(K, num_threads=t):
-		i = <int>((sqrt(1 + 8*k) - 1)//2) # Row index in condensed form
-		j = k - <int>(i*(i + 3)//2) + i # Column index in condensed form
-		if i == j: # Diagonal
-			G[i,j] = 1.0
-		else:
-			i0 = &Z[2*i+0,0]
-			i1 = &Z[2*i+1,0]
-			j0 = &Z[2*j+0,0]
-			j1 = &Z[2*j+1,0]
-			for w in range(W):
-				g1 = <int>(i0[w] == j0[w]) + <int>(i1[w] == j1[w])
-				g2 = <int>(i1[w] == j0[w]) + <int>(i0[w] == j1[w])
-				G[i,j] += <float>(max(g1, g2))
-			G[i,j] /= <float>(2*W)
-			G[j,i] = G[i,j]
-
 # Estimate haplotype sharing matrix in condensed form
-cpdef void sharingCondensed(unsigned char[:,::1] Z, float[::1] G, int t) \
+cpdef void hsmCondensed(unsigned char[:,::1] Z, float[::1] G, int t) \
 		nogil:
 	cdef:
 		int n = Z.shape[0]//2
@@ -62,9 +34,75 @@ cpdef void sharingCondensed(unsigned char[:,::1] Z, float[::1] G, int t) \
 				G[k] += <float>(max(g1, g2))
 			G[k] /= <float>(2*W)
 
+# Estimate haplotype sharing matrix in full form
+cpdef void hsmFull(unsigned char[:,::1] Z, float[:,::1] G, int K, int t) \
+		nogil:
+	cdef:
+		int n = Z.shape[0]//2
+		int W = Z.shape[1]
+		int i, j, k, w, g1, g2
+		unsigned char *i0
+		unsigned char *i1
+		unsigned char *j0
+		unsigned char *j1
+	for k in prange(K, num_threads=t):
+		i = <int>((sqrt(1 + 8*k) - 1)//2) # Row index in condensed form
+		j = k - <int>(i*(i + 3)//2) + i # Column index in condensed form
+		if i == j: # Diagonal
+			G[i,j] = 1.0
+		else:
+			i0 = &Z[2*i+0,0]
+			i1 = &Z[2*i+1,0]
+			j0 = &Z[2*j+0,0]
+			j1 = &Z[2*j+1,0]
+			for w in range(W):
+				g1 = <int>(i0[w] == j0[w]) + <int>(i1[w] == j1[w])
+				g2 = <int>(i1[w] == j0[w]) + <int>(i0[w] == j1[w])
+				G[i,j] += <float>(max(g1, g2))
+			G[i,j] /= <float>(2*W)
+			G[j,i] = G[i,j]
+
+# Estimate genome-wide relationship matrix in condensed form
+cpdef void grmCondensed(unsigned char[:,::1] Z, float[::1] G, float[::1] p, \
+		float[::1] s, int t) nogil:
+	cdef:
+		int n = Z.shape[0]
+		int m = Z.shape[1]
+		int K = G.shape[0]
+		int i, j, k, l
+		unsigned char *il
+		unsigned char *jl
+	for k in prange(K, num_threads=t):
+		i = <int>((sqrt(1 + 8*k) - 1)//2) # Row index in condensed form
+		j = k - <int>(i*(i + 3)//2) + i # Column index in condensed form
+		il = &Z[i,0]
+		jl = &Z[j,0]
+		for l in range(m):
+			G[k] += (<float>il[l] - 2*p[l])*(<float>jl[l] - 2*p[l])/s[l]
+		G[k] /= <float>(m)
+
+# Estimate genome-wide relationship matrix in full form
+cpdef void grmFull(unsigned char[:,::1] Z, float[:,::1] G, float[::1] p, \
+		float[::1] s, int K, int t) nogil:
+	cdef:
+		int n = Z.shape[0]
+		int m = Z.shape[1]
+		int i, j, k, l
+		unsigned char *il
+		unsigned char *jl
+	for k in prange(K, num_threads=t):
+		i = <int>((sqrt(1 + 8*k) - 1)//2) # Row index in condensed form
+		j = k - <int>(i*(i + 3)//2) + i # Column index in condensed form
+		il = &Z[i,0]
+		jl = &Z[j,0]
+		for l in range(m):
+			G[i,j] += (<float>il[l] - 2*p[l])*(<float>jl[l] - 2*p[l])/s[l]
+		G[i,j] /= <float>(m)
+		G[j,i] = G[i,j]
+
 # Extract aggregated haplotype cluster counts
 cpdef void haplotypeAggregate(unsigned char[:,::1] Z_mat, unsigned char[:,::1] Z, \
-		float[::1] pi, unsigned char[::1] K_vec) nogil:
+		float[::1] p, unsigned char[::1] K_vec) nogil:
 	cdef:
 		int W = Z_mat.shape[0]
 		int n = Z_mat.shape[1]
@@ -75,12 +113,12 @@ cpdef void haplotypeAggregate(unsigned char[:,::1] Z_mat, unsigned char[:,::1] Z
 			for i in range(n):
 				if Z_mat[w,i] == k:
 					Z[j,i//2] += 1
-					pi[j] += 1
-			pi[j] /= <float>n
-			j += 1
+					p[j] += 1
+			p[j] /= <float>n
+			j = j + 1
 
 # Array filtering
-cpdef void filterZ(unsigned char[:,::1] Z, float[::1] pi, \
+cpdef void filterZ(unsigned char[:,::1] Z, float[::1] p, \
 		unsigned char[::1] mask) nogil:
 	cdef:
 		int m = Z.shape[0]
@@ -91,12 +129,12 @@ cpdef void filterZ(unsigned char[:,::1] Z, float[::1] pi, \
 		if mask[j] == 1:
 			for i in range(n):
 				Z[c,i] = Z[j,i]
-			pi[c] = pi[j]
+			p[c] = p[j]
 			c = c + 1
 
 # Standardize the batch haplotype cluster assignment matrix
-cpdef void batchZ(unsigned char[:,::1] Z, double[:,::1] Z_b, float[::1] pi, \
-		float alpha, int m_b, int t) nogil:
+cpdef void batchZ(unsigned char[:,::1] Z, float[:,::1] Z_b, float[::1] p, \
+		int m_b, int t) nogil:
 	cdef:
 		int m = Z_b.shape[0]
 		int n = Z_b.shape[1]
@@ -104,18 +142,18 @@ cpdef void batchZ(unsigned char[:,::1] Z, double[:,::1] Z_b, float[::1] pi, \
 	for j in prange(m, num_threads=t):
 		b = m_b+j
 		for i in range(n):
-			Z_b[j,i] = (Z[b,i] - 2*pi[b])/pow(2*pi[b]*(1-pi[b]), 0.5*alpha)
+			Z_b[j,i] = (Z[b,i] - 2*p[b])/sqrt(2*p[b]*(1-p[b]))
 
 # Standardize full matrix
 cpdef void standardizeZ(unsigned char[:,::1] Z, float[:,::1] Z_std, \
-		float[::1] pi, float alpha, int t) nogil:
+		float[::1] p, int t) nogil:
 	cdef:
 		int m = Z.shape[0]
 		int n = Z.shape[1]
 		int i, j
 	for j in prange(m, num_threads=t):
 		for i in range(n):
-			Z_std[j,i] = (Z[j,i] - 2*pi[j])/pow(2*pi[j]*(1-pi[j]), 0.5*alpha)
+			Z_std[j,i] = (Z[j,i] - 2*p[j])/sqrt(2*p[j]*(1-p[j]))
 
 
 

@@ -6,14 +6,14 @@ from src import shared_cy
 ##### hapla - functions #####
 ### hapla pca
 # Randomized PCA (PCAone Halko algorithm)
-def randomizedSVD(Z_tilde, pi, alpha, K, batch, threads):
+def randomizedSVD(Z_tilde, p, K, batch, threads):
 	m = Z_tilde.shape[0]
 	n = Z_tilde.shape[1]
 	B = ceil(m/batch)
 	L = K + 20
 	O = np.random.standard_normal(size=(n, L))
-	A = np.zeros((m, L))
-	H = np.zeros((n, L))
+	A = np.zeros((m, L), dtype=np.float32)
+	H = np.zeros((n, L), dtype=np.float32)
 	for p in range(11):
 		Z_b = np.zeros((batch, n))
 		if p > 0:
@@ -22,8 +22,8 @@ def randomizedSVD(Z_tilde, pi, alpha, K, batch, threads):
 		for b in range(B):
 			m_b = b*batch
 			if (m_b + batch) >= m: # Last batch
-				Z_b = np.zeros((m - m_b, n))
-			shared_cy.batchZ(Z_tilde, Z_b, pi, alpha, m_b, threads)
+				Z_b = np.zeros((m - m_b, n), dtype=np.float32)
+			shared_cy.batchZ(Z_tilde, Z_b, p, m_b, threads)
 			A[m_b:(m_b + Z_b.shape[0])] = np.dot(Z_b, O)
 			H += np.dot(Z_b.T, A[m_b:(m_b + Z_b.shape[0])])
 	Q, R = np.linalg.qr(A, mode="reduced")

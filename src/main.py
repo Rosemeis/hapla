@@ -59,18 +59,18 @@ def main():
 		metavar="OUTPUT", help="Output prefix")
 	parser_pca.add_argument("--min_freq", type=float,
 		metavar="FLOAT", help="Minimum frequency for haplotype cluster")
-	parser_pca.add_argument("--alpha", type=float, default=1.0,
-		metavar="FLOAT", help="Selection parameter")
 	parser_pca.add_argument("--loadings", action="store_true",
 		help="Save loadings of SVD")
 	parser_pca.add_argument("--randomized", action="store_true",
 		help="Use randomized SVD (use for very large data)")
-	parser_pca.add_argument("--sharing", action="store_true",
+	parser_pca.add_argument("--hsm", action="store_true",
 		help="Estimate haplotype sharing matrix (HSM)")
 	parser_pca.add_argument("--grm", action="store_true",
 		help="Estimate genome-wide relationship matrix (GRM)")
+	parser_pca.add_argument("--alpha", type=float, default=0.25,
+		metavar="FLOAT", help="Selection parameter in GRM")
 	parser_pca.add_argument("--gower", action="store_true",
-		help="Perform Gower's centering on GRM matrix")
+		help="Perform Gower centering on GRM matrix")
 	parser_pca.add_argument("--iid", metavar="FILE",
 		help="Sample ID list for GCTA format")
 	parser_pca.add_argument("--fid", metavar="FILE",
