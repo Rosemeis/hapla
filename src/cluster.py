@@ -160,9 +160,9 @@ def main(args):
 
 		# Remove small haplotype clusters and rescue as many as possible
 		if K > 2:
-			# Remove singletons
+			# Remove up and including to doubletons
 			N_thr = max(2, int(args.min_freq*n))
-			N_vec[N_vec == 1] = 0
+			N_vec[N_vec <= min(2, N_thr)] = 0
 			cluster_cy.clusterAssignment(Ht, M, C, Z_mat, c_vec, N_vec, K, w, \
 				args.threads)
 			cluster_cy.countN(Z_mat, N_vec, K, w)
@@ -200,7 +200,7 @@ def main(args):
 
 		# Generate optional saves (medians and log-likehoods)
 		if args.medians:
-			if w < (W - 1):
+			if w < (W-1):
 				if args.windows is None:
 					M_mat[winList[w]:(winList[w]+args.fixed)] = \
 						np.ascontiguousarray(M.T)
@@ -250,9 +250,9 @@ def main(args):
 		Z_bin = np.zeros((K_tot, B), dtype=np.uint8)
 		reader_cy.convertPlink(Z_mat, Z_bin, P_mat, Z_vec, K_vec)
 		
-		# Save .bed file
+		# Save .bed file including magic numbers
 		with open(f"{args.out}.bed", "w") as bfile:
-			np.array([108,27,1], dtype=np.uint8).tofile(bfile) # Magic numbers
+			np.array([108,27,1], dtype=np.uint8).tofile(bfile)
 			Z_bin.tofile(bfile)
 		del K_vec, Z_bin, Z_mat, Z_vec
 
@@ -274,7 +274,10 @@ def main(args):
 		fam = np.hstack((s_list, np.zeros((n//2, 3), dtype=np.uint8), \
 			np.full((n//2, 1), -9, dtype=np.int8)))
 		np.savetxt(f"{args.out}.fam", fam, delimiter="\t", fmt="%s")
-		print(f"\rSaved alleles in PLINK format as {args.out}.(bed,bim,fam)")
+		print("\rSaved haplotype cluster alleles in binary PLINK format:\n" + \
+			f"- {args.out}.bed\n" + \
+			f"- {args.out}.bim\n" + \
+			f"- {args.out}.fam")
 		del fam, s_list
 
 	# Print elapsed time for estimation

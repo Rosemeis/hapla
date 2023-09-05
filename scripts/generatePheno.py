@@ -126,32 +126,25 @@ G_liab = X*G_scal
 
 # Environmental contribution (variance of phenotype will be exactly 1)
 E = np.random.normal(loc=0.0, scale=sqrt(1 - h2), size=n)
-E = ((E - np.mean(E))/np.std(E))*sqrt(1 - h2)
-E_vari = np.var(E)
-C_vari = np.cov(G_liab, E, ddof=0)[0,1]
-E_scal = (sqrt(C_vari**2 + (1 - h2)*E_vari) - C_vari)/E_vari
+E -= np.mean(E)
+E_scal = sqrt(1 - h2)/np.std(E)
 E_liab = E*E_scal
 
 # Generate phenotype
 Y = G_liab + E_liab
 
 ### Save output
-if args.plink:
-	if args.bfile:
-		Y_plink = fam
-	else:
-		Y_plink = s_list.repeat(2, axis=1)
-	Y_plink = np.hstack((Y_plink, np.round(Y.reshape(-1,1), 7)))
-	np.savetxt(f"{args.out}.plink.pheno", Y_plink, fmt="%s")
-	print("Saved continuous phenotypes in plink format as " + \
-	f"{args.out}.plink.pheno")
+if args.bfile:
+	Y_plink = fam
 else:
-	np.savetxt(f"{args.out}.pheno", Y, fmt="%.7f")
-	print(f"Saved continuous phenotypes as {args.out}.pheno")
+	Y_plink = np.stack((np.zeros((n, 1), dtype=int), s_list))
+Y_plink = np.hstack((Y_plink, np.round(Y.reshape(-1,1), 7)))
+np.savetxt(f"{args.out}.pheno", Y_plink, fmt="%s")
+print(f"Saved continuous phenotypes as {args.out}.pheno")
 np.savetxt(f"{args.out}.prs", G_liab, fmt="%.7f")
 print(f"Saved PRS as {args.out}.prs")
 np.savetxt(f"{args.out}.set", p, fmt="%i")
-print(f"Saved causal SNP set as {args.out}.set")
+print(f"Saved causal SNPset as {args.out}.set")
 if args.save_beta:
 	np.savetxt(f"{args.out}.beta", B*G_scal, fmt="%.7f")
 	print(f"Saved causal betas as {args.out}.beta")

@@ -10,19 +10,18 @@ DTYPE = np.uint8
 ctypedef np.uint8_t DTYPE_t
 DTYPE2 = np.int16
 ctypedef np.int16_t DTYPE2_t
-DTYPE3 = np.int64
-ctypedef np.int64_t DTYPE3_t
 ctypedef vector[unsigned char] char_vec
 
 ##### Cython function for reading VCF/BCF files #####
 ### Read VCF/BCF into 1-bit integer matrix
-cpdef np.ndarray[DTYPE_t, ndim=2] readVCF(v_file, const int n, const int B):
+cpdef np.ndarray[DTYPE_t, ndim=2] readVCF(v_file, int n, int B):
 	cdef:
 		int b, i, j, m, bit
+		np.ndarray[DTYPE_t, ndim=2] G_np
 		np.ndarray[DTYPE2_t, ndim=2] geno
-		char_vec G_var
+		char_vec G_var = char_vec(B)
 		vector[char_vec] G
-	G_var = char_vec(B)
+		unsigned char *G_ptr
 	for var in v_file: # Loop through VCF file
 		i = 0
 		geno = var.genotype.array()
@@ -39,10 +38,9 @@ cpdef np.ndarray[DTYPE_t, ndim=2] readVCF(v_file, const int n, const int B):
 					break
 		G.push_back(G_var)
 	m = G.size()
+	
 	# Fill up and return NumPy array
-	cdef:
-		np.ndarray[DTYPE_t, ndim=2] G_np = np.empty((m, B), dtype=DTYPE)
-		unsigned char *G_ptr
+	G_np = np.empty((m, B), dtype=DTYPE)
 	for j in range(m):
 		G_ptr = &G[j][0]
 		G_np[j] = np.asarray(<unsigned char[:B]>G_ptr)

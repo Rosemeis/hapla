@@ -84,8 +84,8 @@ def main(args):
 		else:
 			fam = np.hstack((np.zeros((n, 1), dtype=np.uint8), iid))
 		np.savetxt(f"{args.out}.hsm.grm.id", fam, delimiter="\t", fmt="%s")
-		print("Saved haplotype sharing matrix (HSM) in GCTA format:")
-		print(f"- {args.out}.hsm.grm.bin\n" + \
+		print("Saved haplotype sharing matrix in GCTA format:\n" + \
+			f"- {args.out}.hsm.grm.bin\n" + \
 			f"- {args.out}.hsm.grm.N.bin\n" + \
 			f"- {args.out}.hsm.grm.id")
 	else: # Haplotype cluster allele analyses
@@ -117,7 +117,7 @@ def main(args):
 				K = n*(n+1)//2
 				
 				# Standardize
-				s = np.sqrt(np.power(2*p*(1-p), args.alpha))
+				s = np.power(2*p*(1-p), 0.5*args.alpha)
 				Z_std = np.zeros((m, n), dtype=np.float32)
 				shared_cy.standardizeZ(Z, Z_std, p, s, args.threads)
 				del Z
@@ -141,8 +141,8 @@ def main(args):
 				else:
 					fam = np.hstack((np.zeros((n, 1), dtype=np.uint8), iid))
 				np.savetxt(f"{args.out}.grm.id", fam, delimiter="\t", fmt="%s")
-				print("Saved genome-wide relationship matrix (GRM) in GCTA format:")
-				print(f"- {args.out}.grm.bin\n" + \
+				print("Saved genome-wide relationship matrix in GCTA format:\n" + \
+					f"- {args.out}.grm.bin\n" + \
 					f"- {args.out}.grm.N.bin\n" + \
 					f"- {args.out}.grm.id")
 			else: # Truncated SVD
