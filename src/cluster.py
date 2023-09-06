@@ -243,7 +243,6 @@ def main(args):
 			chrom = re.findall(r'\d+', variant.CHROM)[-1]
 			break
 		del v_file
-		K_vec -= 1 # Dummy encoding
 		K_tot = np.sum(K_vec, dtype=int)
 		P_mat = np.zeros((K_tot, 2), dtype=np.int32)
 		Z_vec = np.zeros(n//2, dtype=np.uint8)
