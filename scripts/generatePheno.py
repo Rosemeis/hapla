@@ -29,17 +29,12 @@ parser.add_argument("-o", "--out", default="pheno.generate",
 	help="Prefix for output files")
 parser.add_argument("--save_beta", action="store_true",
 	help="Save the sampled causal betas")
-parser.add_argument("--plink", action="store_true",
-	help="Save phenotype file in PLINK format")
 args = parser.parse_args()
 
 # Check input
 if args.filelist is None:
 	assert (args.vcf is not None) or (args.bfile is not None), \
 		"Please provide genotype file (--bcf, --vcf or --bfile)!"
-if args.plink:
-	assert (args.vcf is not None) or (args.bfile is not None), \
-		"VCF/BCF or PLINK files are needed for sample list!"
 assert (args.h2 > 0) and (args.h2 < 10), "Invalid value for h2!"
 
 # Import numerical libraries
@@ -53,9 +48,8 @@ from src import reader_cy
 if args.vcf is not None: # VCF/BCF file
 	print("\rLoading VCF/BCF file...", end="")
 	v_file = VCF(args.vcf)
+	s_list = np.array([v_file.samples]).reshape(-1,1)
 	n = len(v_file.samples)
-	if args.plink:
-		s_list = np.array([v_file.samples]).reshape(-1,1)
 	if args.filelist is None:
 		B = ceil(2*n/8)
 		G_mat = reader_cy.readVCF(v_file, n, B)
@@ -68,8 +62,7 @@ elif args.bfile is not None: # Binary PLINK files
 	# Finding length of .fam and .bim file
 	n = functions.extract_length(f"{args.bfile}.fam")
 	m = functions.extract_length(f"{args.bfile}.bim")
-	if args.plink:
-		fam = np.loadtxt(f"{args.bfile}.fam", usecols=[0,1], dtype=np.str_)
+	fam = np.loadtxt(f"{args.bfile}.fam", usecols=[0,1], dtype=np.str_)
 
 	# Read .bed file
 	with open(f"{args.bfile}.bed", "rb") as bed:
@@ -144,7 +137,7 @@ print(f"Saved continuous phenotypes as {args.out}.pheno")
 np.savetxt(f"{args.out}.prs", G_liab, fmt="%.7f")
 print(f"Saved PRS as {args.out}.prs")
 np.savetxt(f"{args.out}.set", p, fmt="%i")
-print(f"Saved causal SNPset as {args.out}.set")
+print(f"Saved causal SNP-set as {args.out}.set")
 if args.save_beta:
 	np.savetxt(f"{args.out}.beta", B*G_scal, fmt="%.7f")
 	print(f"Saved causal betas as {args.out}.beta")
