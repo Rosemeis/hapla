@@ -127,16 +127,20 @@ E_liab = E*E_scal
 Y = G_liab + E_liab
 
 ### Save output
-if args.bfile:
+if args.bfile is not None:
 	Y_plink = fam
 else:
 	Y_plink = np.stack((np.zeros((n, 1), dtype=int), s_list))
 Y_plink = np.hstack((Y_plink, np.round(Y.reshape(-1,1), 7)))
-np.savetxt(f"{args.out}.pheno", Y_plink, fmt="%s")
+np.savetxt(f"{args.out}.pheno", Y_plink, fmt="%s", delimiter="\t")
 print(f"Saved continuous phenotypes as {args.out}.pheno")
 np.savetxt(f"{args.out}.prs", G_liab, fmt="%.7f")
 print(f"Saved PRS as {args.out}.prs")
-np.savetxt(f"{args.out}.set", p, fmt="%i")
+if args.bfile is not None:
+	bim = np.loadtxt(f"{args.bfile}.bim", dtype=np.str_)
+	np.savetxt(f"{args.out}.set.bim", bim[p], fmt="%s", delimiter="\t")
+else:
+	np.savetxt(f"{args.out}.set", p, fmt="%i")
 print(f"Saved causal SNP-set as {args.out}.set")
 if args.save_beta:
 	np.savetxt(f"{args.out}.beta", B*G_scal, fmt="%.7f")
