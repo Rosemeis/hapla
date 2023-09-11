@@ -136,11 +136,7 @@ np.savetxt(f"{args.out}.pheno", Y_plink, fmt="%s", delimiter="\t")
 print(f"Saved continuous phenotypes as {args.out}.pheno")
 np.savetxt(f"{args.out}.prs", G_liab, fmt="%.7f")
 print(f"Saved PRS as {args.out}.prs")
-if args.bfile is not None:
-	bim = np.loadtxt(f"{args.bfile}.bim", dtype=np.str_)
-	np.savetxt(f"{args.out}.set.bim", bim[p], fmt="%s", delimiter="\t")
-else:
-	np.savetxt(f"{args.out}.set", p, fmt="%i")
+np.savetxt(f"{args.out}.set", p, fmt="%i")
 print(f"Saved causal SNP-set as {args.out}.set")
 if args.save_beta:
 	np.savetxt(f"{args.out}.beta", B*G_scal, fmt="%.7f")
