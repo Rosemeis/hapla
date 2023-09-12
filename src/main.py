@@ -20,8 +20,8 @@ def main():
 		metavar="INT", help="Use fixed window length (16)")
 	parser_cluster.add_argument("-w", "--windows",
 		metavar="FILE", help="Use provided window lengths")
-	parser_cluster.add_argument("-l", "--lmbda", type=float, default=0.1,
-		metavar="FLOAT", help="Set lambda hyperparameter (0.1)")
+	parser_cluster.add_argument("-l", "--lmbda", type=float, default=0.05,
+		metavar="FLOAT", help="Set lambda hyperparameter (0.05)")
 	parser_cluster.add_argument("-e", "--max_iterations", type=int, default=500,
 		metavar="INT", help="Maximum number of iterations (500)")
 	parser_cluster.add_argument("-t", "--threads", type=int, default=1,
