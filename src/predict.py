@@ -37,9 +37,9 @@ def main(args):
 	v_file = VCF(args.vcf, threads=args.threads)
 	n = 2*len(v_file.samples)
 	B = ceil(n/8)
-	Gt = reader_cy.readVCF(v_file, n//2, B)
+	G = reader_cy.readVCF(v_file, n//2, B)
 	del v_file
-	m = Gt.shape[0]
+	m = G.shape[0]
 	print(f"\rLoaded phased genotype data: {n} haplotypes and {m} SNPs.")
 
 	### Setup windows	
@@ -58,8 +58,8 @@ def main(args):
 		if args.filter is not None:
 			mask = np.loadtxt(args.filter, dtype=np.uint8)
 			m = np.sum(mask) # New number of variants
-			reader_cy.filterSNPs(Gt, winList, mask) # Fix data and window arrays
-			Gt = Gt[:m,:]
+			reader_cy.filterSNPs(G, winList, mask) # Fix data and window arrays
+			G = G[:m,:]
 			print(f"Removed {np.sum(mask==0)} causal SNPs.")
 			del mask
 	
@@ -75,22 +75,22 @@ def main(args):
 		# Load haplotype segment
 		if w < (W-1):
 			if args.windows is None:
-				Xt = np.zeros((args.fixed, n), dtype=np.uint8)
+				H = np.zeros((args.fixed, n), dtype=np.uint8)
 				M = np.ascontiguousarray(M_mat[winList[w]:(winList[w]+args.fixed)].T)
 			else:
-				Xt = np.zeros((winList[w+1]-winList[w], n), dtype=np.uint8)
+				H = np.zeros((winList[w+1]-winList[w], n), dtype=np.uint8)
 				M = np.ascontiguousarray(M_mat[winList[w]:winList[w+1]].T)
 		else:
-			Xt = np.zeros((m-winList[w], n), dtype=np.uint8)
+			H = np.zeros((m-winList[w], n), dtype=np.uint8)
 			M = np.ascontiguousarray(M_mat[winList[w]:m].T)
 		K = np.sum(np.sum(M, axis=1, dtype=int) >= 0) # Number of clusters to evaluate
-		reader_cy.predictBit(Gt, Xt, winList[w], args.threads)
-		X = np.ascontiguousarray(Xt.T)
-		del Xt
+		reader_cy.predictBit(G, H, winList[w])
+		Ht = np.ascontiguousarray(H.T)
+		del H
 		
 		# Cluster assignment
-		shared_cy.predictCluster(X, M, Z_mat, K, w, args.threads)
-		del X, M
+		shared_cy.predictCluster(Ht, M, Z_mat, K, w, args.threads)
+		del Ht, M
 
 	### Save output
 	np.save(f"{args.out}.z", Z_mat)
