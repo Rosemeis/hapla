@@ -38,7 +38,7 @@ def main(args):
 
 	### Load data into 1-bit matrix
 	print("\rLoading VCF/BCF file...", end="")
-	v_file = VCF(args.vcf, threads=args.threads)
+	v_file = VCF(args.vcf, threads=min(args.threads, 4))
 	n = 2*len(v_file.samples)
 	B = ceil(n/8)
 	G = reader_cy.readVCF(v_file, n//2, B)
@@ -74,6 +74,7 @@ def main(args):
 	Z_mat = np.zeros((W, n), dtype=np.uint8) # Haplotype cluster alleles
 	if args.windows is None:
 		H = np.zeros((args.fixed, n), dtype=np.uint8) # Haplotypes
+		Ht = np.zeros((n, args.fixed), dtype=np.uint8) # Haplotypes transposed
 		M = np.zeros((args.max_clusters, args.fixed), dtype=np.int8) # Medians
 		C = np.zeros((args.max_clusters, args.fixed), dtype=np.float32) # Means
 	if args.medians:
@@ -93,17 +94,19 @@ def main(args):
 			if args.windows is None: # Re-use containers
 				M.fill(-9)
 				C.fill(0.0)
-				reader_cy.convertBit(G, H, C, winList[w], args.threads)
+				reader_cy.convertBit(G, H, C, winList[w])
 			else:
 				H = np.zeros((winList[w+1]-winList[w], n), dtype=np.uint8)
+				Ht = np.zeros((n, winList[w+1]-winList[w]), dtype=np.uint8)
 				M = np.full((args.max_clusters, H.shape[0]), -9, dtype=np.int8)
 				C = np.zeros((args.max_clusters, H.shape[0]), dtype=np.float32)
-				reader_cy.convertBit(G, H, C, winList[w], args.threads)
+				reader_cy.convertBit(G, H, C, winList[w])
 		else: # Last window
 			H = np.zeros((m-winList[w], n), dtype=np.uint8)
+			Ht = np.zeros((n, m-winList[w]), dtype=np.uint8)
 			M = np.full((args.max_clusters, H.shape[0]), -9, dtype=np.int8)
 			C = np.zeros((args.max_clusters, H.shape[0]), dtype=np.float32)
-			reader_cy.convertBit(G, H, C, winList[w], args.threads)
+			reader_cy.convertBit(G, H, C, winList[w])
 		mH = H.shape[0]
 
 		# Setup log-likelihood container
@@ -114,7 +117,7 @@ def main(args):
 		K = 1
 		N_vec[0] = n
 		cluster_cy.marginalMedians(M, C, N_vec, K)
-		Ht = np.ascontiguousarray(H.T) # Re-order NxB in contiguous memory
+		np.copyto(Ht, H.T, casting="no") # Transposed in contiguous memory
 		if args.windows is not None:
 			del H
 
@@ -214,8 +217,7 @@ def main(args):
 			
 		# Clean up
 		if args.windows is not None:
-			del M, C
-		del Ht
+			del M, C, Ht
 		N_vec.fill(0)
 	del G
 	if not args.verbose:
@@ -237,7 +239,7 @@ def main(args):
 	if args.plink:
 		print("\rGenerating binary PLINK output.", end="")
 		import re
-		v_file = VCF(args.vcf)
+		v_file = VCF(args.vcf, threads=min(args.threads, 4))
 		s_list = np.array(v_file.samples).reshape(-1,1)
 		for variant in v_file: # Extract chromosome name from first entry
 			chrom = re.findall(r'\d+', variant.CHROM)[-1]

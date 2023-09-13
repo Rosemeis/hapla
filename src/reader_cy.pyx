@@ -47,44 +47,43 @@ cpdef np.ndarray[DTYPE_t, ndim=2] readVCF(v_file, int n, int B):
 	return G_np
 
 ### Convert 1-bit into full array and initialize cluster mean
-cpdef void convertBit(unsigned char[:,::1] Gt, unsigned char[:,::1] Xt, float[:,::1] C, \
-		int w0, int t) nogil:
+cpdef void convertBit(unsigned char[:,::1] G, unsigned char[:,::1] H, \
+		float[:,::1] C, int w0) nogil:
 	cdef:
-		int B = Gt.shape[1]
-		int m = Xt.shape[0]
-		int n = Xt.shape[1]
+		int B = G.shape[1]
+		int m = H.shape[0]
+		int n = H.shape[1]
 		int b, i, j, bit
 		unsigned char mask = 1
 		unsigned char byte
-	for j in prange(m, num_threads=t):
+	for j in range(m):
 		i = 0
 		C[0,j] = 0.0
 		for b in range(B):
-			byte = Gt[w0+j,b]
+			byte = G[w0+j,b]
 			for bit in range(8):
-				Xt[j,i] = byte & mask
-				C[0,j] = C[0,j] + Xt[j,i]
+				H[j,i] = byte & mask
+				C[0,j] = C[0,j] + H[j,i]
 				byte = byte >> 1 # Right shift 1 bit
 				i = i + 1
 				if i == n:
 					break
 
 ### Convert 1-bit into full array for predicting target clusters
-cpdef void predictBit(unsigned char[:,::1] Gt, unsigned char[:,::1] Xt, int w0, \
-		int t) nogil:
+cpdef void predictBit(unsigned char[:,::1] G, unsigned char[:,::1] H, int w0) nogil:
 	cdef:
-		int B = Gt.shape[1]
-		int m = Xt.shape[0]
-		int n = Xt.shape[1]
+		int B = G.shape[1]
+		int m = H.shape[0]
+		int n = H.shape[1]
 		int b, i, j, bit
 		unsigned char mask = 1
 		unsigned char byte
-	for j in prange(m, num_threads=t):
+	for j in range(m):
 		i = 0
 		for b in range(B):
-			byte = Gt[w0+j,b]
+			byte = G[w0+j,b]
 			for bit in range(8):
-				Xt[j,i] = byte & mask
+				H[j,i] = byte & mask
 				byte = byte >> 1 # Right shift 1 bit
 				i = i + 1
 				if i == n:
