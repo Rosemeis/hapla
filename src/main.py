@@ -16,8 +16,8 @@ def main():
 	parser_cluster = subparsers.add_parser("cluster")
 	parser_cluster.add_argument("-g", "--vcf", "--bcf", metavar="FILE",
 		help="Input phased genotype file in VCF/BCF format")
-	parser_cluster.add_argument("-f", "--fixed", type=int, default=16,
-		metavar="INT", help="Use fixed window length (16)")
+	parser_cluster.add_argument("-f", "--fixed", type=int, default=8,
+		metavar="INT", help="Use fixed window length (8)")
 	parser_cluster.add_argument("-w", "--windows",
 		metavar="FILE", help="Use provided window lengths")
 	parser_cluster.add_argument("-l", "--lmbda", type=float, default=0.1,
@@ -30,8 +30,8 @@ def main():
 		metavar="OUTPUT", help="Output prefix")
 	parser_cluster.add_argument("--min_freq", type=float, default=0.01,
 		metavar="INT", help="Minimum frequency for haplotype cluster (0.01)")
-	parser_cluster.add_argument("--max_clusters", type=int, default=128,
-		metavar="INT", help="Maximum number of haplotype clusters per window (128)")
+	parser_cluster.add_argument("--max_clusters", type=int, default=64,
+		metavar="INT", help="Maximum number of haplotype clusters per window (64)")
 	parser_cluster.add_argument("--medians", action="store_true",
 		help="Save haplotype cluster medians")
 	parser_cluster.add_argument("--loglike", action="store_true",
@@ -67,8 +67,8 @@ def main():
 		help="Estimate genome-wide relationship matrix (GRM)")
 	parser_pca.add_argument("--alpha", type=float, default=0.25,
 		metavar="FLOAT", help="Alpha selection parameter in GRM (0.25)")
-	parser_pca.add_argument("--gower", action="store_true",
-		help="Perform Gower centering on GRM matrix")
+	parser_pca.add_argument("--no_centering", action="store_true",
+		help="Do not perform centering on GRM/HSM matrix")
 	parser_pca.add_argument("--hsm", action="store_true",
 		help="Estimate haplotype sharing matrix (HSM)")
 	parser_pca.add_argument("--iid", metavar="FILE",
@@ -77,50 +77,6 @@ def main():
 		help="Family ID list for GCTA format")
 	parser_pca.add_argument("--batch", type=int, default=1000,
 		metavar="INT", help="Number of clusters in batched SVD")
-
-	# hapla regress
-	parser_regress = subparsers.add_parser("regress")
-	parser_regress.add_argument("-f", "--filelist", metavar="FILE",
-		help="Filelist with paths to haplotype cluster alleles files")
-	parser_regress.add_argument("-y", "--pheno", metavar="FILE",
-		help="Path to phenotype file")
-	parser_regress.add_argument("-e", "--eigen", metavar="FILE",
-		help="Path to file with eigenvectors (PCs)")
-	parser_regress.add_argument("-c", "--covar", metavar="FILE",
-		help="Path to file with covariates")
-	parser_regress.add_argument("-t", "--threads", type=int, default=1,
-		metavar="INT", help="Number of threads (1)")
-	parser_regress.add_argument("-o", "--out", default="hapla.asso",
-		metavar="OUTPUT", help="Output prefix")
-	parser_regress.add_argument("--seed", type=int, default=42,
-		metavar="INT", help="Set random seed (42)")
-	parser_regress.add_argument("--folds", type=int, default=10,
-		metavar="INT", help="Number of folds for cross validations (10)")
-	parser_regress.add_argument("--ridge", type=int, default=10,
-		metavar="INT", help="Number of ridge regressors in each level (10)")
-
-	# hapla asso
-	parser_asso = subparsers.add_parser("asso")
-	parser_asso.add_argument("-f", "--filelist", metavar="FILE",
-		help="Filelist with paths to files in VCF/BCF or NumPy format")
-	parser_asso.add_argument("-y", "--pheno", metavar="FILE",
-		help="Path to phenotype file")
-	parser_asso.add_argument("-l", "--loco", metavar="FILE",
-		help="Path to LOCO predictions")
-	parser_asso.add_argument("-p", "--pred", metavar="FILE",
-		help="Path to whole-genome predictions")
-	parser_asso.add_argument("-e", "--eigen", metavar="FILE",
-		help="Path to file with eigenvectors (PCs)")
-	parser_asso.add_argument("-c", "--covar", metavar="FILE",
-		help="Path to file with covariates")
-	parser_asso.add_argument("-b", "--block", type=int, default=4096,
-		metavar="INT", help="Number of SNPs to read in blocks (4096)")
-	parser_asso.add_argument("-t", "--threads", type=int, default=1,
-		metavar="INT", help="Number of threads (1)")
-	parser_asso.add_argument("-o", "--out", default="hapla.asso",
-		metavar="OUTPUT", help="Output prefix")
-	parser_asso.add_argument("--chrom_num", default=1, metavar="INT", 
-		help="Chromosome number for output of single chromosome")
 
 	# hapla predict
 	parser_predict = subparsers.add_parser("predict")
@@ -138,23 +94,6 @@ def main():
 		metavar="OUTPUT", help="Output prefix")
 	parser_predict.add_argument("--filter",
 		metavar="FILE", help="DEBUG FEATURE: filter out sites")
-	
-	# hapla split
-	parser_split = subparsers.add_parser("split")
-	parser_split.add_argument("-g", "--vcf", "--bcf", metavar="FILE",
-		help="Input phased genotype file in VCF/BCF format")
-	parser_split.add_argument("-t", "--threads", type=int, default=1,
-		metavar="INT", help="Number of threads (1)")
-	parser_split.add_argument("-o", "--out", default="hapla.split",
-		metavar="OUTPUT", help="Output files")
-	parser_split.add_argument("--min_length", type=int, default=50,
-		metavar="INT", help="Minimum number of SNPs in windows (50)")
-	parser_split.add_argument("--max_length", type=int, default=5000,
-		metavar="INT", help="Maximum number of SNPs in windows (5000)")
-	parser_split.add_argument("--max_windows", type=int, default=5000,
-		metavar="INT", help="Maximum number of windows allowed")
-	parser_split.add_argument("--threshold", type=float, default=0.1,
-		metavar="FLOAT", help="Lower bound for r^2 in window creation (0.1)")
 
 	# Parse arguments
 	args = parser.parse_args()
@@ -181,33 +120,6 @@ def main():
 			from src import pca
 			pca.main(args)
 
-	# hapla regress
-	if sys.argv[1] == "regress":
-		if len(sys.argv) < 3:
-			parser_regress.print_help()
-			sys.exit()
-		else:
-			from src import regress
-			regress.main(args)
-
-	# hapla regress
-	if sys.argv[1] == "asso":
-		if len(sys.argv) < 3:
-			parser_asso.print_help()
-			sys.exit()
-		else:
-			from src import asso
-			asso.main(args)
-
-	# hapla prs
-	if sys.argv[1] == "prs":
-		if len(sys.argv) < 3:
-			parser_prs.print_help()
-			sys.exit()
-		else:
-			from src import prs
-			prs.main(args)
-
 	# hapla predict
 	if sys.argv[1] == "predict":
 		if len(sys.argv) < 3:
@@ -217,14 +129,6 @@ def main():
 			from src import predict
 			predict.main(args)
 
-	# hapla split
-	if sys.argv[1] == "split":
-		if len(sys.argv) < 3:
-			parser_split.print_help()
-			sys.exit()
-		else:
-			from src import split
-			split.main(args)
 
 
 ##### Define main #####

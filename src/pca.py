@@ -60,18 +60,23 @@ def main(args):
 		K = n*(n+1)//2
 		Z = np.ascontiguousarray(Z_mat.T)
 		del Z_mat
-		if args.gower:
+		if args.no_centering:
+			G = np.zeros(K, dtype=np.float32)
+			shared_cy.hsmCondensed(Z, G, args.threads)
+		else:
 			G = np.zeros((n, n), dtype=np.float32)
 			shared_cy.hsmFull(Z, G, K, args.threads)
 			
+			# Centering
+			print("Performing centering on HSM.")
+			p = np.mean(G, axis=1)
+			G -= p.reshape(1, n)
+			p = np.mean(G, axis=1)
+			G -= p.reshape(n, 1)
+
 			# Gower centering
-			print("Performing Gower centering on HSM.")
-			P = np.eye(n, dtype=np.float32) - 1.0/float(n)
-			G = (float(n-1)/np.trace(np.dot(P, np.dot(G, P))))*G
+			G *= float(n-1)/np.trace(G)
 			G = G[np.tril_indices(n)]
-		else:
-			G = np.zeros(K, dtype=np.float32)
-			shared_cy.hsmCondensed(Z, G, args.threads)
 		
 		# Save matrix
 		G.tofile(f"{args.out}.hsm.grm.bin")
@@ -125,10 +130,15 @@ def main(args):
 				# Estimate GRM
 				G = np.dot(Z_std.T, Z_std)/float(m)
 				del Z_std
-				if args.gower: # Gower centering
-					print("Performing Gower centering on GRM.")
-					P = np.eye(n, dtype=np.float32) - 1.0/float(n)
-					G = (float(n-1)/np.trace(np.dot(P, np.dot(G, P))))*G
+				if not args.no_centering: # Centering
+					print("Performing centering on GRM.")
+					p = np.mean(G, axis=1)
+					G -= p.reshape(1, n)
+					p = np.mean(G, axis=1)
+					G -= p.reshape(n, 1)
+
+					# Gower centering
+					G *= float(n-1)/np.trace(G)
 
 				# Save matrix
 				G = G[np.tril_indices(n)]
