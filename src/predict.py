@@ -10,8 +10,10 @@ import os
 
 ##### hapla predict #####
 def main(args):
-	print("hapla by Jonas Meisner (v0.2)")
-	print(f"hapla predict using {args.threads} thread(s).\n")
+	print("--------------------------------")
+	print("hapla by Jonas Meisner (v0.3)")
+	print(f"hapla predict using {args.threads} thread(s)")
+	print("--------------------------------\n")
 	
 	# Check input
 	assert args.vcf is not None, \

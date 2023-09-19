@@ -12,7 +12,7 @@ from time import time
 ##### hapla cluster #####
 def main(args):
 	print("--------------------------------")
-	print("hapla by Jonas Meisner (v0.2)")
+	print("hapla by Jonas Meisner (v0.3)")
 	print(f"hapla cluster using {args.threads} thread(s)")
 	print("--------------------------------\n")
 	
