@@ -3,7 +3,7 @@ import numpy as np
 cimport numpy as np
 from cpython.mem cimport PyMem_RawMalloc, PyMem_RawFree
 from cython.parallel import prange, parallel
-from libc.math cimport fmaxf, fminf, log
+from libc.math cimport log
 
 ##### hapla - haplotype clustering #####
 # Create marginal medians
@@ -128,5 +128,5 @@ cpdef void loglikeHaplo(float[:,:,::1] L, unsigned char[:,::1] H, float[:,::1] C
 		for k in range(K):
 			L[w, i, k] = 0.0
 			for j in range(m):
-				p = fminf(fmaxf(C[k,j], 1e-6), 1-(1e-6))
+				p = min(max(C[k,j], 1e-6), 1-(1e-6))
 				L[w, i, k] += H[i,j]*log(p) + (1.0 - H[i,j])*log(1.0 - p)
