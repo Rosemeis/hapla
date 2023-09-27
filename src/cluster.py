@@ -69,6 +69,7 @@ def main(args):
 
 	### Containers
 	c_vec = np.zeros(n, dtype=np.int32) # Cost vector
+	z_pre = np.zeros(n, dtype=np.uint8) # Help vector
 	K_vec = np.zeros(W, dtype=np.uint8) # Number of clusters in windows
 	N_vec = np.zeros(args.max_clusters, dtype=np.int32) # Size vector
 	Z_mat = np.zeros((W, n), dtype=np.uint8) # Haplotype cluster alleles
@@ -123,6 +124,8 @@ def main(args):
 
 		# Perform DC-DP-Medians
 		for it in np.arange(args.max_iterations):
+			np.copyto(z_pre, Z_mat[w], casting="no")
+
 			# Cluster assignment
 			cluster_cy.clusterAssignment(Ht, M, C, Z_mat, c_vec, N_vec, K, w, \
 				args.threads)
@@ -139,7 +142,7 @@ def main(args):
 
 			# Check for convergence
 			if it > 0:
-				if np.allclose(Z_mat[w], z_prev):
+				if np.allclose(Z_mat[w], z_pre):
 					if K > 1:
 						# Count sizes and construct marginal medians
 						cluster_cy.countN(Z_mat, N_vec, K, w)
@@ -153,7 +156,6 @@ def main(args):
 						C[Z_mat[w,c_arg],:] -= Ht[c_arg,:]
 						Z_mat[w,c_arg] = K
 						K += 1
-			z_prev = np.copy(Z_mat[w])
 			if args.verbose:
 				cost = np.sum(c_vec) + args.lmbda*mH*K
 				print(f"Epoch {it}: Cost {cost}")

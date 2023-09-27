@@ -10,7 +10,7 @@ def randomizedSVD(Z, p, s, K, batch, threads):
 	m = Z.shape[0]
 	n = Z.shape[1]
 	B = ceil(m/batch)
-	L = K + 20
+	L = K + 16
 	O = np.random.standard_normal(size=(n, L)).astype(np.float32)
 	A = np.zeros((m, L), dtype=np.float32)
 	H = np.zeros((n, L), dtype=np.float32)
@@ -21,7 +21,7 @@ def randomizedSVD(Z, p, s, K, batch, threads):
 			H.fill(0.0)
 		for b in range(B):
 			m_b = b*batch
-			if (m_b + batch) >= m: # Last batch
+			if b == (B-1): # Last batch
 				Z_b = np.zeros((m - m_b, n), dtype=np.float32)
 			shared_cy.batchZ(Z, Z_b, p, s, m_b, threads)
 			A[m_b:(m_b + Z_b.shape[0])] = np.dot(Z_b, O)
