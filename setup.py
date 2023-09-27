@@ -10,14 +10,16 @@ extensions = [
 		extra_link_args=['-fopenmp'],
 		include_dirs=[numpy.get_include()],
 		define_macros=[('NPY_NO_DEPRECATED_API', 'NPY_1_7_API_VERSION')]
-	), Extension(
+	), 
+	Extension(
 		"src.shared_cy",
 		["src/shared_cy.pyx"],
 		extra_compile_args=['-fopenmp', '-O3', '-g0', '-Wno-unreachable-code'],
 		extra_link_args=['-fopenmp'],
 		include_dirs=[numpy.get_include()],
 		define_macros=[('NPY_NO_DEPRECATED_API', 'NPY_1_7_API_VERSION')]
-	), Extension(
+	), 
+	Extension(
 		"src.reader_cy",
 		["src/reader_cy.pyx"],
 		extra_compile_args=['-fopenmp', '-O3', '-g0', '-Wno-unreachable-code'],
