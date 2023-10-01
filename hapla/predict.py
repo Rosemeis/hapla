@@ -31,8 +31,8 @@ def main(args):
 	import numpy as np
 	from cyvcf2 import VCF
 	from math import ceil
-	from src import reader_cy
-	from src import shared_cy
+	from hapla import reader_cy
+	from hapla import shared_cy
 
 	### Load data into 1-bit matrix
 	print("\rLoading VCF/BCF file...", end="")

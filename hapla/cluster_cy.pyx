@@ -95,7 +95,7 @@ cpdef void medianFix(signed char[:,::1] M, unsigned char[:,::1] Z, \
 	cdef:
 		int m = M.shape[1]
 		int n = Z.shape[1]
-		int i, j, k	
+		int i, j, k
 		int c = 0
 	for k in range(K):
 		if N[k] > 0:

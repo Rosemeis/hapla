@@ -41,8 +41,8 @@ assert (args.h2 > 0) and (args.h2 < 10), "Invalid value for h2!"
 import numpy as np
 from cyvcf2 import VCF
 from math import ceil, sqrt
-from src import functions
-from src import reader_cy
+from hapla import functions
+from hapla import reader_cy
 
 ### Load data
 if args.vcf is not None: # VCF/BCF file

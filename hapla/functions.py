@@ -1,7 +1,7 @@
 import subprocess
 import numpy as np
 from math import ceil
-from src import shared_cy
+from hapla import shared_cy
 
 ##### hapla - functions #####
 ### hapla pca
@@ -34,28 +34,6 @@ def randomizedSVD(Z, p, s, K, batch, threads):
 	U = np.ascontiguousarray(U[:,:K])
 	V = np.ascontiguousarray(V[:K,:].T)
 	return U, S[:K], V
-
-
-### hapla regress
-# Fast SVD function
-def fastSVD(A):
-	if A.shape[0] > A.shape[1]:
-		X = np.dot(A.T, A)
-		trans = True
-	else:
-		X = np.dot(A, A.T)
-		trans = False
-	D, V = np.linalg.eigh(X)
-	D, V = D[D > 1e-8], V[:, D > 1e-8]
-	S = np.sqrt(D)
-	if trans:
-		U = np.dot(A, V)/S
-		return U, S, V
-	else:
-		U = np.dot(A.T, V)/S
-		return V, S, U
-
-
 
 ### Phenotype generation
 def extract_length(filename):

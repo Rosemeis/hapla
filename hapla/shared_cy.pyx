@@ -64,7 +64,7 @@ cpdef void hsmFull(unsigned char[:,::1] Z, float[:,::1] G, int K, int t) \
 
 # Extract aggregated haplotype cluster counts
 cpdef void haplotypeAggregate(unsigned char[:,::1] Z_mat, unsigned char[:,::1] Z, \
-		float[::1] p, unsigned char[::1] K_vec) nogil:
+		float[::1] p, float[::1] s, unsigned char[::1] K_vec) nogil:
 	cdef:
 		int W = Z_mat.shape[0]
 		int n = Z_mat.shape[1]
@@ -77,6 +77,9 @@ cpdef void haplotypeAggregate(unsigned char[:,::1] Z_mat, unsigned char[:,::1] Z
 					Z[j,i//2] += 1
 					p[j] += 1
 			p[j] /= <float>n
+			for i in range(n//2):
+				s[j] += (Z[j,i] - 2.0*p[j])*(Z[j,i] - 2.0*p[j])
+			s[j] = sqrt(s[j]/<float>(n//2))
 			j = j + 1
 
 # Array filtering
