@@ -11,16 +11,16 @@ from time import time
 
 ##### hapla pca #####
 def main(args):
-	print("--------------------------------")
+	print("---------------------------------")
 	print("hapla by Jonas Meisner (v0.3)")
 	print(f"hapla pca using {args.threads} thread(s)")
-	print("--------------------------------\n")
+	print("---------------------------------\n")
 
 	# Check input
 	assert (args.filelist is not None) or (args.clusters is not None), \
 		"No input data (--filelist or --clusters)!"
 	if args.grm or args.hsm:
-		assert args.iid is not None, "Provide sample list for GCTA format!"
+		assert args.iid is not None, "Provide sample list for GCTA/PLINK format!"
 	if args.min_freq is not None:
 		assert args.min_freq > 0.0, "Empty haplotype clusters not allowed!"
 	start = time()
@@ -100,8 +100,7 @@ def main(args):
 		# Populate full matrix and estimate frequencies
 		Z = np.zeros((m, n), dtype=np.uint8)
 		p = np.zeros(m, dtype=np.float32)
-		s = np.zeros(m, dtype=np.float32)
-		shared_cy.haplotypeAggregate(Z_mat, Z, p, s, K_vec)
+		shared_cy.haplotypeAggregate(Z_mat, Z, p, K_vec)
 		del Z_mat
 
 		# Mask non-rare haplotype clusters
@@ -112,10 +111,9 @@ def main(args):
 			m = np.sum(mask, dtype=int)
 
 			# Filter out masked haplotype clusters
-			shared_cy.filterZ(Z, p, s, mask)
+			shared_cy.filterZ(Z, p, mask)
 			Z = Z[:m,:]
 			p = p[:m]
-			s = s[:m]
 		
 		# Estimate GRM or perform truncated SVD	
 		if not args.randomized:
@@ -161,6 +159,7 @@ def main(args):
 				print(f"Computing truncated SVD, extracting {args.eig} eigenvectors.")
 
 				# Standardize
+				s = np.sqrt(2*p*(1-p))
 				Z_std = np.zeros((m, n), dtype=np.float32)
 				shared_cy.standardizeZ(Z, Z_std, p, s, args.threads)
 				del Z
@@ -191,6 +190,7 @@ def main(args):
 			print(f"Computing randomized SVD, extracting {args.eig} eigenvectors.")
 
 			# Randomized SVD in batches
+			s = np.sqrt(2*p*(1-p))
 			U, S, V = functions.randomizedSVD(Z, p, s, args.eig, args.batch, \
 				args.threads)
 

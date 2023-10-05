@@ -11,10 +11,10 @@ from time import time
 
 ##### hapla cluster #####
 def main(args):
-	print("--------------------------------")
+	print("---------------------------------")
 	print("hapla by Jonas Meisner (v0.3)")
 	print(f"hapla cluster using {args.threads} thread(s)")
-	print("--------------------------------\n")
+	print("---------------------------------\n")
 	
 	# Check input
 	assert args.vcf is not None, \

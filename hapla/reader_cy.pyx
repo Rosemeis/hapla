@@ -46,6 +46,45 @@ cpdef np.ndarray[DTYPE_t, ndim=2] readVCF(v_file, int n, int B):
 		G_np[j] = np.asarray(<unsigned char[:B]>G_ptr)
 	return G_np
 
+### Read VCF/BCF into 2-bit integer matrix for cluster prediction
+cpdef np.ndarray[DTYPE_t, ndim=2] readPredict(v_file, int n, int B):
+	cdef:
+		int a, b, i, j, m, bit
+		np.ndarray[DTYPE_t, ndim=2] G_np
+		np.ndarray[DTYPE2_t, ndim=2] geno
+		char_vec G_var = char_vec(B)
+		vector[char_vec] G
+		unsigned char *G_ptr
+	for var in v_file: # Loop through VCF file
+		i = 0
+		geno = var.genotype.array()
+		for b in range(B):
+			G_var[b] = 0
+			for bit in range(0, 8, 4):
+				if geno[i,0] == 1: # Allele 1 (1,1)
+					G_var[b] |= (1<<bit)
+					G_var[b] |= (1<<(bit+1))
+				if geno[i,0] == -1: # Missing (1,0)
+					G_var[b] |= (1<<bit)
+				if geno[i,1] == 1: # Allele 1 (1,1)
+					G_var[b] |= (1<<(bit+2))
+					G_var[b] |= (1<<(bit+3))
+				if geno[i,1] == -1: # Missing (1,0)
+					G_var[b] |= (1<<(bit+2))
+				# Increase counter and check for break
+				i = i + 1
+				if i == n:
+					break
+		G.push_back(G_var)
+	m = G.size()
+	
+	# Fill up and return NumPy array
+	G_np = np.empty((m, B), dtype=DTYPE)
+	for j in range(m):
+		G_ptr = &G[j][0]
+		G_np[j] = np.asarray(<unsigned char[:B]>G_ptr)
+	return G_np
+
 ### Convert 1-bit into full array and initialize cluster mean
 cpdef void convertBit(unsigned char[:,::1] G, unsigned char[:,::1] H, \
 		float[:,::1] C, int w0) nogil:
@@ -76,13 +115,14 @@ cpdef void predictBit(unsigned char[:,::1] G, unsigned char[:,::1] H, int w0) no
 		int m = H.shape[0]
 		int n = H.shape[1]
 		int b, i, j, bit
-		unsigned char mask = 1
+		unsigned char[4] recode = [0, 9, 9, 1]
+		unsigned char mask = 3
 		unsigned char byte
 	for j in range(m):
 		i = 0
 		for b in range(B):
 			byte = G[w0+j,b]
-			for bit in range(8):
+			for bit in range(0, 8, 2):
 				H[j,i] = byte & mask
 				byte = byte >> 1 # Right shift 1 bit
 				i = i + 1

@@ -10,10 +10,10 @@ import os
 
 ##### hapla predict #####
 def main(args):
-	print("--------------------------------")
+	print("---------------------------------")
 	print("hapla by Jonas Meisner (v0.3)")
 	print(f"hapla predict using {args.threads} thread(s)")
-	print("--------------------------------\n")
+	print("---------------------------------\n")
 	
 	# Check input
 	assert args.vcf is not None, \
@@ -38,7 +38,7 @@ def main(args):
 	print("\rLoading VCF/BCF file...", end="")
 	v_file = VCF(args.vcf, threads=args.threads)
 	n = 2*len(v_file.samples)
-	B = ceil(n/8)
+	B = ceil(n/4)
 	G = reader_cy.readVCF(v_file, n//2, B)
 	del v_file
 	m = G.shape[0]
