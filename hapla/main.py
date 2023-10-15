@@ -16,20 +16,20 @@ def main():
 	parser_cluster = subparsers.add_parser("cluster")
 	parser_cluster.add_argument("-g", "--vcf", "--bcf", metavar="FILE",
 		help="Input phased genotype file in VCF/BCF format")
-	parser_cluster.add_argument("-f", "--fixed", type=int, default=8,
-		metavar="INT", help="Use fixed window length (8)")
+	parser_cluster.add_argument("-f", "--fixed", type=int, default=10,
+		metavar="INT", help="Use fixed window length (10)")
 	parser_cluster.add_argument("-w", "--windows",
 		metavar="FILE", help="Use provided window lengths")
-	parser_cluster.add_argument("-l", "--lmbda", type=float, default=0.1,
-		metavar="FLOAT", help="Set lambda hyperparameter (0.1)")
+	parser_cluster.add_argument("-l", "--lmbda", type=float, default=0.05,
+		metavar="FLOAT", help="Set lambda hyperparameter (0.05)")
 	parser_cluster.add_argument("-e", "--max_iterations", type=int, default=500,
 		metavar="INT", help="Maximum number of iterations (500)")
 	parser_cluster.add_argument("-t", "--threads", type=int, default=1,
 		metavar="INT", help="Number of threads (1)")
 	parser_cluster.add_argument("-o", "--out", default="hapla.cluster",
 		metavar="OUTPUT", help="Output prefix")
-	parser_cluster.add_argument("--min_freq", type=float, default=0.01,
-		metavar="INT", help="Minimum frequency for haplotype cluster (0.01)")
+	parser_cluster.add_argument("--min_freq", type=float, default=0.005,
+		metavar="INT", help="Minimum frequency for haplotype cluster (0.005)")
 	parser_cluster.add_argument("--max_clusters", type=int, default=64,
 		metavar="INT", help="Maximum number of haplotype clusters per window (64)")
 	parser_cluster.add_argument("--medians", action="store_true",
@@ -65,8 +65,8 @@ def main():
 		help="Use randomized SVD (use for very large data)")
 	parser_pca.add_argument("--grm", action="store_true",
 		help="Estimate genome-wide relationship matrix (GRM)")
-	parser_pca.add_argument("--alpha", type=float, default=0.25,
-		metavar="FLOAT", help="Alpha selection parameter in GRM (0.25)")
+	parser_pca.add_argument("--alpha", type=float, default=0.0,
+		metavar="FLOAT", help="Alpha selection parameter in GRM (0.0)")
 	parser_pca.add_argument("--no_centering", action="store_true",
 		help="Do not perform centering on GRM/HSM matrix")
 	parser_pca.add_argument("--hsm", action="store_true",
@@ -84,8 +84,8 @@ def main():
 		help="Input phased genotype file in VCF/BCF format")
 	parser_predict.add_argument("-m", "--medians", metavar="FILE",
 		help="Input haplotype cluster medians as binary NumPy array")
-	parser_predict.add_argument("-f", "--fixed", type=int, default=8,
-		metavar="INT", help="Use fixed window length (8)")
+	parser_predict.add_argument("-f", "--fixed", type=int, default=10,
+		metavar="INT", help="Use fixed window length (10)")
 	parser_predict.add_argument("-w", "--windows", metavar="FILE",
 		help="Use provided window lengths")
 	parser_predict.add_argument("-t", "--threads", type=int, default=1,

@@ -49,20 +49,20 @@ def main(args):
 	### Setup windows
 	if args.windows is None: # Fixed window length
 		W = m//args.fixed
-		winList = [w*args.fixed for w in range(W)]
-		winList = np.array(winList, dtype=int)
+		W_vec = [w*args.fixed for w in range(W)]
+		W_vec = np.array(W_vec, dtype=int)
 		print(f"Clustering in {W} windows of fixed size ({args.fixed} SNPs).")
 	else: # Use provided window lengths
-		winList = np.genfromtxt(args.windows, dtype=int)
-		W = winList.shape[0] - 1
-		assert winList[-1] == m, "Window splits doesn't match genotype file!"
+		W_vec = np.genfromtxt(args.windows, dtype=int)
+		W = W_vec.shape[0] - 1
+		assert W_vec[-1] == m, "Window splits doesn't match genotype file!"
 		print(f"Clustering in {W} windows of provided lengths.")
 	
 	# Filter out causal SNPs --- DEBUG FOR SIMULATION STUDIES ONLY!
 	if args.filter is not None:
 		mask = np.loadtxt(args.filter, dtype=np.uint8)
 		m = np.sum(mask) # New number of variants
-		reader_cy.filterSNPs(G, winList, mask) # Fix data and window arrays
+		reader_cy.filterSNPs(G, W_vec, mask) # Fix data and window arrays
 		G = G[:m,:]
 		print(f"Removed {np.sum(mask==0)} causal SNPs.")
 		del mask
@@ -95,19 +95,19 @@ def main(args):
 			if args.windows is None: # Re-use containers
 				M.fill(-9)
 				C.fill(0.0)
-				reader_cy.convertBit(G, H, C, winList[w])
+				reader_cy.convertBit(G, H, C, W_vec[w])
 			else:
-				H = np.zeros((winList[w+1]-winList[w], n), dtype=np.uint8)
-				Ht = np.zeros((n, winList[w+1]-winList[w]), dtype=np.uint8)
+				H = np.zeros((W_vec[w+1]-W_vec[w], n), dtype=np.uint8)
+				Ht = np.zeros((n, W_vec[w+1]-W_vec[w]), dtype=np.uint8)
 				M = np.full((args.max_clusters, H.shape[0]), -9, dtype=np.int8)
 				C = np.zeros((args.max_clusters, H.shape[0]), dtype=np.float32)
-				reader_cy.convertBit(G, H, C, winList[w])
+				reader_cy.convertBit(G, H, C, W_vec[w])
 		else: # Last window
-			H = np.zeros((m-winList[w], n), dtype=np.uint8)
-			Ht = np.zeros((n, m-winList[w]), dtype=np.uint8)
+			H = np.zeros((m-W_vec[w], n), dtype=np.uint8)
+			Ht = np.zeros((n, m-W_vec[w]), dtype=np.uint8)
 			M = np.full((args.max_clusters, H.shape[0]), -9, dtype=np.int8)
 			C = np.zeros((args.max_clusters, H.shape[0]), dtype=np.float32)
-			reader_cy.convertBit(G, H, C, winList[w])
+			reader_cy.convertBit(G, H, C, W_vec[w])
 		mH = H.shape[0]
 
 		# Setup log-likelihood container
@@ -182,10 +182,8 @@ def main(args):
 				N_min = cluster_cy.findZero(N_vec, n, N_thr, K)
 				if N_min > N_thr:
 					break
-				cluster_cy.clusterAssignment(Ht, M, C, Z_mat, c_vec, N_vec, K, w, \
-					args.threads)
+				cluster_cy.loopAssignment(Ht, M, Z_mat, N_vec, K, w, args.threads)
 				cluster_cy.countN(Z_mat, N_vec, K, w)
-				cluster_cy.marginalMedians(M, C, N_vec, K)
 				K_tmp -= 1
 				if K_tmp == 2: # Safety break
 					break
@@ -194,8 +192,7 @@ def main(args):
 					print(f"{N_sur}/{K_tmp} clusters reaching threshold. " + \
 						f"{N_min}/{N_thr}.")
 		else:
-			cluster_cy.clusterAssignment(Ht, M, C, Z_mat, c_vec, N_vec, K, w, \
-				args.threads)
+			cluster_cy.loopAssignment(Ht, M, Z_mat, N_vec, K, w, args.threads)
 			cluster_cy.countN(Z_mat, N_vec, K, w)
 
 		# Fix cluster median and cluster assignment order
@@ -207,13 +204,11 @@ def main(args):
 		if args.medians:
 			if w < (W-1):
 				if args.windows is None:
-					M_mat[winList[w]:(winList[w]+args.fixed)] = \
-						np.ascontiguousarray(M.T)
+					M_mat[W_vec[w]:(W_vec[w]+args.fixed)] = np.ascontiguousarray(M.T)
 				else:
-					M_mat[winList[w]:winList[w+1]] = \
-						np.ascontiguousarray(M.T)
+					M_mat[W_vec[w]:W_vec[w+1]] = np.ascontiguousarray(M.T)
 			else: # Last window
-				M_mat[winList[w]:m] = np.ascontiguousarray(M.T)
+				M_mat[W_vec[w]:m] = np.ascontiguousarray(M.T)
 		if args.loglike:
 			cluster_cy.loglikeHaplo(L_mat, Ht, C, Z_mat, N_vec, K, w, args.threads)
 			

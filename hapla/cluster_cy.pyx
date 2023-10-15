@@ -19,7 +19,7 @@ cpdef void marginalMedians(signed char[:,::1] M, float[:,::1] C, int[::1] N, int
 				M[k,j] = <signed char>(C[k,j] > 0.5)
 				C[k,j] = 0.0
 
-# Compute distances and cluster assignment
+# Compute distances, cluster assignment and prepare for next loop
 cpdef void clusterAssignment(unsigned char[:,::1] H, signed char[:,::1] M, float[:,::1] C, \
 		unsigned char[:,::1] Z, int[::1] c, int[::1] N, int K, int w, int t):
 	cdef:
@@ -63,6 +63,30 @@ cpdef void clusterAssignment(unsigned char[:,::1] H, signed char[:,::1] M, float
 		
 		# Deallocate thread-local arrays
 		PyMem_RawFree(tmp)
+
+# Compute distances and cluster assignment in cluster removal stage
+cpdef void loopAssignment(unsigned char[:,::1] H, signed char[:,::1] M, \
+		unsigned char[:,::1] Z, int[::1] N, int K, int w, int t) nogil:
+	cdef:
+		int n = H.shape[0]
+		int m = H.shape[1]
+		int i, j, k, dist, m_val
+	for i in prange(n, num_threads=t):
+		Z[w,i] = 0
+		m_val = m
+		for k in range(K):
+			# Distances
+			if N[k] > 0: # Safety measure
+				dist = 0
+				for j in range(m):
+					if H[i,j] != M[k,j]:
+						dist = dist + 1
+			else:
+				dist = m
+			# Assignment
+			if dist < m_val:
+				Z[w,i] = k # Cluster assignment
+				m_val = dist
 
 # Count size of clusters
 cpdef void countN(unsigned char[:,::1] Z, int[::1] N, int K, int w) nogil:

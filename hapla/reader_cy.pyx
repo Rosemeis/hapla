@@ -122,9 +122,9 @@ cpdef void predictBit(unsigned char[:,::1] G, unsigned char[:,::1] H, int w0) no
 		i = 0
 		for b in range(B):
 			byte = G[w0+j,b]
-			for bit in range(0, 8, 2):
-				H[j,i] = byte & mask
-				byte = byte >> 1 # Right shift 1 bit
+			for bit in range(4):
+				H[j,i] = recode[byte & mask]
+				byte = byte >> 2 # Right shift 2 bit
 				i = i + 1
 				if i == n:
 					break
