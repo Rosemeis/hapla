@@ -174,7 +174,7 @@ def main(args):
 			cluster_cy.marginalMedians(M, C, N_vec, K)
 			K_tmp = np.sum(N_vec > 0)
 
-			# Remove small clusters iterativly
+			# Remove small clusters iterativly without update of medians
 			if args.verbose:
 				N_sur = np.sum(N_vec > N_thr)
 				print(f"{N_sur}/{K_tmp} clusters reaching threshold.")
