@@ -113,18 +113,20 @@ B[p] = b
 ### Estimate phenotypes
 # Genetic contribution
 X = np.dot(G.T, b)
+X_scale = np.sqrt(h2)/np.std(X, ddof=0)
+X *= X_scale
 X -= np.mean(X)
-G_scal = sqrt(h2)/np.std(X)
-G_liab = X*G_scal
 
 # Environmental contribution (variance of phenotype will be exactly 1)
-E = np.random.normal(loc=0.0, scale=sqrt(1 - h2), size=n)
+E = np.random.normal(loc=0.0, scale=np.sqrt(1 - h2), size=n)
+E_var = np.var(E, ddof=0)
+C_var = np.cov(X, E, ddof=0)[1,0]
+E_scale = (np.sqrt(C_var**2 + (1 - h2)*E_var) - C_var)/E_var
+E *= E_scale
 E -= np.mean(E)
-E_scal = sqrt(1 - h2)/np.std(E)
-E_liab = E*E_scal
 
 # Generate phenotype
-Y = G_liab + E_liab
+Y = X + E
 
 ### Save output
 if args.bfile is not None:
@@ -134,10 +136,10 @@ else:
 Y_plink = np.hstack((Y_plink, np.round(Y.reshape(-1,1), 7)))
 np.savetxt(f"{args.out}.pheno", Y_plink, fmt="%s", delimiter="\t")
 print(f"Saved continuous phenotypes as {args.out}.pheno")
-np.savetxt(f"{args.out}.prs", G_liab, fmt="%.7f")
+np.savetxt(f"{args.out}.prs", X, fmt="%.7f")
 print(f"Saved PRS as {args.out}.prs")
 np.savetxt(f"{args.out}.set", p, fmt="%i")
 print(f"Saved causal SNP-set as {args.out}.set")
 if args.save_beta:
-	np.savetxt(f"{args.out}.beta", B*G_scal, fmt="%.7f")
+	np.savetxt(f"{args.out}.beta", B*X_scale, fmt="%.7f")
 	print(f"Saved causal betas as {args.out}.beta")
