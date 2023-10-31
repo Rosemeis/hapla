@@ -65,8 +65,8 @@ def main():
 		help="Use randomized SVD (use for very large data)")
 	parser_pca.add_argument("--grm", action="store_true",
 		help="Estimate genome-wide relationship matrix (GRM)")
-	parser_pca.add_argument("--alpha", type=float, default=0.25,
-		metavar="FLOAT", help="Alpha selection parameter in GRM (0.25)")
+	parser_pca.add_argument("--alpha", type=float, default=0.0,
+		metavar="FLOAT", help="Alpha selection parameter in GRM (0.0)")
 	parser_pca.add_argument("--no_centering", action="store_true",
 		help="Do not perform centering on GRM/HSM matrix")
 	parser_pca.add_argument("--hsm", action="store_true",
