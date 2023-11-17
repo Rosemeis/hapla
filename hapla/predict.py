@@ -87,12 +87,12 @@ def main(args):
 			M = np.ascontiguousarray(M_mat[W_vec[w]:m].T)
 		K = np.sum(np.sum(M, axis=1, dtype=int) >= 0) # Number of clusters to evaluate
 		reader_cy.predictBit(G, H, W_vec[w])
-		Ht = np.ascontiguousarray(H.T)
+		X = np.ascontiguousarray(H.T)
 		del H
 		
 		# Cluster assignment
-		shared_cy.predictCluster(Ht, M, Z_mat, K, w, args.threads)
-		del Ht, M
+		shared_cy.predictCluster(X, M, Z_mat, K, w, args.threads)
+		del X, M
 
 	### Save output
 	np.save(f"{args.out}.z", Z_mat)

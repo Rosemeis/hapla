@@ -33,7 +33,7 @@ cpdef np.ndarray[DTYPE_t, ndim=2] readVCF(v_file, int n, int B):
 				if geno[i,1] == 1:
 					G_var[b] |= (1<<(bit+1))
 				# Increase counter and check for break
-				i = i + 1
+				i += 1
 				if i == n:
 					break
 		G.push_back(G_var)
@@ -72,7 +72,7 @@ cpdef np.ndarray[DTYPE_t, ndim=2] readPredict(v_file, int n, int B):
 				if geno[i,1] == -1: # Missing (1,0)
 					G_var[b] |= (1<<(bit+2))
 				# Increase counter and check for break
-				i = i + 1
+				i += 1
 				if i == n:
 					break
 		G.push_back(G_var)
@@ -104,7 +104,7 @@ cpdef void convertBit(unsigned char[:,::1] G, unsigned char[:,::1] H, \
 				H[j,i] = byte & mask
 				C[0,j] = C[0,j] + H[j,i]
 				byte = byte >> 1 # Right shift 1 bit
-				i = i + 1
+				i += 1
 				if i == n:
 					break
 
@@ -125,7 +125,7 @@ cpdef void predictBit(unsigned char[:,::1] G, unsigned char[:,::1] H, int w0) no
 			for bit in range(4):
 				H[j,i] = recode[byte & mask]
 				byte = byte >> 2 # Right shift 2 bit
-				i = i + 1
+				i += 1
 				if i == n:
 					break
 
@@ -159,14 +159,14 @@ cpdef void convertPlink(unsigned char[:,::1] Z_mat, unsigned char[:,::1] Z_bin, 
 						Z_bin[j,b] |= (1<<(bit+1))
 
 					# Increase counter and check for break
-					i = i + 1
+					i += 1
 					if i == n:
 						break
 			
 			# Save window and cluster information
 			P_mat[j,0] = w + 1
 			P_mat[j,1] = k + 1
-			j = j + 1
+			j += 1
 
 ### Convert 1-bit into standardized genotype array for phenotypes
 cpdef void phenoVCF(unsigned char[:,::1] G_mat, double[:,::1] G, long[::1] p) nogil:
@@ -186,7 +186,7 @@ cpdef void phenoVCF(unsigned char[:,::1] G_mat, double[:,::1] G, long[::1] p) no
 				byte = byte >> 1 # Right shift 1 bit
 				G[j,i] += <double>(byte & mask)
 				byte = byte >> 1 # Right shift 1 bit
-				i = i + 1
+				i += 1
 				if i == n:
 					break
 
@@ -207,7 +207,7 @@ cpdef void phenoPlink(unsigned char[:,::1] G_mat, double[:,::1] G, long[::1] p) 
 			for bytepart in range(4):
 				G[j,i] = <double>recode[byte & mask]
 				byte = byte >> 2
-				i = i + 1
+				i += 1
 				if i == n:
 					break
 
@@ -227,8 +227,8 @@ cpdef void phenoHaplo(unsigned char[:,::1] Z, double[:,::1] G, \
 				for i in range(2*n):
 					if Z[w,i] == k:
 						G[j,i//2] += 1
-				j = j + 1
-			b = b + 1
+				j += 1
+			b += 1
 
 ### Filter out variants from haplotype clustering and fix window sizes
 cpdef void filterSNPs(unsigned char[:,::1] Gt, long[::1] W, unsigned char[::1] mask) \
@@ -247,7 +247,7 @@ cpdef void filterSNPs(unsigned char[:,::1] Gt, long[::1] W, unsigned char[::1] m
 		if mask[j] == 1:
 			for b in range(B):
 				Gt[c,b] = Gt[j,b]
-			c = c + 1
+			c += 1
 		else:
 			for k in range(1, s):
 				if (W[k] + count[k]) >= j:
@@ -261,4 +261,4 @@ cpdef void readPOS(v_file, double[:,::1] P):
 		int j = 0
 	for var in v_file: # Loop through VCF file
 		P[j,1] = <double>var.POS
-		j = j + 1
+		j += 1

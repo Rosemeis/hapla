@@ -19,7 +19,7 @@ def main(args):
 	# Check input
 	assert args.vcf is not None, \
 		"Please provide phased genotype file (--bcf or --vcf)!"
-	assert args.min_freq > 0.0, "Empty haplotype clusters not allowed!"
+	assert args.min_mac > 2, "Very rare haplotype clusters not allowed!"
 	assert args.max_clusters <= 256, "Max clusters allowed exceeded!"
 	start = time()
 
@@ -75,7 +75,7 @@ def main(args):
 	Z_mat = np.zeros((W, n), dtype=np.uint8) # Haplotype cluster alleles
 	if args.windows is None:
 		H = np.zeros((args.fixed, n), dtype=np.uint8) # Haplotypes
-		Ht = np.zeros((n, args.fixed), dtype=np.uint8) # Haplotypes transposed
+		X = np.zeros((n, args.fixed), dtype=np.uint8) # Haplotypes transposed
 		M = np.zeros((args.max_clusters, args.fixed), dtype=np.int8) # Medians
 		C = np.zeros((args.max_clusters, args.fixed), dtype=np.float32) # Means
 	if args.medians:
@@ -94,17 +94,16 @@ def main(args):
 		if w < (W-1):
 			if args.windows is None: # Re-use containers
 				M.fill(-9)
-				C.fill(0.0)
 				reader_cy.convertBit(G, H, C, W_vec[w])
 			else:
 				H = np.zeros((W_vec[w+1]-W_vec[w], n), dtype=np.uint8)
-				Ht = np.zeros((n, W_vec[w+1]-W_vec[w]), dtype=np.uint8)
+				X = np.zeros((n, W_vec[w+1]-W_vec[w]), dtype=np.uint8)
 				M = np.full((args.max_clusters, H.shape[0]), -9, dtype=np.int8)
 				C = np.zeros((args.max_clusters, H.shape[0]), dtype=np.float32)
 				reader_cy.convertBit(G, H, C, W_vec[w])
 		else: # Last window
 			H = np.zeros((m-W_vec[w], n), dtype=np.uint8)
-			Ht = np.zeros((n, m-W_vec[w]), dtype=np.uint8)
+			X = np.zeros((n, m-W_vec[w]), dtype=np.uint8)
 			M = np.full((args.max_clusters, H.shape[0]), -9, dtype=np.int8)
 			C = np.zeros((args.max_clusters, H.shape[0]), dtype=np.float32)
 			reader_cy.convertBit(G, H, C, W_vec[w])
@@ -118,25 +117,23 @@ def main(args):
 		K = 1
 		N_vec[0] = n
 		cluster_cy.marginalMedians(M, C, N_vec, K)
-		np.copyto(Ht, H.T, casting="no") # Transposed in contiguous memory
+		np.copyto(X, H.T, casting="no") # Transposed in contiguous memory
 		if args.windows is not None:
 			del H
 
 		# Perform DC-DP-Medians
 		for it in np.arange(args.max_iterations):
-			np.copyto(z_pre, Z_mat[w], casting="no")
-
 			# Cluster assignment
-			cluster_cy.clusterAssignment(Ht, M, C, Z_mat, c_vec, N_vec, K, w, \
+			cluster_cy.clusterAssignment(X, M, C, Z_mat, c_vec, N_vec, K, w, \
 				args.threads)
 
 			# Check for extra cluster
 			c_max = np.max(c_vec)
 			c_arg = np.argmax(c_vec)
-			if (c_max > args.lmbda*mH) & (K < args.max_clusters):
-				M[K,:] = Ht[c_arg,:]
-				C[K,:] = Ht[c_arg,:]
-				C[Z_mat[w,c_arg],:] -= Ht[c_arg,:]
+			if (c_max >= args.lmbda*mH) & (K < args.max_clusters):
+				M[K,:] = X[c_arg,:]
+				C[K,:] = X[c_arg,:]
+				C[Z_mat[w,c_arg],:] -= X[c_arg,:]
 				Z_mat[w,c_arg] = K
 				K += 1
 
@@ -151,48 +148,50 @@ def main(args):
 							print("Converged! No label switching.")
 						break
 					else: # Make sure two haplotype clusters are generated
-						M[K,:] = Ht[c_arg,:]
-						C[K,:] = Ht[c_arg,:]
-						C[Z_mat[w,c_arg],:] -= Ht[c_arg,:]
+						M[K,:] = X[c_arg,:]
+						C[K,:] = X[c_arg,:]
+						C[Z_mat[w,c_arg],:] -= X[c_arg,:]
 						Z_mat[w,c_arg] = K
 						K += 1
 			if args.verbose:
 				cost = np.sum(c_vec) + args.lmbda*mH*K
 				print(f"Epoch {it}: Cost {cost}")
+			
 			# Count sizes and construct marginal medians
 			cluster_cy.countN(Z_mat, N_vec, K, w)
 			cluster_cy.marginalMedians(M, C, N_vec, K)
+			np.copyto(z_pre, Z_mat[w], casting="no")
 
 		# Remove small haplotype clusters and rescue as many as possible
 		if K > 2:
 			# Remove up and including to doubletons
-			N_thr = max(2, int(args.min_freq*n))
-			N_vec[N_vec <= min(2, N_thr)] = 0
-			cluster_cy.clusterAssignment(Ht, M, C, Z_mat, c_vec, N_vec, K, w, \
+			N_vec[N_vec < 3] = 0
+			cluster_cy.clusterAssignment(X, M, C, Z_mat, c_vec, N_vec, K, w, \
 				args.threads)
 			cluster_cy.countN(Z_mat, N_vec, K, w)
-			cluster_cy.marginalMedians(M, C, N_vec, K)
 			K_tmp = np.sum(N_vec > 0)
 
-			# Remove small clusters iterativly without update of medians
+			# Remove small clusters iterativly
 			if args.verbose:
-				N_sur = np.sum(N_vec > N_thr)
+				N_sur = np.sum(N_vec >= args.min_mac)
 				print(f"{N_sur}/{K_tmp} clusters reaching threshold.")
 			while True:
-				N_min = cluster_cy.findZero(N_vec, n, N_thr, K)
-				if N_min > N_thr:
+				N_min = cluster_cy.findZero(N_vec, n, args.min_mac, K)
+				if N_min >= args.min_mac:
 					break
-				cluster_cy.loopAssignment(Ht, M, Z_mat, N_vec, K, w, args.threads)
+				cluster_cy.marginalMedians(M, C, N_vec, K)
+				cluster_cy.clusterAssignment(X, M, C, Z_mat, c_vec, N_vec, K, w, \
+					args.threads)
 				cluster_cy.countN(Z_mat, N_vec, K, w)
 				K_tmp -= 1
 				if K_tmp == 2: # Safety break
 					break
 				if args.verbose:
-					N_sur = np.sum(N_vec > N_thr)
+					N_sur = np.sum(N_vec >= args.min_mac)
 					print(f"{N_sur}/{K_tmp} clusters reaching threshold. " + \
-						f"{N_min}/{N_thr}.")
+						f"{N_min}/{args.min_mac}.")
 		else:
-			cluster_cy.loopAssignment(Ht, M, Z_mat, N_vec, K, w, args.threads)
+			cluster_cy.loopAssignment(X, M, Z_mat, N_vec, K, w, args.threads)
 			cluster_cy.countN(Z_mat, N_vec, K, w)
 
 		# Fix cluster median and cluster assignment order
@@ -210,20 +209,20 @@ def main(args):
 			else: # Last window
 				M_mat[W_vec[w]:m] = np.ascontiguousarray(M.T)
 		if args.loglike:
-			cluster_cy.loglikeHaplo(L_mat, Ht, C, Z_mat, N_vec, K, w, args.threads)
+			cluster_cy.loglikeHaplo(L_mat, X, C, Z_mat, N_vec, K, w, args.threads)
 			
 		# Clean up
-		if args.windows is not None:
-			del M, C, Ht
 		N_vec.fill(0)
+		if args.windows is not None:
+			del M, C, X
 	del G
 	if not args.verbose:
 		print("")
 
 	##### Save output #####
 	np.save(f"{args.out}.z", Z_mat)
-	print(f"Saved haplotype cluster assignments as {args.out}.z.npy")
 	np.savetxt(f"{args.out}.num_clusters", K_vec, fmt="%i")
+	print(f"Saved haplotype cluster assignments as {args.out}.z.npy")
 	print(f"Saved the number of clusters per window as {args.out}.num_clusters")
 	if args.medians:
 		np.save(f"{args.out}.medians", M_mat)
@@ -250,7 +249,7 @@ def main(args):
 		
 		# Save .bed file including magic numbers
 		with open(f"{args.out}.bed", "w") as bfile:
-			np.array([108,27,1], dtype=np.uint8).tofile(bfile)
+			np.array([108, 27, 1], dtype=np.uint8).tofile(bfile)
 			Z_bin.tofile(bfile)
 		del K_vec, Z_bin, Z_mat, Z_vec
 

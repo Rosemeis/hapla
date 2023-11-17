@@ -77,7 +77,7 @@ cpdef void haplotypeAggregate(unsigned char[:,::1] Z_mat, unsigned char[:,::1] Z
 					Z[j,i//2] += 1
 					p[j] += 1
 			p[j] /= <float>n
-			j = j + 1
+			j += 1
 
 # Array filtering
 cpdef void filterZ(unsigned char[:,::1] Z, float[::1] p, \
@@ -92,7 +92,7 @@ cpdef void filterZ(unsigned char[:,::1] Z, float[::1] p, \
 			for i in range(n):
 				Z[c,i] = Z[j,i]
 			p[c] = p[j]
-			c = c + 1
+			c += 1
 
 # Standardize the batch haplotype cluster assignment matrix
 cpdef void batchZ(unsigned char[:,::1] Z, float[:,::1] Z_b, float[::1] p, \

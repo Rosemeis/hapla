@@ -27,6 +27,8 @@ parser.add_argument("-s", "--seed", type=int, default=42,
 	help="Set random seed (42)")
 parser.add_argument("-o", "--out", default="pheno.generate",
 	help="Prefix for output files")
+parser.add_argument("--equidistant", action="store_true",
+	help="Sample causal SNP with equal distance")
 parser.add_argument("--save_beta", action="store_true",
 	help="Save the sampled causal betas")
 args = parser.parse_args()
@@ -93,7 +95,10 @@ if args.filelist is not None: # Haplotype clusters
 h2 = float(f"0.{args.h2}")
 G = np.zeros((args.causal, n), dtype=float) # Genotypes or haplotype clusters
 np.random.seed(args.seed) # Set random seed
-p = np.sort(np.random.permutation(m)[:args.causal]).astype(int) # Select causal loci
+if args.equidistant: # Select causal SNPs with even distance between
+	p = np.linspace(0, m, args.causal + 2)[1:-1].astype(int)
+else: # Random sampling
+	p = np.sort(np.random.permutation(m)[:args.causal]).astype(int) # Select causal loci
 if args.vcf is not None: # VCF/BCF
 	reader_cy.phenoVCF(G_mat, G, p)
 	del G_mat
@@ -117,11 +122,9 @@ X_scale = np.sqrt(h2)/np.std(X, ddof=0)
 X *= X_scale
 X -= np.mean(X)
 
-# Environmental contribution (variance of phenotype will be exactly 1)
+# Environmental contribution
 E = np.random.normal(loc=0.0, scale=np.sqrt(1 - h2), size=n)
-E_var = np.var(E, ddof=0)
-C_var = np.cov(X, E, ddof=0)[1,0]
-E_scale = (np.sqrt(C_var**2 + (1 - h2)*E_var) - C_var)/E_var
+E_scale = np.sqrt(1 - h2)/np.std(E, ddof=0)
 E *= E_scale
 E -= np.mean(E)
 
