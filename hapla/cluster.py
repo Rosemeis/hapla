@@ -130,7 +130,7 @@ def main(args):
 			# Check for extra cluster
 			c_max = np.max(c_vec)
 			c_arg = np.argmax(c_vec)
-			if (c_max >= args.lmbda*mH) & (K < args.max_clusters):
+			if (c_max > args.lmbda*mH) & (K < args.max_clusters):
 				M[K,:] = X[c_arg,:]
 				C[K,:] = X[c_arg,:]
 				C[Z_mat[w,c_arg],:] -= X[c_arg,:]
