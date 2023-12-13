@@ -136,17 +136,18 @@ cpdef void convertPlink(unsigned char[:,::1] Z_mat, unsigned char[:,::1] Z_bin, 
 		int W = Z_mat.shape[0]
 		int n = Z_mat.shape[1]//2
 		int B = Z_bin.shape[1]
-		int b, i, k, w, bit
+		int b, i, k, l, w, bit
 		int j = 0
 	for w in range(W):
 		for k in range(K_vec[w]):
 			# Create haplotype cluster alleles
 			for i in range(0, 2*n, 2):
-				Z_vec[i//2] = 0
+				l = <int>(i/2.0)
+				Z_vec[l] = 0
 				if Z_mat[w,i] == k:
-					Z_vec[i//2] += 1
+					Z_vec[l] += 1
 				if Z_mat[w,i+1] == k:
-					Z_vec[i//2] += 1
+					Z_vec[l] += 1
 
 			# Save in 2-bit form with bit-wise operations
 			i = 0
@@ -226,7 +227,7 @@ cpdef void phenoHaplo(unsigned char[:,::1] Z, double[:,::1] G, \
 			if b == C[j]:
 				for i in range(2*n):
 					if Z[w,i] == k:
-						G[j,i//2] += 1
+						G[j,<int>(i/2.0)] += 1
 				j += 1
 			b += 1
 

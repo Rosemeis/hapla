@@ -94,7 +94,7 @@ def main(args):
 			f"- {args.out}.hsm.grm.N.bin\n" + \
 			f"- {args.out}.hsm.grm.id")
 	else: # Haplotype cluster allele analyses
-		K_vec = np.max(Z_mat, axis=1) + 1
+		K_vec = np.max(Z_mat, axis=1) # One removed for identifiability
 		m = np.sum(K_vec, dtype=int)
 
 		# Populate full matrix and estimate frequencies

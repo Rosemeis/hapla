@@ -15,7 +15,7 @@ cpdef void marginalMedians(signed char[:,::1] M, float[:,::1] C, int[::1] N, int
 	for k in range(K):
 		if N[k] > 0:
 			for j in range(m):
-				C[k,j] = C[k,j]/<float>N[k]
+				C[k,j] = C[k,j]/(<float>N[k])
 				M[k,j] = <signed char>(C[k,j] > 0.5)
 				C[k,j] = 0.0
 
@@ -147,7 +147,7 @@ cpdef void loglikeHaplo(float[:,:,::1] L, unsigned char[:,::1] X, float[:,::1] C
 		float p
 	for i in range(n):
 		for j in range(m):
-			C[Z[w,i],j] += <float>X[i,j]/<float>N[Z[w,i]]
+			C[Z[w,i],j] += (<float>X[i,j])/(<float>N[Z[w,i]])
 	for i in prange(n, num_threads=t):
 		for k in range(K):
 			L[w, i, k] = 0.0

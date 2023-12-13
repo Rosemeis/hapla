@@ -19,8 +19,8 @@ parser.add_argument("-b", "--bfile",
 	help="Genotype file in binary PLINK format")
 parser.add_argument("-f", "--filelist",
 	help="Filelist with paths to haplotype cluster files")
-parser.add_argument("-c", "--causal", type=int, default=1000,
-	help="Number of causal SNPs (1000)")
+parser.add_argument("-c", "--causal", type=int, default=0,
+	help="Number of causal SNPs (0)")
 parser.add_argument("-e", "--h2", type=int, default=5,
 	help="Heritability of trait as integer (5 = 0.5)")
 parser.add_argument("-s", "--seed", type=int, default=42,
@@ -38,6 +38,7 @@ if args.filelist is None:
 	assert (args.vcf is not None) or (args.bfile is not None), \
 		"Please provide genotype file (--bcf, --vcf or --bfile)!"
 assert (args.h2 > 0) and (args.h2 < 10), "Invalid value for h2!"
+h2 = float(f"0.{args.h2}")
 
 # Import numerical libraries
 import numpy as np
@@ -92,13 +93,19 @@ if args.filelist is not None: # Haplotype clusters
 	m = np.sum(K_vec, dtype=int)
 
 ### Causal betas and sampling
-h2 = float(f"0.{args.h2}")
-G = np.zeros((args.causal, n), dtype=float) # Genotypes or haplotype clusters
+# Number of causal SNPs
+if args.causal == 0:
+	causal = m
+else:
+	causal = args.causal
+
+# Sample causal SNP effects
+G = np.zeros((causal, n), dtype=float) # Genotypes or haplotype clusters
 np.random.seed(args.seed) # Set random seed
 if args.equidistant: # Select causal SNPs with even distance between
-	p = np.linspace(0, m, args.causal + 2)[1:-1].astype(int)
+	p = np.linspace(0, m, causal + 2)[1:-1].astype(int)
 else: # Random sampling
-	p = np.sort(np.random.permutation(m)[:args.causal]).astype(int) # Select causal loci
+	p = np.sort(np.random.permutation(m)[:causal]).astype(int) # Select causal loci
 if args.vcf is not None: # VCF/BCF
 	reader_cy.phenoVCF(G_mat, G, p)
 	del G_mat
@@ -111,7 +118,7 @@ else: # Haplotype cluster alleles
 	del Z_mat, K_vec, C_vec
 
 # Sample causal effects
-b = np.random.normal(loc=0.0, scale=sqrt(h2/float(args.causal)), size=args.causal)
+b = np.random.normal(loc=0.0, scale=sqrt(h2/float(causal)), size=causal)
 B = np.zeros(m)
 B[p] = b
 

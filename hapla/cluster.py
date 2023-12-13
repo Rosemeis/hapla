@@ -20,7 +20,7 @@ def main(args):
 	assert args.vcf is not None, \
 		"Please provide phased genotype file (--bcf or --vcf)!"
 	assert args.min_mac > 2, "Very rare haplotype clusters not allowed!"
-	assert args.max_clusters <= 256, "Max clusters allowed exceeded!"
+	assert args.max_clusters <= 256, "Max allowed clusters exceeded!"
 	start = time()
 
 	# Control threads of external numerical libraries

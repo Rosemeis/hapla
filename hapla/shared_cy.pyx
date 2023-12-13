@@ -32,7 +32,7 @@ cpdef void hsmCondensed(unsigned char[:,::1] Z, float[::1] G, int t) \
 				g1 = <int>(i0[w] == j0[w]) + <int>(i1[w] == j1[w])
 				g2 = <int>(i1[w] == j0[w]) + <int>(i0[w] == j1[w])
 				G[k] += <float>(max(g1, g2))
-			G[k] /= <float>(2*W)
+			G[k] /= (<float>(2*W))
 
 # Estimate haplotype sharing matrix in full form
 cpdef void hsmFull(unsigned char[:,::1] Z, float[:,::1] G, int K, int t) \
@@ -59,7 +59,7 @@ cpdef void hsmFull(unsigned char[:,::1] Z, float[:,::1] G, int K, int t) \
 				g1 = <int>(i0[w] == j0[w]) + <int>(i1[w] == j1[w])
 				g2 = <int>(i1[w] == j0[w]) + <int>(i0[w] == j1[w])
 				G[i,j] += <float>(max(g1, g2))
-			G[i,j] /= <float>(2*W)
+			G[i,j] /= (<float>(2*W))
 			G[j,i] = G[i,j]
 
 # Extract aggregated haplotype cluster counts
@@ -73,10 +73,10 @@ cpdef void haplotypeAggregate(unsigned char[:,::1] Z_mat, unsigned char[:,::1] Z
 	for w in range(W):
 		for k in range(K_vec[w]):
 			for i in range(n):
-				if Z_mat[w,i] == k:
+				if Z_mat[w,i] == (k+1):
 					Z[j,i//2] += 1
 					p[j] += 1
-			p[j] /= <float>n
+			p[j] /= (<float>n)
 			j += 1
 
 # Array filtering
