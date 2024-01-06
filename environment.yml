@@ -1,6 +1,6 @@
 name: hapla
 channels:
-  - default
+  - defaults
 dependencies:
   - python
   - cython

@@ -25,21 +25,20 @@ extensions = [
 		extra_compile_args=['-fopenmp', '-O3', '-g0', '-Wno-unreachable-code'],
 		extra_link_args=['-fopenmp'],
 		include_dirs=[numpy.get_include()],
-		language="c++",
 		define_macros=[('NPY_NO_DEPRECATED_API', 'NPY_1_7_API_VERSION')]
 	)
 ]
 
 setup(
 	name="hapla",
-	version="0.3",
+	version="0.4",
 	description="Framework for haplotype clustering",
 	author="Jonas Meisner",
 	packages=["hapla"],
 	entry_points={
 		"console_scripts": ["hapla=hapla.main:main"]
 	},
-	python_requires=">=3.6",
+	python_requires=">=3.7",
 	install_requires=[
 		"cython",
 		"cyvcf2",

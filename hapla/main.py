@@ -2,6 +2,9 @@
 Main caller of hapla.
 """
 
+__author__ = "Jonas Meisner"
+
+# Libraries
 import argparse
 import sys
 
@@ -26,11 +29,11 @@ def main():
 		metavar="INT", help="Number of threads (1)")
 	parser_cluster.add_argument("-o", "--out", default="hapla.cluster",
 		metavar="OUTPUT", help="Output prefix")
-	parser_cluster.add_argument("--min_mac", type=int, default=10,
+	parser_cluster.add_argument("--min-mac", type=int, default=10,
 		metavar="INT", help="Minimum allele count for haplotype cluster (10)")
-	parser_cluster.add_argument("--max_clusters", type=int, default=100,
+	parser_cluster.add_argument("--max-clusters", type=int, default=100,
 		metavar="INT", help="Maximum number of haplotype clusters per window (100)")
-	parser_cluster.add_argument("--max_iterations", type=int, default=500,
+	parser_cluster.add_argument("--max-iterations", type=int, default=500,
 		metavar="INT", help="Maximum number of iterations (500)")
 	parser_cluster.add_argument("--medians", action="store_true",
 		help="Save haplotype cluster medians")
@@ -38,44 +41,42 @@ def main():
 		help="Compute log-likelihoods for ancestry estimation")
 	parser_cluster.add_argument("--plink", action="store_true",
 		help="Generate binary PLINK output")
-	parser_cluster.add_argument("--duplicate_fid", action="store_true",
-		help="Use sample list as FID")
+	parser_cluster.add_argument("--duplicate-fid", action="store_true",
+		help="Use sample list as FID (PLINK 1.9 compatibility)")
 	parser_cluster.add_argument("--verbose", action="store_true",
 		help="Verbose output from each iteration")
 	parser_cluster.add_argument("--filter",
 		metavar="FILE", help="DEBUG FEATURE: filter out sites")
 
-	# hapla pca
-	parser_pca = subparsers.add_parser("pca")
-	parser_pca.add_argument("-f", "--filelist", metavar="FILE",
+	# hapla struct
+	parser_struct = subparsers.add_parser("struct")
+	parser_struct.add_argument("-f", "--filelist", metavar="FILE",
 		help="Filelist with paths to haplotype cluster alleles files")
-	parser_pca.add_argument("-z", "--clusters", metavar="FILE",
+	parser_struct.add_argument("-z", "--clusters", metavar="FILE",
 		help="Path to a single haplotype cluster alleles file")
-	parser_pca.add_argument("-e", "--eig", type=int, default=10,
+	parser_struct.add_argument("-e", "--eig", type=int, default=10,
 		metavar="INT", help="Number of eigenvectors to extract (10)")
-	parser_pca.add_argument("-t", "--threads", type=int, default=1,
+	parser_struct.add_argument("-t", "--threads", type=int, default=1,
 		metavar="INT", help="Number of threads (1)")
-	parser_pca.add_argument("-o", "--out", default="hapla.pca",
+	parser_struct.add_argument("-o", "--out", default="hapla.pca",
 		metavar="OUTPUT", help="Output prefix")
-	parser_pca.add_argument("--min_freq", type=float,
+	parser_struct.add_argument("--min-freq", type=float,
 		metavar="FLOAT", help="Minimum frequency for haplotype cluster")
-	parser_pca.add_argument("--loadings", action="store_true",
+	parser_struct.add_argument("--loadings", action="store_true",
 		help="Save loadings of SVD")
-	parser_pca.add_argument("--randomized", action="store_true",
-		help="Use randomized SVD (use for very large data)")
-	parser_pca.add_argument("--grm", action="store_true",
+	parser_struct.add_argument("--randomized", action="store_true",
+		help="Use randomized SVD (for very large sample sizes)")
+	parser_struct.add_argument("--grm", action="store_true",
 		help="Estimate genome-wide relationship matrix (GRM)")
-	parser_pca.add_argument("--alpha", type=float, default=0.0,
-		metavar="FLOAT", help="Alpha selection parameter in GRM (0.0)")
-	parser_pca.add_argument("--no_centering", action="store_true",
-		help="Do not perform centering on GRM/HSM matrix")
-	parser_pca.add_argument("--hsm", action="store_true",
+	parser_struct.add_argument("--alpha", type=float, default=-1.0,
+		metavar="FLOAT", help="Alpha scaling parameter in GRM (-1.0)")
+	parser_struct.add_argument("--hsm", action="store_true",
 		help="Estimate haplotype sharing matrix (HSM)")
-	parser_pca.add_argument("--iid", metavar="FILE",
+	parser_struct.add_argument("--iid", metavar="FILE",
 		help="Sample ID list for GCTA format")
-	parser_pca.add_argument("--fid", metavar="FILE",
+	parser_struct.add_argument("--fid", metavar="FILE",
 		help="Family ID list for GCTA format")
-	parser_pca.add_argument("--batch", type=int, default=1000,
+	parser_struct.add_argument("--batch", type=int, default=1000,
 		metavar="INT", help="Number of clusters in batched SVD")
 
 	# hapla predict
@@ -92,6 +93,10 @@ def main():
 		metavar="INT", help="Number of threads (1)")
 	parser_predict.add_argument("-o", "--out", default="hapla.predict",
 		metavar="OUTPUT", help="Output prefix")
+	parser_predict.add_argument("--plink", action="store_true",
+		help="Generate binary PLINK output")
+	parser_predict.add_argument("--duplicate-fid", action="store_true",
+		help="Use sample list as FID (PLINK 1.9 compatibility)")
 	parser_predict.add_argument("--filter",
 		metavar="FILE", help="DEBUG FEATURE: filter out sites")
 
@@ -111,14 +116,14 @@ def main():
 			from hapla import cluster
 			cluster.main(args)
 	
-	# hapla pca
-	if sys.argv[1] == "pca":
+	# hapla struct
+	if sys.argv[1] == "struct":
 		if len(sys.argv) < 3:
-			parser_pca.print_help()
+			parser_struct.print_help()
 			sys.exit()
 		else:
-			from hapla import pca
-			pca.main(args)
+			from hapla import struct
+			struct.main(args)
 
 	# hapla predict
 	if sys.argv[1] == "predict":

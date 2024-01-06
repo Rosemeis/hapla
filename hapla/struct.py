@@ -1,6 +1,6 @@
 """
 hapla.
-Perform PCA using haplotype cluster alleles.
+Population structure inference using haplotype cluster alleles.
 """
 
 __author__ = "Jonas Meisner"
@@ -9,18 +9,18 @@ __author__ = "Jonas Meisner"
 import os
 from time import time
 
-##### hapla pca #####
+##### hapla struct #####
 def main(args):
-	print("---------------------------------")
-	print("hapla by Jonas Meisner (v0.3)")
-	print(f"hapla pca using {args.threads} thread(s)")
-	print("---------------------------------\n")
+	print("-----------------------------------")
+	print("hapla by Jonas Meisner (v0.4)")
+	print(f"hapla struct using {args.threads} thread(s)")
+	print("-----------------------------------\n")
 
 	# Check input
 	assert (args.filelist is not None) or (args.clusters is not None), \
 		"No input data (--filelist or --clusters)!"
 	if args.grm or args.hsm:
-		assert args.iid is not None, "Provide sample list for GCTA/PLINK format!"
+		assert args.iid is not None, "Sample list for GCTA format missing!"
 	if args.min_freq is not None:
 		assert args.min_freq > 0.0, "Empty haplotype clusters not allowed!"
 	start = time()
@@ -43,40 +43,43 @@ def main(args):
 		with open(args.filelist) as f:
 			file_c = 1
 			for chr in f:
-				Z_list.append(np.load(chr.strip("\n")))
+				if args.hsm:
+					Z_list.append(np.ascontiguousarray(np.load(chr.strip("\n")).T))
+				else:
+					Z_list.append(np.load(chr.strip("\n")))
 				print(f"\rParsed file #{file_c}", end="")
 				file_c += 1
 		Z_mat = np.concatenate(Z_list, axis=0)
 		del Z_list
 	else:
-		Z_mat = np.load(args.clusters)
-	W = Z_mat.shape[0]
-	n = Z_mat.shape[1]//2
+		if args.hsm:
+			Z_mat = np.ascontiguousarray(np.load(args.clusters).T)
+			n = Z_mat.shape[0]//2
+			W = Z_mat.shape[1]
+		else:
+			Z_mat = np.load(args.clusters)
+			W = Z_mat.shape[0]
+			n = Z_mat.shape[1]//2
 	print(f"\rLoaded haplotype cluster assignments of {n} samples in {W} windows.")
 
 	# Estimate either HSM, GRM or perform PCA
 	if args.hsm: # Haplotype sharing matrix
 		print("Estimating haplotype sharing matrix (HSM).")
 		K = n*(n+1)//2
-		Z = np.ascontiguousarray(Z_mat.T)
+		G = np.zeros((n, n), dtype=np.float32)
+		shared_cy.estimateHSM(Z_mat, G, K, args.threads)
 		del Z_mat
-		if args.no_centering:
-			G = np.zeros(K, dtype=np.float32)
-			shared_cy.hsmCondensed(Z, G, args.threads)
-		else:
-			G = np.zeros((n, n), dtype=np.float32)
-			shared_cy.hsmFull(Z, G, K, args.threads)
-			
-			# Centering
-			print("Performing centering on HSM.")
-			p = np.mean(G, axis=1)
-			G -= p.reshape(1, n)
-			p = np.mean(G, axis=1)
-			G -= p.reshape(n, 1)
+		
+		# Centering
+		print("Centering HSM.")
+		p = np.mean(G, axis=1)
+		G -= p.reshape(1, n)
+		p = np.mean(G, axis=1)
+		G -= p.reshape(n, 1)
 
-			# Gower centering
-			G *= float(n-1)/np.trace(G)
-			G = G[np.tril_indices(n)]
+		# Gower centering
+		G *= float(n-1)/np.trace(G)
+		G = G[np.tril_indices(n)]
 		
 		# Save matrix
 		G.tofile(f"{args.out}.hsm.grm.bin")
@@ -94,13 +97,14 @@ def main(args):
 			f"- {args.out}.hsm.grm.N.bin\n" + \
 			f"- {args.out}.hsm.grm.id")
 	else: # Haplotype cluster allele analyses
-		K_vec = np.max(Z_mat, axis=1) # One removed for identifiability
+		K_vec = np.max(Z_mat, axis=1) + 1
 		m = np.sum(K_vec, dtype=int)
 
 		# Populate full matrix and estimate frequencies
 		Z = np.zeros((m, n), dtype=np.uint8)
 		p = np.zeros(m, dtype=np.float32)
-		shared_cy.haplotypeAggregate(Z_mat, Z, p, K_vec)
+		s = np.zeros(m, dtype=np.float32)
+		shared_cy.haplotypeAggregate(Z_mat, Z, p, s, K_vec)
 		del Z_mat
 
 		# Mask non-rare haplotype clusters
@@ -114,6 +118,7 @@ def main(args):
 			shared_cy.filterZ(Z, p, mask)
 			Z = Z[:m,:]
 			p = p[:m]
+			s = s[:m]
 		
 		# Estimate GRM or perform truncated SVD	
 		if not args.randomized:
@@ -122,23 +127,24 @@ def main(args):
 				K = n*(n+1)//2
 				
 				# Standardize
-				s = np.power(2*p*(1-p), 0.5*args.alpha)
-				Z_std = np.zeros((m, n), dtype=np.float32)
-				shared_cy.standardizeZ(Z, Z_std, p, s, args.threads)
+				s = np.power(s, 0.5*args.alpha)
+				Z_s = np.zeros((m, n), dtype=np.float32)
+				shared_cy.standardizeZ(Z, Z_s, p, s, args.threads)
 				del Z
 
 				# Estimate GRM
-				G = np.dot(Z_std.T, Z_std)/float(m)
-				del Z_std
-				if not args.no_centering: # Centering
-					print("Performing centering on GRM.")
-					p = np.mean(G, axis=1)
-					G -= p.reshape(1, n)
-					p = np.mean(G, axis=1)
-					G -= p.reshape(n, 1)
+				G = np.dot(Z_s.T, Z_s)/float(m)
+				del Z_s
+				
+				# Centering
+				print("Centering GRM.")
+				p = np.mean(G, axis=1)
+				G -= p.reshape(1, n)
+				p = np.mean(G, axis=1)
+				G -= p.reshape(n, 1)
 
-					# Gower centering
-					G *= float(n-1)/np.trace(G)
+				# Gower centering
+				G *= float(n-1)/np.trace(G)
 
 				# Save matrix
 				G = G[np.tril_indices(n)]
@@ -159,13 +165,14 @@ def main(args):
 				print(f"Computing truncated SVD, extracting {args.eig} eigenvectors.")
 
 				# Standardize
-				s = np.sqrt(2*p*(1-p))
-				Z_std = np.zeros((m, n), dtype=np.float32)
-				shared_cy.standardizeZ(Z, Z_std, p, s, args.threads)
+				s = np.power(s, -0.5)
+				Z_s = np.zeros((m, n), dtype=np.float32)
+				shared_cy.standardizeZ(Z, Z_s, p, s, args.threads)
 				del Z
 
 				# Truncated SVD (Arnoldi)
-				U, S, Vt = svds(Z_std, k=args.eig)
+				U, S, Vt = svds(Z_s, k=args.eig)
+				del Z_s
 
 				# Save matrices
 				if args.iid is not None:
@@ -190,7 +197,7 @@ def main(args):
 			print(f"Computing randomized SVD, extracting {args.eig} eigenvectors.")
 
 			# Randomized SVD in batches
-			s = np.sqrt(2*p*(1-p))
+			s = np.power(s, -0.5)
 			U, S, V = functions.randomizedSVD(Z, p, s, args.eig, args.batch, \
 				args.threads)
 
@@ -222,4 +229,4 @@ def main(args):
 
 
 ##### Main exception #####
-assert __name__ != "__main__", "Please use the 'hapla pca' command!"
+assert __name__ != "__main__", "Please use the 'hapla struct' command!"

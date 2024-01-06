@@ -8,7 +8,7 @@ from libc.math cimport log
 ##### hapla - haplotype clustering #####
 # Create marginal medians
 cpdef void marginalMedians(signed char[:,::1] M, float[:,::1] C, int[::1] N, int K) \
-		nogil:
+		noexcept nogil:
 	cdef:
 		int m = M.shape[1]
 		int j, k
@@ -66,7 +66,7 @@ cpdef void clusterAssignment(unsigned char[:,::1] X, signed char[:,::1] M, float
 
 # Compute distances and cluster assignment in cluster removal stage
 cpdef void loopAssignment(unsigned char[:,::1] X, signed char[:,::1] M, \
-		unsigned char[:,::1] Z, int[::1] N, int K, int w, int t) nogil:
+		unsigned char[:,::1] Z, int[::1] N, int K, int w, int t) noexcept nogil:
 	cdef:
 		int n = X.shape[0]
 		int m = X.shape[1]
@@ -89,7 +89,7 @@ cpdef void loopAssignment(unsigned char[:,::1] X, signed char[:,::1] M, \
 				m_val = dist
 
 # Count size of clusters
-cpdef void countN(unsigned char[:,::1] Z, int[::1] N, int K, int w) nogil:
+cpdef void countN(unsigned char[:,::1] Z, int[::1] N, int K, int w) noexcept nogil:
 	cdef:
 		int n = Z.shape[1]
 		int i, k
@@ -99,7 +99,7 @@ cpdef void countN(unsigned char[:,::1] Z, int[::1] N, int K, int w) nogil:
 		N[Z[w,i]] += 1
 
 # Find non-zero cluster with least assignments
-cpdef int findZero(int[::1] N, int n, int thr, int K) nogil:
+cpdef int findZero(int[::1] N, int n, int thr, int K) noexcept nogil:
 	cdef:
 		int k
 		int minI = 0
@@ -115,7 +115,7 @@ cpdef int findZero(int[::1] N, int n, int thr, int K) nogil:
 
 # Fix index of medians
 cpdef void medianFix(signed char[:,::1] M, unsigned char[:,::1] Z, \
-		int[::1] N, int K, int w) nogil:
+		int[::1] N, int K, int w) noexcept nogil:
 	cdef:
 		int m = M.shape[1]
 		int n = Z.shape[1]
@@ -139,7 +139,7 @@ cpdef void medianFix(signed char[:,::1] M, unsigned char[:,::1] Z, \
 
 # Generate haplotype log-likelihoods (Bernoulli)
 cpdef void loglikeHaplo(float[:,:,::1] L, unsigned char[:,::1] X, float[:,::1] C, \
-		unsigned char[:,::1] Z, int[::1] N, int K, int w, int t) nogil:
+		unsigned char[:,::1] Z, int[::1] N, int K, int w, int t) noexcept nogil:
 	cdef:
 		int n = X.shape[0]
 		int m = X.shape[1]

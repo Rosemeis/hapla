@@ -11,10 +11,10 @@ from time import time
 
 ##### hapla cluster #####
 def main(args):
-	print("---------------------------------")
-	print("hapla by Jonas Meisner (v0.3)")
+	print("-----------------------------------")
+	print("hapla by Jonas Meisner (v0.4)")
 	print(f"hapla cluster using {args.threads} thread(s)")
-	print("---------------------------------\n")
+	print("-----------------------------------\n")
 	
 	# Check input
 	assert args.vcf is not None, \
@@ -38,12 +38,24 @@ def main(args):
 
 	### Load data into 1-bit matrix
 	print("\rLoading VCF/BCF file...", end="")
-	v_file = VCF(args.vcf, threads=min(args.threads, 4))
+	v_file = VCF(args.vcf, threads=args.threads)
+	m = 0
 	n = 2*len(v_file.samples)
 	B = ceil(n/8)
-	G = reader_cy.readVCF(v_file, n//2, B)
-	del v_file
-	m = G.shape[0]
+
+	# Check number of sites and allocate memory
+	for variant in v_file:
+		m += 1
+	G = np.zeros((m, B), dtype=np.uint8)
+
+	# Read variants into matrix
+	v_file = VCF(args.vcf, threads=args.threads)
+	j = 0
+	for variant in v_file:
+		V = variant.genotype.array()
+		reader_cy.readVar(G, V, j, n//2)
+		j += 1
+	del V
 	print(f"\rLoaded phased genotype data: {n} haplotypes and {m} SNPs.")
 
 	### Setup windows
@@ -94,20 +106,23 @@ def main(args):
 		if w < (W-1):
 			if args.windows is None: # Re-use containers
 				M.fill(-9)
-				reader_cy.convertBit(G, H, C, W_vec[w])
 			else:
 				H = np.zeros((W_vec[w+1]-W_vec[w], n), dtype=np.uint8)
 				X = np.zeros((n, W_vec[w+1]-W_vec[w]), dtype=np.uint8)
 				M = np.full((args.max_clusters, H.shape[0]), -9, dtype=np.int8)
 				C = np.zeros((args.max_clusters, H.shape[0]), dtype=np.float32)
-				reader_cy.convertBit(G, H, C, W_vec[w])
 		else: # Last window
 			H = np.zeros((m-W_vec[w], n), dtype=np.uint8)
 			X = np.zeros((n, m-W_vec[w]), dtype=np.uint8)
 			M = np.full((args.max_clusters, H.shape[0]), -9, dtype=np.int8)
 			C = np.zeros((args.max_clusters, H.shape[0]), dtype=np.float32)
-			reader_cy.convertBit(G, H, C, W_vec[w])
+		reader_cy.convertBit(G, H, C, W_vec[w])
 		mH = H.shape[0]
+
+		# Transposed in contiguous memory
+		np.copyto(X, H.T, casting="no")
+		if args.windows is not None:
+			del H
 
 		# Setup log-likelihood container
 		if args.loglike:
@@ -117,9 +132,6 @@ def main(args):
 		K = 1
 		N_vec[0] = n
 		cluster_cy.marginalMedians(M, C, N_vec, K)
-		np.copyto(X, H.T, casting="no") # Transposed in contiguous memory
-		if args.windows is not None:
-			del H
 
 		# Perform DC-DP-Medians
 		for it in np.arange(args.max_iterations):
@@ -164,8 +176,8 @@ def main(args):
 
 		# Remove small haplotype clusters and rescue as many as possible
 		if K > 2:
-			# Remove up and including to doubletons
-			N_vec[N_vec < 3] = 0
+			# Remove singletons in one go
+			N_vec[N_vec < 2] = 0
 			cluster_cy.clusterAssignment(X, M, C, Z_mat, c_vec, N_vec, K, w, \
 				args.threads)
 			cluster_cy.countN(Z_mat, N_vec, K, w)
@@ -235,13 +247,12 @@ def main(args):
 	if args.plink:
 		print("\rGenerating binary PLINK output.", end="")
 		import re
-		v_file = VCF(args.vcf, threads=min(args.threads, 4))
+		v_file = VCF(args.vcf, threads=args.threads)
 		s_list = np.array(v_file.samples).reshape(-1,1)
 		for variant in v_file: # Extract chromosome name from first entry
 			chrom = re.findall(r'\d+', variant.CHROM)[-1]
 			break
-		del v_file
-		K_tot = np.sum(K_vec-1, dtype=int) # Remove one for identifiability
+		K_tot = np.sum(K_vec, dtype=int)
 		P_mat = np.zeros((K_tot, 2), dtype=np.int32)
 		Z_vec = np.zeros(n//2, dtype=np.uint8)
 		Z_bin = np.zeros((K_tot, B), dtype=np.uint8)
@@ -254,12 +265,12 @@ def main(args):
 		del K_vec, Z_bin, Z_mat, Z_vec
 
 		# Save .bim file
-		tmp = np.array([f"{chrom}_{w}_{k}" for w,k in P_mat]).reshape(-1,1)
+		tmp = np.array([f"{chrom}_W{w}_K{k}" for w,k in P_mat]).reshape(-1,1)
 		bim = np.hstack((np.array([chrom]).repeat(K_tot).reshape(-1,1), \
 			tmp, np.zeros((K_tot, 1), dtype=np.uint8), \
 			np.arange(1, K_tot+1).reshape(-1,1), \
-			np.array(["A"]).repeat(K_tot).reshape(-1,1), \
-			np.array(["T"]).repeat(K_tot).reshape(-1,1)))
+			P_mat[:,1].reshape(-1,1), \
+			np.array(["0"]).repeat(K_tot).reshape(-1,1)))
 		np.savetxt(f"{args.out}.bim", bim, delimiter="\t", fmt="%s")
 		del bim, tmp, P_mat
 		

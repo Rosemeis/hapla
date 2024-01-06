@@ -4,7 +4,7 @@ from math import ceil
 from hapla import shared_cy
 
 ##### hapla - functions #####
-### hapla pca
+### hapla struct
 # PLINK help function for PCA and phenotype generation
 def extract_length(filename):
 	process = subprocess.Popen(['wc', '-l', filename], stdout=subprocess.PIPE)
