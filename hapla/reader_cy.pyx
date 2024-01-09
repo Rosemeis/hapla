@@ -1,7 +1,6 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, initializedcheck=False, cdivision=True
 import numpy as np
 cimport numpy as np
-from cpython.mem cimport PyMem_RawMalloc, PyMem_RawFree
 from cython.parallel import prange
 from libc.math cimport sqrt
 
@@ -104,7 +103,7 @@ cpdef void convertPlink(unsigned char[:,::1] Z_mat, unsigned char[:,::1] Z_bin, 
 		int b, i, k, l, w, bit
 		int j = 0
 	for w in range(W):
-		for k in range(1, K_vec[w]):
+		for k in range(K_vec[w]-1):
 			# Create haplotype cluster alleles
 			for i in range(0, 2*n, 2):
 				l = <int>(i/2.0)
@@ -155,31 +154,6 @@ cpdef void phenoPlink(unsigned char[:,::1] G_mat, double[:,::1] G, long[::1] c) 
 				i += 1
 				if i == n:
 					break
-
-### Filter out variants from haplotype clustering and fix window sizes
-cpdef void filterSNPs(unsigned char[:,::1] Gt, long[::1] W, unsigned char[::1] mask) \
-		noexcept nogil:
-	cdef:
-		int m = Gt.shape[0]
-		int B = Gt.shape[1]
-		int s = W.shape[0]
-		int c = 0
-		int b, j, k
-		int* count
-	count = <int*>PyMem_RawMalloc(sizeof(int)*s)
-	for k in range(s):
-		count[k] = 0
-	for j in range(m):
-		if mask[j] == 1:
-			for b in range(B):
-				Gt[c,b] = Gt[j,b]
-			c += 1
-		else:
-			for k in range(1, s):
-				if (W[k] + count[k]) >= j:
-					W[k] -= 1
-					count[k] += 1
-	PyMem_RawFree(count)
 
 ### Read VCF/BCF position information
 cpdef void readPOS(v_file, double[:,::1] P):

@@ -58,66 +58,51 @@ def main(args):
 	del V
 	print(f"\rLoaded phased genotype data: {n} haplotypes and {m} SNPs.")
 
-	### Setup windows	
-	if args.windows is None: # Fixed window length
-		W = m//args.fixed
-		W_vec = [w*args.fixed for w in range(W)]
-		W_vec = np.array(W_vec, dtype=int)
-		print(f"Clustering in {W} windows of fixed size ({args.fixed} SNPs).")
-	else: # Use provided window lengths
-		W_vec = np.genfromtxt(args.windows, dtype=int)
-		W = W_vec.shape[0] - 1
-		assert W_vec[-1] == m, "Window splits doesn't match genotype file!"
-		print(f"Clustering in {W} windows of provided lengths.")
-	
-		# Filter out causal SNPs --- DEBUG FOR SIMULATION STUDIES ONLY!
-		if args.filter is not None:
-			mask = np.loadtxt(args.filter, dtype=np.uint8)
-			m = np.sum(mask) # New number of variants
-			reader_cy.filterSNPs(G, W_vec, mask) # Fix data and window arrays
-			G = G[:m,:]
-			print(f"Removed {np.sum(mask==0)} causal SNPs.")
-			del mask
-	
 	# Haplotype cluster medians
-	M_mat = np.load(args.medians)
-	assert m == M_mat.shape[0], "Number of SNPs does not match between files!"
+	M_npz = np.load(args.medians)
+	M_cnt = 0 # Counter for validity check
+	L = M_npz["W0"].shape[1]
+	for M in M_npz:
+		M_cnt += M_npz[M].shape[1]
+	if args.non_overlapping:
+		assert m == M_cnt, "Number of SNPs does not match between files!"
+	else:
+		assert (m + (m//L - 1)*L) == M_cnt, \
+			"Number of SNPs does not match between files!"
+
+	### Setup windows	
+	W = m//L
+	if args.non_overlapping:
+		W_vec = [w*L for w in range(W)]
+		print(f"Clustering {W} non-overlapping windows of size ({L} SNPs).")
+	else:
+		W += (W - 1)
+		W_vec = [w*(L//2) for w in range(W)]
+		print(f"Clustering {W} overlapping windows of size ({L} SNPs).")
+	W_vec = np.array(W_vec, dtype=int)
 
 	# Containers
 	K_vec = np.zeros(W, dtype=np.uint8) # Number of clusters in windows
+	H = np.zeros((L, n), dtype=np.uint8) # Haplotypes
+	X = np.zeros((n, L), dtype=np.uint8) # Haplotypes transposed
 	Z_mat = np.zeros((W, n), dtype=np.uint8) # Haplotype cluster alleles
-	if args.windows is None:
-		H = np.zeros((args.fixed, n), dtype=np.uint8) # Haplotypes
-		X = np.zeros((n, args.fixed), dtype=np.uint8) # Haplotypes transposed
 
 	### Clustering
 	for w in np.arange(W):
 		# Load haplotype window
-		if w < (W-1):
-			if args.windows is None:
-				M = np.ascontiguousarray(M_mat[W_vec[w]:(W_vec[w]+args.fixed)].T)
-			else:
-				H = np.zeros((W_vec[w+1]-W_vec[w], n), dtype=np.uint8)
-				X = np.zeros((n, W_vec[w+1]-W_vec[w]), dtype=np.uint8)
-				M = np.ascontiguousarray(M_mat[W_vec[w]:W_vec[w+1]].T)
-		else: # Last window
-			H = np.zeros((m-W_vec[w], n), dtype=np.uint8)
-			X = np.zeros((n, m-W_vec[w]), dtype=np.uint8)
-			M = np.ascontiguousarray(M_mat[W_vec[w]:m].T)
-		K = np.sum(np.sum(M, axis=1, dtype=int) >= 0) # Number of clusters to evaluate
+		M = M_npz[f"W{w}"]
+		K = M.shape[0] # Number of clusters to evaluate
+		if w == (W-1): # Last window
+			H = np.zeros((M.shape[1], n), dtype=np.uint8)
+			X = np.zeros((n, M.shape[1]), dtype=np.uint8)
 		reader_cy.predictBit(G, H, W_vec[w])
 		
 		# Transposed in contiguous memory
 		np.copyto(X, H.T, casting="no")
-		if args.windows is not None:
-			del H
 		
 		# Cluster assignment
 		shared_cy.predictCluster(X, M, Z_mat, K, w, args.threads)
 		K_vec[w] = K
-
-		if args.windows is not None:
-			del M, X
 	del G
 
 	### Save output
@@ -126,20 +111,18 @@ def main(args):
 	if args.plink:
 		print("\rGenerating binary PLINK output.", end="")
 		import re
-		v_file = VCF(args.vcf, threads=min(args.threads, 4))
+		v_file = VCF(args.vcf, threads=args.threads)
 		s_list = np.array(v_file.samples).reshape(-1,1)
 		for variant in v_file: # Extract chromosome name from first entry
 			chrom = re.findall(r'\d+', variant.CHROM)[-1]
 			break
 		del v_file
 		B = ceil(n/8)
-		K_tot = np.sum(K_vec, dtype=int)
-		K_bim = np.zeros(K_tot, dtype=np.uint8)
+		K_tot = np.sum(K_vec-1, dtype=int) # Removed one for identifiability
 		P_mat = np.zeros((K_tot, 2), dtype=np.int32)
 		Z_vec = np.zeros(n//2, dtype=np.uint8)
 		Z_bin = np.zeros((K_tot, B), dtype=np.uint8)
-		reader_cy.convertPlink(Z_mat, Z_bin, P_mat, Z_vec, K_vec)
-		reader_cy.createBim(K_vec, K_bim)		
+		reader_cy.convertPlink(Z_mat, Z_bin, P_mat, Z_vec, K_vec)	
 		
 		# Save .bed file including magic numbers
 		with open(f"{args.out}.bed", "w") as bfile:

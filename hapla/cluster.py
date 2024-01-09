@@ -59,39 +59,28 @@ def main(args):
 	print(f"\rLoaded phased genotype data: {n} haplotypes and {m} SNPs.")
 
 	### Setup windows
-	if args.windows is None: # Fixed window length
-		W = m//args.fixed
-		W_vec = [w*args.fixed for w in range(W)]
-		W_vec = np.array(W_vec, dtype=int)
-		print(f"Clustering in {W} windows of fixed size ({args.fixed} SNPs).")
-	else: # Use provided window lengths
-		W_vec = np.genfromtxt(args.windows, dtype=int)
-		W = W_vec.shape[0] - 1
-		assert W_vec[-1] == m, "Window splits doesn't match genotype file!"
-		print(f"Clustering in {W} windows of provided lengths.")
-	
-	# Filter out causal SNPs --- DEBUG FOR SIMULATION STUDIES ONLY!
-	if args.filter is not None:
-		mask = np.loadtxt(args.filter, dtype=np.uint8)
-		m = np.sum(mask) # New number of variants
-		reader_cy.filterSNPs(G, W_vec, mask) # Fix data and window arrays
-		G = G[:m,:]
-		print(f"Removed {np.sum(mask==0)} causal SNPs.")
-		del mask
+	W = m//args.window
+	if args.non_overlapping:
+		W_vec = [w*args.window for w in range(W)]
+		print(f"Clustering {W} non-overlapping windows of size ({args.window} SNPs).")
+	else:
+		W += (W - 1)
+		W_vec = [w*(args.window//2) for w in range(W)]
+		print(f"Clustering {W} overlapping windows of size ({args.window} SNPs).")
+	W_vec = np.array(W_vec, dtype=int)
 
 	### Containers
 	c_vec = np.zeros(n, dtype=np.int32) # Cost vector
 	z_pre = np.zeros(n, dtype=np.uint8) # Help vector
 	K_vec = np.zeros(W, dtype=np.uint8) # Number of clusters in windows
 	N_vec = np.zeros(args.max_clusters, dtype=np.int32) # Size vector
+	H = np.zeros((args.window, n), dtype=np.uint8) # Haplotypes
+	X = np.zeros((n, args.window), dtype=np.uint8) # Haplotypes transposed
+	M = np.zeros((args.max_clusters, args.window), dtype=np.int8) # Medians
+	C = np.zeros((args.max_clusters, args.window), dtype=np.float32) # Means
 	Z_mat = np.zeros((W, n), dtype=np.uint8) # Haplotype cluster alleles
-	if args.windows is None:
-		H = np.zeros((args.fixed, n), dtype=np.uint8) # Haplotypes
-		X = np.zeros((n, args.fixed), dtype=np.uint8) # Haplotypes transposed
-		M = np.zeros((args.max_clusters, args.fixed), dtype=np.int8) # Medians
-		C = np.zeros((args.max_clusters, args.fixed), dtype=np.float32) # Means
 	if args.medians:
-		M_mat = np.zeros((m, args.max_clusters), dtype=np.int8)
+		M_dict = {}
 	if args.loglike:
 		L_mat = np.zeros((W, n, args.max_clusters), dtype=np.float32)
 
@@ -104,29 +93,20 @@ def main(args):
 
 		# Load haplotype window
 		if w < (W-1):
-			if args.windows is None: # Re-use containers
-				M.fill(-9)
-			else:
-				H = np.zeros((W_vec[w+1]-W_vec[w], n), dtype=np.uint8)
-				X = np.zeros((n, W_vec[w+1]-W_vec[w]), dtype=np.uint8)
-				M = np.full((args.max_clusters, H.shape[0]), -9, dtype=np.int8)
-				C = np.zeros((args.max_clusters, H.shape[0]), dtype=np.float32)
+			M.fill(-9)
 		else: # Last window
 			H = np.zeros((m-W_vec[w], n), dtype=np.uint8)
 			X = np.zeros((n, m-W_vec[w]), dtype=np.uint8)
 			M = np.full((args.max_clusters, H.shape[0]), -9, dtype=np.int8)
 			C = np.zeros((args.max_clusters, H.shape[0]), dtype=np.float32)
 		reader_cy.convertBit(G, H, C, W_vec[w])
-		mH = H.shape[0]
 
 		# Transposed in contiguous memory
 		np.copyto(X, H.T, casting="no")
-		if args.windows is not None:
-			del H
 
 		# Setup log-likelihood container
 		if args.loglike:
-			L_mat[w,:,:].fill(-16*mH) # Approximate -log(1e-7)*m
+			L_mat[w,:,:].fill(-16*H.shape[0]) # Approximate -log(1e-7)*m
 
 		# Compute mean and initialize first median
 		K = 1
@@ -142,7 +122,7 @@ def main(args):
 			# Check for extra cluster
 			c_max = np.max(c_vec)
 			c_arg = np.argmax(c_vec)
-			if (c_max > args.lmbda*mH) & (K < args.max_clusters):
+			if (c_max > args.lmbda*H.shape[0]) & (K < args.max_clusters):
 				M[K,:] = X[c_arg,:]
 				C[K,:] = X[c_arg,:]
 				C[Z_mat[w,c_arg],:] -= X[c_arg,:]
@@ -151,33 +131,35 @@ def main(args):
 
 			# Check for convergence
 			if it > 0:
-				if np.allclose(Z_mat[w], z_pre):
+				if np.array_equal(Z_mat[w], z_pre):
 					if K > 1:
-						# Count sizes and construct marginal medians
-						cluster_cy.countN(Z_mat, N_vec, K, w)
-						cluster_cy.marginalMedians(M, C, N_vec, K)
 						if args.verbose:
-							print("Converged! No label switching.")
+							print(f"Converged! K={K}.")
 						break
 					else: # Make sure two haplotype clusters are generated
+						print("No diversity (K=1)! Adding extra cluster.")
 						M[K,:] = X[c_arg,:]
 						C[K,:] = X[c_arg,:]
 						C[Z_mat[w,c_arg],:] -= X[c_arg,:]
 						Z_mat[w,c_arg] = K
 						K += 1
 			if args.verbose:
-				cost = np.sum(c_vec) + args.lmbda*mH*K
-				print(f"Epoch {it}: Cost {cost}")
+				cost = np.sum(c_vec) + args.lmbda*H.shape[0]*K
+				print(f"Epoch {it}: Cost {cost:.1f}")
 			
 			# Count sizes and construct marginal medians
 			cluster_cy.countN(Z_mat, N_vec, K, w)
 			cluster_cy.marginalMedians(M, C, N_vec, K)
 			np.copyto(z_pre, Z_mat[w], casting="no")
 
+		# Ensure correct medians
+		cluster_cy.countN(Z_mat, N_vec, K, w)
+		cluster_cy.marginalMedians(M, C, N_vec, K)
+
 		# Remove small haplotype clusters and rescue as many as possible
 		if K > 2:
 			# Remove singletons in one go
-			N_vec[N_vec < 2] = 0
+			N_vec[N_vec == 1] = 0
 			cluster_cy.clusterAssignment(X, M, C, Z_mat, c_vec, N_vec, K, w, \
 				args.threads)
 			cluster_cy.countN(Z_mat, N_vec, K, w)
@@ -187,46 +169,37 @@ def main(args):
 			if args.verbose:
 				N_sur = np.sum(N_vec >= args.min_mac)
 				print(f"{N_sur}/{K_tmp} clusters reaching threshold.")
-			while True:
+			while K_tmp > 2:
+				cluster_cy.marginalMedians(M, C, N_vec, K)
+
+				# Find smallest cluster
 				N_min = cluster_cy.findZero(N_vec, n, args.min_mac, K)
 				if N_min >= args.min_mac:
 					break
-				cluster_cy.marginalMedians(M, C, N_vec, K)
+				K_tmp -= 1
+
+				# Re-assign haplotypes
 				cluster_cy.clusterAssignment(X, M, C, Z_mat, c_vec, N_vec, K, w, \
 					args.threads)
 				cluster_cy.countN(Z_mat, N_vec, K, w)
-				K_tmp -= 1
-				if K_tmp == 2: # Safety break
-					break
 				if args.verbose:
 					N_sur = np.sum(N_vec >= args.min_mac)
 					print(f"{N_sur}/{K_tmp} clusters reaching threshold. " + \
 						f"{N_min}/{args.min_mac}.")
-		else:
-			cluster_cy.loopAssignment(X, M, Z_mat, N_vec, K, w, args.threads)
-			cluster_cy.countN(Z_mat, N_vec, K, w)
 
 		# Fix cluster median and cluster assignment order
 		cluster_cy.medianFix(M, Z_mat, N_vec, K, w)
-		K = np.sum(N_vec > 0)
+		K = np.sum(N_vec > 0, dtype=int)
 		K_vec[w] = K
 
 		# Generate optional saves (medians and log-likehoods)
 		if args.medians:
-			if w < (W-1):
-				if args.windows is None:
-					M_mat[W_vec[w]:(W_vec[w]+args.fixed)] = np.ascontiguousarray(M.T)
-				else:
-					M_mat[W_vec[w]:W_vec[w+1]] = np.ascontiguousarray(M.T)
-			else: # Last window
-				M_mat[W_vec[w]:m] = np.ascontiguousarray(M.T)
+			M_dict[f"W{w}"] = M[:K].copy()
 		if args.loglike:
 			cluster_cy.loglikeHaplo(L_mat, X, C, Z_mat, N_vec, K, w, args.threads)
 			
 		# Clean up
 		N_vec.fill(0)
-		if args.windows is not None:
-			del M, C, X
 	del G
 	if not args.verbose:
 		print("")
@@ -237,9 +210,9 @@ def main(args):
 	print(f"Saved haplotype cluster assignments as {args.out}.z.npy")
 	print(f"Saved the number of clusters per window as {args.out}.num_clusters")
 	if args.medians:
-		np.save(f"{args.out}.medians", M_mat)
-		print(f"Saved haplotype cluster medians as {args.out}.medians.npy")
-		del M_mat
+		np.savez(f"{args.out}.medians", **M_dict)
+		print(f"Saved haplotype cluster medians as {args.out}.medians.npz")
+		del M_dict
 	if args.loglike:
 		np.save(f"{args.out}.loglike", L_mat)
 		print(f"Saved haplotype cluster log-likelihoods as {args.out}.loglike.npy")
@@ -252,7 +225,7 @@ def main(args):
 		for variant in v_file: # Extract chromosome name from first entry
 			chrom = re.findall(r'\d+', variant.CHROM)[-1]
 			break
-		K_tot = np.sum(K_vec, dtype=int)
+		K_tot = np.sum(K_vec-1, dtype=int) # Removed one for identifiability
 		P_mat = np.zeros((K_tot, 2), dtype=np.int32)
 		Z_vec = np.zeros(n//2, dtype=np.uint8)
 		Z_bin = np.zeros((K_tot, B), dtype=np.uint8)

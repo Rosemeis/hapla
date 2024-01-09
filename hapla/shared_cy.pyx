@@ -6,23 +6,6 @@ from libc.math cimport sqrt
 
 ##### hapla - analyses on haplotype cluster assignments #####
 ### hapla struct
-# Estimate haplotype sharing matrix
-cpdef void estimateHSM(unsigned char[:,::1] Z, float[:,::1] G, int K, int t) \
-		noexcept nogil:
-	cdef:
-		int n = Z.shape[0]//2
-		int W = Z.shape[1]
-		int i, j, k, w
-	for k in prange(K, num_threads=t):
-		i = <int>((sqrt(1 + 8*k) - 1)//2) # Row index in condensed form
-		j = k - <int>(i*(i+3)//2) + i # Column index in condensed form
-		for w in range(W):
-			G[i,j] += <float>(Z[2*i+0,w] != Z[2*j+0,w]) + \
-				<float>(Z[2*i+0,w] != Z[2*j+1,w]) + \
-				<float>(Z[2*i+1,w] != Z[2*j+0,w]) + \
-				<float>(Z[2*i+1,w] != Z[2*j+1,w])
-		G[j,i] = G[i,j]
-
 # Extract aggregated haplotype cluster counts
 cpdef void haplotypeAggregate(unsigned char[:,::1] Z_mat, unsigned char[:,::1] Z, \
 		float[::1] p, float[::1] s, unsigned char[::1] K_vec) noexcept nogil:
