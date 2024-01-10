@@ -118,7 +118,7 @@ def main(args):
 			break
 		del v_file
 		B = ceil(n/8)
-		K_tot = np.sum(K_vec-1, dtype=int) # Removed one for identifiability
+		K_tot = np.sum(K_vec, dtype=int)
 		P_mat = np.zeros((K_tot, 2), dtype=np.int32)
 		Z_vec = np.zeros(n//2, dtype=np.uint8)
 		Z_bin = np.zeros((K_tot, B), dtype=np.uint8)

@@ -61,7 +61,7 @@ def main(args):
 	print(f"\rLoaded haplotype cluster assignments of {n} samples in {W} windows.")
 
 	# Count haplotype cluster alleles
-	K_vec = np.max(Z_mat, axis=1) # Removed one for identifiability
+	K_vec = np.max(Z_mat, axis=1) + 1
 	m = np.sum(K_vec, dtype=int)
 
 	# Populate full matrix and estimate haplotype cluster allele frequencies

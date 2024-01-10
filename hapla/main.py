@@ -27,11 +27,11 @@ def main():
 		metavar="INT", help="Number of threads (1)")
 	parser_cluster.add_argument("-o", "--out", default="hapla.cluster",
 		metavar="OUTPUT", help="Output prefix")
-	parser_cluster.add_argument("--min_mac", type=int, default=10,
+	parser_cluster.add_argument("--min-mac", type=int, default=10,
 		metavar="INT", help="Minimum allele count for haplotype cluster (10)")
-	parser_cluster.add_argument("--max_clusters", type=int, default=100,
+	parser_cluster.add_argument("--max-clusters", type=int, default=100,
 		metavar="INT", help="Maximum number of haplotype clusters per window (100)")
-	parser_cluster.add_argument("--max_iterations", type=int, default=500,
+	parser_cluster.add_argument("--max-iterations", type=int, default=500,
 		metavar="INT", help="Maximum number of iterations (500)")
 	parser_cluster.add_argument("--medians", action="store_true",
 		help="Save haplotype cluster medians")
@@ -39,9 +39,9 @@ def main():
 		help="Compute log-likelihoods for ancestry estimation")
 	parser_cluster.add_argument("--plink", action="store_true",
 		help="Generate binary PLINK output")
-	parser_cluster.add_argument("--duplicate_fid", action="store_true",
+	parser_cluster.add_argument("--duplicate-fid", action="store_true",
 		help="Use sample list as family ID (PLINK 1.9 compatibility)")
-	parser_cluster.add_argument("--non_overlapping", action="store_true",
+	parser_cluster.add_argument("--non-overlapping", action="store_true",
 		help="Only cluster in non-overlapping windows")
 	parser_cluster.add_argument("--verbose", action="store_true",
 		help="Verbose output from each iteration")
@@ -60,8 +60,8 @@ def main():
 		metavar="FLOAT", help="Minimum frequency for haplotype cluster")
 	parser_struct.add_argument("--grm", action="store_true",
 		help="Estimate genome-wide relationship matrix (GRM)")
-	parser_struct.add_argument("--alpha", type=float, default=-1.0,
-		metavar="FLOAT", help="Alpha scaling parameter in GRM (-1.0)")
+	parser_struct.add_argument("--alpha", type=float, default=0.0,
+		metavar="FLOAT", help="Alpha scaling parameter in GRM (0.0)")
 	parser_struct.add_argument("--iid", metavar="FILE",
 		help="Sample ID list for GCTA format")
 	parser_struct.add_argument("--fid", metavar="FILE",
@@ -87,9 +87,9 @@ def main():
 		metavar="OUTPUT", help="Output prefix")
 	parser_predict.add_argument("--plink", action="store_true",
 		help="Generate binary PLINK output")
-	parser_predict.add_argument("--duplicate_fid", action="store_true",
+	parser_predict.add_argument("--duplicate-fid", action="store_true",
 		help="Use sample list as family ID (PLINK 1.9 compatibility)")
-	parser_predict.add_argument("--non_overlapping", action="store_true",
+	parser_predict.add_argument("--non-overlapping", action="store_true",
 		help="Only cluster in non-overlapping windows")
 
 	# Parse arguments
