@@ -73,7 +73,6 @@ def main(args):
 	else:
 		W_vec = [w*args.win for w in range(W)]
 		print(f"Clustering {W} non-overlapping windows of {args.win} SNPs.")
-
 	W_vec = np.array(W_vec, dtype=int)
 
 	### Containers
@@ -89,7 +88,8 @@ def main(args):
 	if args.medians:
 		M_dict = {}
 	if args.loglike:
-		L_mat = np.zeros((W, n, args.max_clusters), dtype=np.float32)
+		L_dict = {}
+		L = np.zeros((n, args.max_clusters), dtype=np.float32) # Log-likelihoods
 
 	##### Clustering using DC-DP-Medians #####
 	for w in np.arange(W):
@@ -110,10 +110,6 @@ def main(args):
 
 		# Transposed in contiguous memory
 		np.copyto(X, H.T, casting="no")
-
-		# Setup log-likelihood container
-		if args.loglike:
-			L_mat[w,:,:].fill(-16*H.shape[0]) # Approximate -log(1e-7)*m
 
 		# Compute mean and initialize first median
 		K = 1
@@ -203,7 +199,8 @@ def main(args):
 		if args.medians:
 			M_dict[f"W{w}"] = M[:K].copy()
 		if args.loglike:
-			cluster_cy.loglikeHaplo(L_mat, X, C, Z_mat, N_vec, K, w, args.threads)
+			cluster_cy.loglikeHaplo(L, X, C, Z_mat, N_vec, K, w, args.threads)
+			L_dict[f"W{w}"] = L[:,:K].copy()
 			
 		# Clean up
 		N_vec.fill(0)
@@ -221,9 +218,9 @@ def main(args):
 		print(f"Saved haplotype cluster medians as {args.out}.medians.npz")
 		del M_dict
 	if args.loglike:
-		np.save(f"{args.out}.loglike", L_mat)
-		print(f"Saved haplotype cluster log-likelihoods as {args.out}.loglike.npy")
-		del L_mat
+		np.savez(f"{args.out}.loglike", **L_dict)
+		print(f"Saved haplotype cluster log-likelihoods as {args.out}.loglike.npz")
+		del L_dict
 	if args.plink:
 		print("\rGenerating binary PLINK output.", end="")
 		import re
