@@ -26,7 +26,7 @@ cpdef void clusterAssignment(unsigned char[:,::1] X, signed char[:,::1] M, \
 	cdef:
 		int n = X.shape[0]
 		int m = X.shape[1]
-		int i, j, k, l, k2, j2, dist, m_val
+		int i, j, k, k2, j2, dist, m_val
 		float* tmp
 	with nogil, parallel(num_threads=t):
 		tmp = <float*>calloc(K*m, sizeof(float))
@@ -112,7 +112,7 @@ cpdef void medianFix(signed char[:,::1] M, unsigned char[:,::1] Z, \
 				M[k,j] = -9
 
 # Generate haplotype log-likelihoods (Bernoulli)
-cpdef void loglikeHaplo(float[:,:,::1] L, unsigned char[:,::1] X, float[:,::1] C, \
+cpdef void loglikeHaplo(float[:,::1] L, unsigned char[:,::1] X, float[:,::1] C, \
 		unsigned char[:,::1] Z, int[::1] N, int K, int w, int t) noexcept nogil:
 	cdef:
 		int n = X.shape[0]
@@ -124,7 +124,7 @@ cpdef void loglikeHaplo(float[:,:,::1] L, unsigned char[:,::1] X, float[:,::1] C
 			C[Z[w,i],j] += (<float>X[i,j])/(<float>N[Z[w,i]])
 	for i in prange(n, num_threads=t):
 		for k in range(K):
-			L[w, i, k] = 0.0
+			L[i,k] = 0.0
 			for j in range(m):
 				p = min(max(C[k,j], 1e-6), 1-(1e-6))
-				L[w, i, k] += X[i,j]*log(p) + (1.0 - X[i,j])*log(1.0 - p)
+				L[i,k] += X[i,j]*log(p) + (1.0 - X[i,j])*log(1.0 - p)
