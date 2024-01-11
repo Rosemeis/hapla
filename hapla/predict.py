@@ -12,7 +12,7 @@ from time import time
 ##### hapla predict #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.4)")
+	print("hapla by Jonas Meisner (v0.5)")
 	print(f"hapla predict using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 	
@@ -60,25 +60,26 @@ def main(args):
 
 	# Haplotype cluster medians
 	M_npz = np.load(args.medians)
-	M_cnt = 0 # Counter for validity check
+	M_cnt = 0 # Counter for SNP check
 	L = M_npz["W0"].shape[1]
+	W = m//L
 	for M in M_npz:
 		M_cnt += M_npz[M].shape[1]
-	if args.non_overlapping:
-		assert m == M_cnt, "Number of SNPs does not match between files!"
-	else:
-		assert (m + (m//L - 1)*L) == M_cnt, \
-			"Number of SNPs does not match between files!"
-
-	### Setup windows	
-	W = m//L
-	if args.non_overlapping:
+	assert M_cnt < m, "SNP set does not match between files!"
+	if M_cnt == m:
 		W_vec = [w*L for w in range(W)]
-		print(f"Clustering {W} non-overlapping windows of size ({L} SNPs).")
+		print(f"Clustering {W} non-overlapping windows of {L} SNPs.")
 	else:
-		W += (W - 1)
-		W_vec = [w*(L//2) for w in range(W)]
-		print(f"Clustering {W} overlapping windows of size ({L} SNPs).")
+		o_cnt = 1
+		for o in range(1, L):
+			if m == (m + (m//L - 1)*L*o):
+				print(f"Number of overlapping windows per window: {o}")
+				W += (W - 1)*o
+				W_vec = [w*(L//(o + 1)) for w in range(W)]
+				print(f"Clustering {W} overlapping windows of {L} SNPs.")
+				break
+			o_cnt += 1
+	assert o_cnt != L, "SNP set does not match between files!"
 	W_vec = np.array(W_vec, dtype=int)
 
 	# Containers

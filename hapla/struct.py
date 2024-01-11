@@ -12,7 +12,7 @@ from time import time
 ##### hapla struct #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.4)")
+	print("hapla by Jonas Meisner (v0.5)")
 	print(f"hapla struct using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 
@@ -21,7 +21,7 @@ def main(args):
 		"No input data (--filelist or --clusters)!"
 	assert (args.grm or (args.pca is not None)), "No analysis selected (--grm, --pca)!"
 	if args.grm:
-		assert args.iid is not None, "Provide sample list for GCTA format!"
+		assert args.iid is not None, "Provide sample list for GCTA format (--iid)!"
 	if args.pca is not None:
 		assert args.pca > 0, "Please select a valid number of eigenvectors!"
 	if args.min_freq is not None:

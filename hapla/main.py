@@ -19,7 +19,7 @@ def main():
 	parser_cluster = subparsers.add_parser("cluster")
 	parser_cluster.add_argument("-g", "--vcf", "--bcf", metavar="FILE",
 		help="Input phased genotype file in VCF/BCF format")
-	parser_cluster.add_argument("-w", "--window", type=int, default=8,
+	parser_cluster.add_argument("-w", "--win", type=int, default=8,
 		metavar="INT", help="Window size (8)")
 	parser_cluster.add_argument("-l", "--lmbda", type=float, default=0.1,
 		metavar="FLOAT", help="Set lambda hyperparameter (0.1)")
@@ -41,8 +41,10 @@ def main():
 		help="Generate binary PLINK output")
 	parser_cluster.add_argument("--duplicate-fid", action="store_true",
 		help="Use sample list as family ID (PLINK 1.9 compatibility)")
-	parser_cluster.add_argument("--non-overlapping", action="store_true",
-		help="Only cluster in non-overlapping windows")
+	parser_cluster.add_argument("--overlapping", action="store_true",
+		help="Haplotype clustering in overlapping windows")
+	parser_cluster.add_argument("--num-overlapping", type=int,
+		metavar="INT", help="Number of overlapping windows")
 	parser_cluster.add_argument("--verbose", action="store_true",
 		help="Verbose output from each iteration")
 
@@ -56,7 +58,7 @@ def main():
 		metavar="INT", help="Number of threads (1)")
 	parser_struct.add_argument("-o", "--out", default="hapla.pca",
 		metavar="OUTPUT", help="Output prefix")
-	parser_struct.add_argument("--min_freq", type=float,
+	parser_struct.add_argument("--min-freq", type=float,
 		metavar="FLOAT", help="Minimum frequency for haplotype cluster")
 	parser_struct.add_argument("--grm", action="store_true",
 		help="Estimate genome-wide relationship matrix (GRM)")
@@ -89,8 +91,6 @@ def main():
 		help="Generate binary PLINK output")
 	parser_predict.add_argument("--duplicate-fid", action="store_true",
 		help="Use sample list as family ID (PLINK 1.9 compatibility)")
-	parser_predict.add_argument("--non-overlapping", action="store_true",
-		help="Only cluster in non-overlapping windows")
 
 	# Parse arguments
 	args = parser.parse_args()

@@ -12,15 +12,21 @@ from time import time
 ##### hapla cluster #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.4)")
+	print("hapla by Jonas Meisner (v0.5)")
 	print(f"hapla cluster using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 	
 	# Check input
 	assert args.vcf is not None, \
 		"Please provide phased genotype file (--bcf or --vcf)!"
+	assert args.win > 0, "Please provide a valid window size!"
 	assert args.min_mac > 2, "Very rare haplotype clusters not allowed!"
 	assert args.max_clusters <= 256, "Max allowed clusters exceeded!"
+	if args.overlapping:
+		if args.num_overlapping is None:
+			args.num_overlapping = args.win - 1
+		assert (args.win % (args.num_overlapping + 1) == 0), \
+			"Invalid number of overlapping windows chosen!"
 	start = time()
 
 	# Control threads of external numerical libraries
@@ -59,14 +65,15 @@ def main(args):
 	print(f"\rLoaded phased genotype data: {n} haplotypes and {m} SNPs.")
 
 	### Setup windows
-	W = m//args.window
-	if args.non_overlapping:
-		W_vec = [w*args.window for w in range(W)]
-		print(f"Clustering {W} non-overlapping windows of size ({args.window} SNPs).")
+	W = m//args.win
+	if args.overlapping:
+		W += (W - 1)*args.num_overlapping
+		W_vec = [w*(args.win//(args.num_overlapping + 1)) for w in range(W)]
+		print(f"Clustering {W} overlapping windows of {args.win} SNPs.")
 	else:
-		W += (W - 1)
-		W_vec = [w*(args.window//2) for w in range(W)]
-		print(f"Clustering {W} overlapping windows of size ({args.window} SNPs).")
+		W_vec = [w*args.win for w in range(W)]
+		print(f"Clustering {W} non-overlapping windows of {args.win} SNPs.")
+
 	W_vec = np.array(W_vec, dtype=int)
 
 	### Containers
@@ -74,10 +81,10 @@ def main(args):
 	z_pre = np.zeros(n, dtype=np.uint8) # Help vector
 	K_vec = np.zeros(W, dtype=np.uint8) # Number of clusters in windows
 	N_vec = np.zeros(args.max_clusters, dtype=np.int32) # Size vector
-	H = np.zeros((args.window, n), dtype=np.uint8) # Haplotypes
-	X = np.zeros((n, args.window), dtype=np.uint8) # Haplotypes transposed
-	M = np.zeros((args.max_clusters, args.window), dtype=np.int8) # Medians
-	C = np.zeros((args.max_clusters, args.window), dtype=np.float32) # Means
+	H = np.zeros((args.win, n), dtype=np.uint8) # Haplotypes
+	X = np.zeros((n, args.win), dtype=np.uint8) # Haplotypes transposed
+	M = np.zeros((args.max_clusters, args.win), dtype=np.int8) # Medians
+	C = np.zeros((args.max_clusters, args.win), dtype=np.float32) # Means
 	Z_mat = np.zeros((W, n), dtype=np.uint8) # Haplotype cluster alleles
 	if args.medians:
 		M_dict = {}
