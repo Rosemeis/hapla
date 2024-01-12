@@ -41,9 +41,9 @@ def main():
 		help="Generate binary PLINK output")
 	parser_cluster.add_argument("--duplicate-fid", action="store_true",
 		help="Use sample list as family ID (PLINK 1.9 compatibility)")
-	parser_cluster.add_argument("--overlapping", action="store_true",
+	parser_cluster.add_argument("--overlap", action="store_true",
 		help="Haplotype clustering in overlapping windows")
-	parser_cluster.add_argument("--num-overlapping", type=int,
+	parser_cluster.add_argument("--num-overlap", type=int,
 		metavar="INT", help="Number of overlapping windows")
 	parser_cluster.add_argument("--verbose", action="store_true",
 		help="Verbose output from each iteration")

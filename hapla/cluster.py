@@ -22,10 +22,10 @@ def main(args):
 	assert args.win > 0, "Please provide a valid window size!"
 	assert args.min_mac > 2, "Very rare haplotype clusters not allowed!"
 	assert args.max_clusters <= 256, "Max allowed clusters exceeded!"
-	if args.overlapping:
-		if args.num_overlapping is None:
-			args.num_overlapping = args.win - 1
-		assert (args.win % (args.num_overlapping + 1) == 0), \
+	if args.overlap:
+		if args.num_overlap is None:
+			args.num_overlap = args.win - 1
+		assert (args.win % (args.num_overlap + 1) == 0), \
 			"Invalid number of overlapping windows chosen!"
 	start = time()
 
@@ -66,9 +66,9 @@ def main(args):
 
 	### Setup windows
 	W = m//args.win
-	if args.overlapping:
-		W += (W - 1)*args.num_overlapping
-		W_vec = [w*(args.win//(args.num_overlapping + 1)) for w in range(W)]
+	if args.overlap:
+		W += (W - 1)*args.num_overlap
+		W_vec = [w*(args.win//(args.num_overlap + 1)) for w in range(W)]
 		print(f"Clustering {W} overlapping windows of {args.win} SNPs.")
 	else:
 		W_vec = [w*args.win for w in range(W)]

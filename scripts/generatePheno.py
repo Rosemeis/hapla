@@ -1,5 +1,5 @@
 """
-Generate continuous phenotypes from simulated data.
+Generate phenotypes from genotype data in binary PLINK format.
 
 Usage:
 python3 generatePheno.py --bfile example --causal 1000 --phenos 10 --out output example
@@ -21,6 +21,10 @@ parser.add_argument("-c", "--causal", type=int, default=1000,
 	help="Number of causal SNPs (1000)")
 parser.add_argument("-p", "--phenos", type=int, default=1,
 	help="Number of phenotypes to simulate (1)")
+parser.add_argument("--binary", action="store_true",
+	help="Binary phenotypes from liability threshold model")
+parser.add_argument("--prevalence", type=float, default=0.1,
+	help="Prevalence of trait (0.1)")
 parser.add_argument("-o", "--out", default="pheno.generate",
 	help="Prefix for output files")
 args = parser.parse_args()
@@ -29,6 +33,7 @@ args = parser.parse_args()
 import numpy as np
 from cyvcf2 import VCF
 from math import ceil, sqrt
+from scipy.stats import norm
 from hapla import functions
 from hapla import reader_cy
 
@@ -81,6 +86,11 @@ for p in range(args.phenos):
 	# Generate phenotype
 	Y[:,p] = X + E
 	Z[:,p] = X
+
+	# Use liability threshold model
+	if args.binary:
+		Y[:,p] /= np.std(Y[:,p], ddof=0)
+		Y[:,p] = Y[:,p] > norm.ppf(1-0.1)
 
 # Save phenotypes and breeding values
 Y = np.hstack((fam, np.round(Y, 7)))
