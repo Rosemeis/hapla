@@ -58,11 +58,16 @@ def main(args):
 		Z_mat = np.load(args.clusters)
 	W = Z_mat.shape[0]
 	n = Z_mat.shape[1]//2
-	print(f"\rLoaded haplotype cluster assignments of {n} samples in {W} windows.")
 
 	# Count haplotype cluster alleles
 	K_vec = np.max(Z_mat, axis=1) + 1
 	m = np.sum(K_vec, dtype=int)
+
+	# Print information
+	print(f"\rLoaded haplotype cluster assignments:\n"
+			f"- {n} samples\n"
+			f"- {W} windows\n"
+			f"- {m} cluster alleles\n")
 
 	# Populate full matrix and estimate haplotype cluster allele frequencies
 	Z = np.zeros((m, n), dtype=np.uint8)
