@@ -127,11 +127,11 @@ def main(args):
 	# Infer population structure
 	if args.pca is not None:
 		if args.randomized:
-			print(f"Computing randomized SVD, extracting {args.eig} eigenvectors.")
+			print(f"Computing randomized SVD, extracting {args.pca} eigenvectors.")
 
 			# Randomized SVD in batches
 			s = np.power(s, -0.5)
-			U, S, V = functions.randomizedSVD(Z, p, s, args.eig, args.batch, \
+			U, S, V = functions.randomizedSVD(Z, p, s, args.pca, args.batch, \
 				args.threads)
 
 			# Save matrices
@@ -153,7 +153,7 @@ def main(args):
 				np.savetxt(f"{args.out}.loadings", U, fmt="%.7f")
 				print(f"Saved loadings as {args.out}.loadings")
 		else:
-			print(f"Computing truncated SVD, extracting {args.eig} eigenvectors.")
+			print(f"Computing truncated SVD, extracting {args.pca} eigenvectors.")
 
 			# Standardize
 			s = np.power(s, -0.5)
@@ -161,7 +161,7 @@ def main(args):
 			shared_cy.standardizeZ(Z, Z_s, p, s, args.threads)
 
 			# Truncated SVD (Arnoldi)
-			U, S, Vt = svds(Z_s, k=args.eig)
+			U, S, Vt = svds(Z_s, k=args.pca)
 			del Z_s
 
 			# Save matrices
