@@ -25,6 +25,8 @@ parser.add_argument("--binary", action="store_true",
 	help="Binary phenotypes from liability threshold model")
 parser.add_argument("--prevalence", type=float, default=0.1,
 	help="Prevalence of trait (0.01)")
+parser.add_argument("--alpha", type=float,
+	help="Weighted frequency-based variance")
 parser.add_argument("-o", "--out", default="pheno.generate",
 	help="Prefix for output files")
 args = parser.parse_args()
@@ -68,8 +70,13 @@ for p in range(args.phenos):
 	reader_cy.phenoPlink(G_mat, G, c)
 
 	# Sample causal effects
-	b = np.random.normal(loc=0.0, scale=sqrt(args.h2/float(G.shape[0])), \
-		size=G.shape[0])
+	if args.alpha is None:
+		b = np.random.normal(loc=0.0, scale=sqrt(args.h2/float(G.shape[0])), \
+			size=G.shape[0])
+	else: # Frequency-based variance
+		f = np.mean(G, axis=1)/2.0
+		b = np.random.normal(loc=0.0, scale=np.power(f*(1-f), args.alpha*0.5), \
+			size=G.shape[0])
 
 	# Genetic contribution
 	X = np.dot(G.T, b)
