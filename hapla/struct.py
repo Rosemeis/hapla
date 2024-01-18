@@ -23,7 +23,8 @@ def main(args):
 	if args.grm:
 		assert args.iid is not None, "Provide sample list for GCTA format (--iid)!"
 	if args.van_raden:
-		assert np.isclose(args.alpha, 0.0), "Van Raden scaling needs alpha = 0.0!"
+		from math import isclose
+		assert isclose(args.alpha, 0.0), "Van Raden scaling needs alpha = 0.0!"
 	if args.pca is not None:
 		assert args.pca > 0, "Please select a valid number of eigenvectors!"
 	if args.min_freq is not None:
