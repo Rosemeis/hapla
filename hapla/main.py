@@ -64,8 +64,6 @@ def main():
 		help="Estimate genome-wide relationship matrix (GRM)")
 	parser_struct.add_argument("--alpha", type=float, default=0.0,
 		metavar="FLOAT", help="Alpha scaling parameter in GRM (0.0)")
-	parser_struct.add_argument("--van-raden", action="store_true",
-		help="Compute GRM with Van Raden scaling")
 	parser_struct.add_argument("--no-centering", action="store_true",
 		help="Do not perform Gower and data centering on GRM")
 	parser_struct.add_argument("--iid", metavar="FILE",
