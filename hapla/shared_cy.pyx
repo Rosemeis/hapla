@@ -15,7 +15,7 @@ cpdef void haplotypeAggregate(unsigned char[:,::1] Z_mat, unsigned char[:,::1] Z
 		int j = 0
 		int i, k, w
 	for w in range(W):
-		for k in range(K_vec[w]-1):
+		for k in range(K_vec[w]):
 			for i in range(n):
 				if Z_mat[w,i] == k:
 					Z[j,i//2] += 1

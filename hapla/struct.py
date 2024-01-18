@@ -60,7 +60,7 @@ def main(args):
 	n = Z_mat.shape[1]//2
 
 	# Count haplotype cluster alleles
-	K_vec = np.max(Z_mat, axis=1) # Remove one for identifiability
+	K_vec = np.max(Z_mat, axis=1) + 1
 	m = np.sum(K_vec, dtype=int)
 
 	# Print information
