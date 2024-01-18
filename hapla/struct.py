@@ -22,6 +22,8 @@ def main(args):
 	assert (args.grm or (args.pca is not None)), "No analysis selected (--grm, --pca)!"
 	if args.grm:
 		assert args.iid is not None, "Provide sample list for GCTA format (--iid)!"
+	if args.van_raden:
+		assert np.isclose(args.alpha, 0.0), "Van Raden scaling needs alpha = 0.0!"
 	if args.pca is not None:
 		assert args.pca > 0, "Please select a valid number of eigenvectors!"
 	if args.min_freq is not None:
@@ -100,18 +102,23 @@ def main(args):
 		shared_cy.standardizeZ(Z, Z_s, p, s, args.threads)
 
 		# Estimate GRM
-		G = np.dot(Z_s.T, Z_s)/float(m)
+		G = np.dot(Z_s.T, Z_s)
+		if args.van_raden:
+			G /= 2*np.sum(p*(1 -p))
+		else:
+			G /= float(m)
 		del Z_s
 		
 		# Centering
-		print("Centering GRM.")
-		p = np.mean(G, axis=1)
-		G -= p.reshape(1, n)
-		p = np.mean(G, axis=1)
-		G -= p.reshape(n, 1)
+		if not args.no_centering:
+			print("Centering GRM.")
+			p = np.mean(G, axis=1)
+			G -= p.reshape(1, n)
+			p = np.mean(G, axis=1)
+			G -= p.reshape(n, 1)
 
-		# Gower centering
-		G *= float(n-1)/np.trace(G)
+			# Gower centering
+			G *= float(n-1)/np.trace(G)
 
 		# Save matrix
 		G = G[np.tril_indices(n)]
