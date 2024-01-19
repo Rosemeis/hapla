@@ -62,7 +62,7 @@ print(f"\rLoaded genotype data: {n} samples and {m} SNPs.")
 ### Simulate phenotypes
 Y = np.zeros((n, args.phenos), dtype=float) # Phenotype matrix
 Z = np.zeros((n, args.phenos), dtype=float) # Breeding values matrix
-if args.multi_pops is None:
+if args.multi_pops is not None:
 	X = np.zeros(n)
 	b_list = [0] + args.multi_pops + [n]
 
