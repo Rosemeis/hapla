@@ -62,6 +62,9 @@ print(f"\rLoaded genotype data: {n} samples and {m} SNPs.")
 ### Simulate phenotypes
 Y = np.zeros((n, args.phenos), dtype=float) # Phenotype matrix
 Z = np.zeros((n, args.phenos), dtype=float) # Breeding values matrix
+if args.multi_pops is None:
+	X = np.zeros(n)
+	b_list = [0] + args.multi_pops + [n]
 
 # Extract causals
 G = np.zeros((args.causal, n), dtype=float) # Genotypes or haplotype clusters
@@ -71,7 +74,7 @@ for p in range(args.phenos):
 	c = np.sort(np.random.permutation(m)[:G.shape[0]]).astype(int) # Select causal loci
 	reader_cy.phenoPlink(G_mat, G, c)
 
-	# Sample causal effects
+	# Sample causal effects and estimate true PGS
 	if args.multi_pops is None:
 		if args.alpha is None:
 			b = np.random.normal(loc=0.0, scale=sqrt(args.h2/float(G.shape[0])), \
@@ -80,19 +83,18 @@ for p in range(args.phenos):
 			f = np.mean(G, axis=1)/2.0
 			b = np.random.normal(loc=0.0, scale=np.power(f*(1-f), args.alpha*0.5), \
 				size=G.shape[0])
+		X = np.dot(G.T, b)
 	else: # Simulate population specific causal effects
-		b = np.zeros(G.shape[0])
-		b_list = [0] + args.multi_pops + [n]
-		for p in range(len(b_list)-1):
+		for pop in range(len(b_list)-1):
 			if args.alpha is None:
-				b[b_list[p]:b_list[p+1]] = np.random.normal(loc=0.0, \
-					scale=sqrt(args.h2/float(G.shape[0])), size=b_list[p+1]-b_list[p])
+				b = np.random.normal(loc=0.0, scale=sqrt(args.h2/float(G.shape[0])), \
+					size=G.shape[0])
 			else: # Frequency-based variance
-				b[b_list[p]:b_list[p+1]] = np.random.normal(loc=0.0, \
-					scale=np.power(f*(1-f), args.alpha*0.5), size=b_list[p+1]-b_list[p])
+				b = np.random.normal(loc=0.0, scale=np.power(f*(1-f), args.alpha*0.5), \
+					size=G_shape[0])
+			X[b_list[pop]:b_list[pop+1]] = np.dot(G[:,b_list[pop]:b_list[pop+1]].T, b)
 
 	# Genetic contribution
-	X = np.dot(G.T, b)
 	X_scale = np.sqrt(args.h2)/np.std(X, ddof=0)
 	X *= X_scale
 	X -= np.mean(X)
