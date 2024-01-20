@@ -83,7 +83,12 @@ for p in range(args.phenos):
 			f = np.mean(G, axis=1)/2.0
 			b = np.random.normal(loc=0.0, scale=np.power(f*(1-f), args.alpha*0.5), \
 				size=G.shape[0])
+
+		# Genetic contribution
 		X = np.dot(G.T, b)
+		X_scale = np.sqrt(args.h2)/np.std(X, ddof=0)
+		X *= X_scale
+		X -= np.mean(X)
 	else: # Simulate population specific causal effects
 		for pop in range(len(b_list)-1):
 			if args.alpha is None:
@@ -92,12 +97,12 @@ for p in range(args.phenos):
 			else: # Frequency-based variance
 				b = np.random.normal(loc=0.0, scale=np.power(f*(1-f), args.alpha*0.5), \
 					size=G_shape[0])
+			
+			# Genetic contribution
 			X[b_list[pop]:b_list[pop+1]] = np.dot(G[:,b_list[pop]:b_list[pop+1]].T, b)
-
-	# Genetic contribution
-	X_scale = np.sqrt(args.h2)/np.std(X, ddof=0)
-	X *= X_scale
-	X -= np.mean(X)
+			X_scale = np.sqrt(args.h2)/np.std(X[b_list[pop]:b_list[pop+1]], ddof=0)
+			X[b_list[pop]:b_list[pop+1]] *= X_scale
+			X[b_list[pop]:b_list[pop+1]] -= np.mean(X[b_list[pop]:b_list[pop+1]])
 
 	# Environmental contribution
 	E = np.random.normal(loc=0.0, scale=np.sqrt(1 - args.h2), size=n)
