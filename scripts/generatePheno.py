@@ -96,7 +96,7 @@ for p in range(args.phenos):
 					size=G.shape[0])
 			else: # Frequency-based variance
 				b = np.random.normal(loc=0.0, scale=np.power(f*(1-f), args.alpha*0.5), \
-					size=G_shape[0])
+					size=G.shape[0])
 			
 			# Genetic contribution
 			X[b_list[pop]:b_list[pop+1]] = np.dot(G[:,b_list[pop]:b_list[pop+1]].T, b)
