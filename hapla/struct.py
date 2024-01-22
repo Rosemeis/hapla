@@ -46,10 +46,7 @@ def main(args):
 		with open(args.filelist) as f:
 			file_c = 1
 			for chr in f:
-				if args.hsm:
-					Z_list.append(np.ascontiguousarray(np.load(chr.strip("\n")).T))
-				else:
-					Z_list.append(np.load(chr.strip("\n")))
+				Z_list.append(np.load(chr.strip("\n")))
 				print(f"\rParsed file #{file_c}", end="")
 				file_c += 1
 		Z_mat = np.concatenate(Z_list, axis=0)
