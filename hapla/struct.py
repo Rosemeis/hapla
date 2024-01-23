@@ -87,29 +87,35 @@ def main(args):
 		s = s[:m]
 	
 	# Estimate genome-wide relationship matrix
-	if args.grm: # 
+	if args.grm:
 		print("Estimating genome-wide relationship matrix (GRM).")
 		K = n*(n+1)//2
-		
-		# Standardize
-		s = np.power(s, 0.5*args.alpha)
-		Z_s = np.zeros((m, n), dtype=np.float32)
-		shared_cy.standardizeZ(Z, Z_s, p, s, args.threads)
+		B = m//args.batch # Number of batches
+		G = np.zeros((n, n), dtype=np.float32)
+		Z_b = np.zeros((args.batch, n), dtype=np.float32)
 
-		# Estimate GRM
-		G = np.dot(Z_s.T, Z_s)*(1.0/float(m))
-		del Z_s
+		# Estimate GRM in batches
+		for b in range(B):
+			m_b = b*args.batch
+			if b == (B-1): # Last batch
+				Z_b = np.zeros((m - m_b, n), dtype=np.float32)
+			shared_cy.batchZ(Z, Z_b, p, s, m_b, args.threads)
+
+			# Aggregate across batches
+			G += np.dot(Z_b.T, Z_b)*(1.0/float(m))
+		del Z_b
 		
 		# Centering
 		if not args.no_centering:
 			print("Centering GRM.")
-			p = np.mean(G, axis=1)
-			G -= p.reshape(1, n)
-			p = np.mean(G, axis=1)
-			G -= p.reshape(n, 1)
+			u = np.mean(G, axis=1)
+			G -= u.reshape(1, n)
+			u = np.mean(G, axis=1)
+			G -= u.reshape(n, 1)
 
 			# Gower centering
 			G *= float(n-1)/np.trace(G)
+		del u
 
 		# Save matrix
 		G = G[np.tril_indices(n)]
@@ -126,6 +132,7 @@ def main(args):
 			f"- {args.out}.grm.bin\n" + \
 			f"- {args.out}.grm.N.bin\n" + \
 			f"- {args.out}.grm.id")
+		del G
 	
 	# Infer population structure
 	if args.pca is not None:

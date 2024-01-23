@@ -5,12 +5,6 @@ from hapla import shared_cy
 
 ##### hapla - functions #####
 ### hapla struct
-# PLINK help function for PCA and phenotype generation
-def extract_length(filename):
-	process = subprocess.Popen(['wc', '-l', filename], stdout=subprocess.PIPE)
-	result, _ = process.communicate()
-	return int(result.split()[0])
-
 # Randomized PCA (PCAone Halko algorithm)
 def randomizedSVD(Z, p, s, K, batch, threads):
 	m = Z.shape[0]
@@ -42,3 +36,12 @@ def randomizedSVD(Z, p, s, K, batch, threads):
 	U = np.ascontiguousarray(U[:,:K])
 	V = np.ascontiguousarray(V[:K,:].T)
 	return U, S[:K], V
+
+
+
+### Phenotype generation
+# PLINK help function for PCA and phenotype generation
+def extract_length(filename):
+	process = subprocess.Popen(['wc', '-l', filename], stdout=subprocess.PIPE)
+	result, _ = process.communicate()
+	return int(result.split()[0])

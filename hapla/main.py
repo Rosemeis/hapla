@@ -76,7 +76,7 @@ def main():
 		help="Save loadings of SVD")
 	parser_struct.add_argument("--randomized", action="store_true",
 		help="Use randomized SVD (for very large sample sizes)")
-	parser_struct.add_argument("--batch", type=int, default=4096,
+	parser_struct.add_argument("--batch", type=int, default=8192,
 		metavar="INT", help="Number of clusters in batched SVD")
 
 	# hapla predict
