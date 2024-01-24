@@ -102,7 +102,8 @@ def main(args):
 			shared_cy.batchZ(Z, Z_b, p, s, m_b, args.threads)
 
 			# Aggregate across batches
-			G += np.dot(Z_b.T, Z_b)*(1.0/float(m))
+			G += np.dot(Z_b.T, Z_b)
+		G *= (1.0/float(m))
 		del Z_b
 		
 		# Centering
@@ -156,8 +157,8 @@ def main(args):
 				np.savetxt(f"{args.out}.eigenvec", out, fmt="%s")
 			else:
 				np.savetxt(f"{args.out}.eigenvec", V, fmt="%.7f")
-			print(f"Saved eigenvectors as {args.out}.eigenvec")
 			np.savetxt(f"{args.out}.eigenval", (S*S)/float(m), fmt="%.7f")
+			print(f"Saved eigenvectors as {args.out}.eigenvec")
 			print(f"Saved eigenvalues as {args.out}.eigenval")
 			if args.loadings:
 				np.savetxt(f"{args.out}.loadings", U, fmt="%.7f")
@@ -186,9 +187,8 @@ def main(args):
 				np.savetxt(f"{args.out}.eigenvec", out, fmt="%s")
 			else:
 				np.savetxt(f"{args.out}.eigenvec", Vt[::-1,:].T, fmt="%.7f")
+			np.savetxt(f"{args.out}.eigenval", (S[::-1]*S[::-1])/float(m), fmt="%.7f")
 			print(f"Saved eigenvectors as {args.out}.eigenvec")
-			np.savetxt(f"{args.out}.eigenval", (S[::-1]*S[::-1])/float(m), \
-				fmt="%.7f")
 			print(f"Saved eigenvalues as {args.out}.eigenval")
 			if args.loadings:
 				np.savetxt(f"{args.out}.loadings", U[:,::-1], fmt="%.7f")
