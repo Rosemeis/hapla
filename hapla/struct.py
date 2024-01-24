@@ -81,7 +81,7 @@ def main(args):
 		m = np.sum(mask, dtype=int)
 
 		# Filter out masked haplotype clusters
-		shared_cy.filterZ(Z, p, mask)
+		shared_cy.filterZ(Z, p, s, mask)
 		Z = Z[:m,:]
 		p = p[:m]
 		s = s[:m]
@@ -91,6 +91,7 @@ def main(args):
 		print("Estimating genome-wide relationship matrix (GRM).")
 		K = n*(n+1)//2
 		B = m//args.batch # Number of batches
+		a = np.power(s, 0.5*args.alpha)
 		G = np.zeros((n, n), dtype=np.float32)
 		Z_b = np.zeros((args.batch, n), dtype=np.float32)
 
@@ -99,7 +100,7 @@ def main(args):
 			m_b = b*args.batch
 			if b == (B-1): # Last batch
 				Z_b = np.zeros((m - m_b, n), dtype=np.float32)
-			shared_cy.batchZ(Z, Z_b, p, s, m_b, args.threads)
+			shared_cy.batchZ(Z, Z_b, p, a, m_b, args.threads)
 
 			# Aggregate across batches
 			G += np.dot(Z_b.T, Z_b)
@@ -141,8 +142,8 @@ def main(args):
 			print(f"Computing randomized SVD, extracting {args.pca} eigenvectors.")
 
 			# Randomized SVD in batches
-			s = np.power(s, -0.5)
-			U, S, V = functions.randomizedSVD(Z, p, s, args.pca, args.batch, \
+			a = np.power(s, -0.5)
+			U, S, V = functions.randomizedSVD(Z, p, a, args.pca, args.batch, \
 				args.threads)
 
 			# Save matrices
@@ -167,9 +168,9 @@ def main(args):
 			print(f"Computing truncated SVD, extracting {args.pca} eigenvectors.")
 
 			# Standardize
-			s = np.power(s, -0.5)
+			a = np.power(s, -0.5)
 			Z_s = np.zeros((m, n), dtype=np.float32)
-			shared_cy.standardizeZ(Z, Z_s, p, s, args.threads)
+			shared_cy.standardizeZ(Z, Z_s, p, a, args.threads)
 
 			# Truncated SVD (Arnoldi)
 			U, S, Vt = svds(Z_s, k=args.pca)

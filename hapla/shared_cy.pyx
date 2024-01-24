@@ -27,7 +27,7 @@ cpdef void haplotypeAggregate(unsigned char[:,::1] Z_mat, unsigned char[:,::1] Z
 			j += 1
 
 # Array filtering
-cpdef void filterZ(unsigned char[:,::1] Z, float[::1] p, \
+cpdef void filterZ(unsigned char[:,::1] Z, float[::1] p, float[::1] s, \
 		unsigned char[::1] mask) noexcept nogil:
 	cdef:
 		int m = Z.shape[0]
@@ -39,30 +39,31 @@ cpdef void filterZ(unsigned char[:,::1] Z, float[::1] p, \
 			for i in range(n):
 				Z[c,i] = Z[j,i]
 			p[c] = p[j]
+			s[c] = s[j]
 			c += 1
 
 # Standardize the batch haplotype cluster assignment matrix
 cpdef void batchZ(unsigned char[:,::1] Z, float[:,::1] Z_b, float[::1] p, \
-		float[::1] s, int m_b, int t) noexcept nogil:
+		float[::1] a, int m_b, int t) noexcept nogil:
 	cdef:
 		int m = Z_b.shape[0]
 		int n = Z_b.shape[1]
-		int b, i, j
+		int i, j, j_b
 	for j in prange(m, num_threads=t):
-		b = m_b+j
+		j_b = m_b+j
 		for i in range(n):
-			Z_b[j,i] = (Z[b,i] - 2*p[b])*s[b]
+			Z_b[j,i] = (Z[j_b,i] - 2*p[j_b])*a[j_b]
 
 # Standardize full matrix
 cpdef void standardizeZ(unsigned char[:,::1] Z, float[:,::1] Z_s, \
-		float[::1] p, float[::1] s, int t) noexcept nogil:
+		float[::1] p, float[::1] a, int t) noexcept nogil:
 	cdef:
 		int m = Z.shape[0]
 		int n = Z.shape[1]
 		int i, j
 	for j in prange(m, num_threads=t):
 		for i in range(n):
-			Z_s[j,i] = (Z[j,i] - 2*p[j])*s[j]
+			Z_s[j,i] = (Z[j,i] - 2*p[j])*a[j]
 
 
 
