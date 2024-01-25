@@ -229,7 +229,7 @@ def main(args):
 		for variant in v_file: # Extract chromosome name from first entry
 			chrom = re.findall(r'\d+', variant.CHROM)[-1]
 			break
-		K_tot = np.sum(K_vec-1, dtype=int)
+		K_tot = np.sum(K_vec-1, dtype=int) # Remove first cluster allele
 		P_mat = np.zeros((K_tot, 2), dtype=np.int32)
 		Z_vec = np.zeros(n//2, dtype=np.uint8)
 		Z_bin = np.zeros((K_tot, B), dtype=np.uint8)
@@ -246,7 +246,7 @@ def main(args):
 		bim = np.hstack((np.array([chrom]).repeat(K_tot).reshape(-1,1), \
 			tmp.reshape(-1,1), np.zeros((K_tot, 1), dtype=np.uint8), \
 			np.arange(1, K_tot+1).reshape(-1,1), P_mat[:,1].reshape(-1,1), \
-			np.array(["K"]).repeat(K_tot).reshape(-1,1)))
+			np.ones((K_tot, 1), dtype=np.uint8)))
 		np.savetxt(f"{args.out}.bim", bim, delimiter="\t", fmt="%s")
 		del bim, tmp, P_mat
 		

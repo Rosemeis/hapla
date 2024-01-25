@@ -8,27 +8,25 @@ from libc.math cimport sqrt
 ### hapla struct
 # Extract aggregated haplotype cluster counts
 cpdef void haplotypeAggregate(unsigned char[:,::1] Z_mat, unsigned char[:,::1] Z, \
-		float[::1] p, float[::1] s, unsigned char[::1] K_vec) noexcept nogil:
+		float[::1] p, unsigned char[::1] K_vec) noexcept nogil:
 	cdef:
 		int W = Z_mat.shape[0]
 		int n = Z_mat.shape[1]
 		int j = 0
 		int i, k, w
+		float d = 1.0/<float>n 
 	for w in range(W):
 		for k in range(K_vec[w]):
 			for i in range(n):
-				if Z_mat[w,i] == k:
+				if Z_mat[w,i] == (k+1):
 					Z[j,i//2] += 1
 					p[j] += 1
-			p[j] /= (<float>n)
-			for i in range(n//2):
-				s[j] += (Z[j,i] - 2*p[j])*(Z[j,i] - 2*p[j])
-			s[j] /= (<float>(n//2))
+			p[j] *= d
 			j += 1
 
 # Array filtering
-cpdef void filterZ(unsigned char[:,::1] Z, float[::1] p, float[::1] s, \
-		unsigned char[::1] mask) noexcept nogil:
+cpdef void filterZ(unsigned char[:,::1] Z, float[::1] p, unsigned char[::1] mask) \
+		noexcept nogil:
 	cdef:
 		int m = Z.shape[0]
 		int n = Z.shape[1]
@@ -39,7 +37,6 @@ cpdef void filterZ(unsigned char[:,::1] Z, float[::1] p, float[::1] s, \
 			for i in range(n):
 				Z[c,i] = Z[j,i]
 			p[c] = p[j]
-			s[c] = s[j]
 			c += 1
 
 # Standardize the batch haplotype cluster assignment matrix

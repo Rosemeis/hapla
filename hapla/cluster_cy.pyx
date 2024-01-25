@@ -12,10 +12,12 @@ cpdef void marginalMedians(signed char[:,::1] M, float[:,::1] C, int[::1] N, int
 	cdef:
 		int m = M.shape[1]
 		int j, k
+		float Nk
 	for k in range(K):
 		if N[k] > 0:
+			Nk = 1.0/<float>N[k]
 			for j in range(m):
-				C[k,j] = C[k,j]/(<float>N[k])
+				C[k,j] = C[k,j]*Nk
 				M[k,j] = <signed char>(C[k,j] > 0.5)
 				C[k,j] = 0.0
 

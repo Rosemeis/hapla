@@ -57,20 +57,19 @@ def main(args):
 	n = Z_mat.shape[1]//2
 
 	# Count haplotype cluster alleles
-	K_vec = np.max(Z_mat, axis=1) + 1
+	K_vec = np.max(Z_mat, axis=1) # Remove first cluster allele
 	m = np.sum(K_vec, dtype=int)
 
 	# Print information
 	print(f"\rLoaded haplotype cluster assignments:\n"
 			f"- {n} samples\n"
 			f"- {W} windows\n"
-			f"- {m} cluster alleles\n")
+			f"- {m} clusters\n")
 
 	# Populate full matrix and estimate haplotype cluster allele frequencies
 	Z = np.zeros((m, n), dtype=np.uint8)
 	p = np.zeros(m, dtype=np.float32)
-	s = np.zeros(m, dtype=np.float32)
-	shared_cy.haplotypeAggregate(Z_mat, Z, p, s, K_vec)
+	shared_cy.haplotypeAggregate(Z_mat, Z, p, K_vec)
 	del Z_mat
 
 	# Mask non-rare haplotype clusters
@@ -84,19 +83,19 @@ def main(args):
 		shared_cy.filterZ(Z, p, s, mask)
 		Z = Z[:m,:]
 		p = p[:m]
-		s = s[:m]
 	
 	# Estimate genome-wide relationship matrix
 	if args.grm:
 		print("Estimating genome-wide relationship matrix (GRM).")
 		K = n*(n+1)//2
 		B = m//args.batch # Number of batches
-		a = np.power(s, 0.5*args.alpha)
+		a = np.power(2*p*(1-p), 0.5*args.alpha)
 		G = np.zeros((n, n), dtype=np.float32)
 		Z_b = np.zeros((args.batch, n), dtype=np.float32)
 
 		# Estimate GRM in batches
 		for b in range(B):
+			print(f"\rBatch {b+1}/{B}", end="")
 			m_b = b*args.batch
 			if b == (B-1): # Last batch
 				Z_b = np.zeros((m - m_b, n), dtype=np.float32)
@@ -106,6 +105,7 @@ def main(args):
 			G += np.dot(Z_b.T, Z_b)
 		G *= (1.0/float(m))
 		del Z_b
+		print("")
 		
 		# Centering
 		if not args.no_centering:
@@ -117,7 +117,7 @@ def main(args):
 
 			# Gower centering
 			G *= float(n-1)/np.trace(G)
-		del u
+			del u
 
 		# Save matrix
 		G = G[np.tril_indices(n)]
@@ -142,7 +142,7 @@ def main(args):
 			print(f"Computing randomized SVD, extracting {args.pca} eigenvectors.")
 
 			# Randomized SVD in batches
-			a = np.power(s, -0.5)
+			a = np.power(2*p*(1-p), -0.5)
 			U, S, V = functions.randomizedSVD(Z, p, a, args.pca, args.batch, \
 				args.threads)
 
@@ -168,7 +168,7 @@ def main(args):
 			print(f"Computing truncated SVD, extracting {args.pca} eigenvectors.")
 
 			# Standardize
-			a = np.power(s, -0.5)
+			a = np.power(2*p*(1-p), -0.5)
 			Z_s = np.zeros((m, n), dtype=np.float32)
 			shared_cy.standardizeZ(Z, Z_s, p, a, args.threads)
 
