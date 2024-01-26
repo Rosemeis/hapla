@@ -107,7 +107,7 @@ for p in range(args.phenos):
 	# Environmental contribution
 	E = np.random.normal(loc=0.0, scale=np.sqrt(1 - args.h2), size=n)
 	E_var = np.var(E, ddof=0)
-	E_cov = np.cov(G, E, ddof=0)[0,1]
+	E_cov = np.cov(X, E, ddof=0)[0,1]
 	E_scale = (np.sqrt(E_cov**2 + (1 - args.h2)*E_var) - E_cov)/E_var
 	E *= E_scale
 	E -= np.mean(E)
