@@ -6,6 +6,48 @@ from libc.math cimport sqrt
 
 ##### hapla - analyses on haplotype cluster assignments #####
 ### hapla struct
+# Estimate haplotype sharing matrix in condensed form
+cpdef void hsmCondensed(unsigned char[:,::1] Z, float[::1] G, int t) \
+		nogil:
+	cdef:
+		int n = Z.shape[0]//2
+		int W = Z.shape[1]
+		int K = G.shape[0]
+		int i, j, k, w, g1, g2
+		float d = 1.0/<float>(2*W)
+	for k in prange(K, num_threads=t):
+		i = <int>((sqrt(1 + 8*k) - 1)//2) # Row index in condensed form
+		j = k - <int>(i*(i + 3)//2) + i # Column index in condensed form
+		if i == j: # Diagonal
+			G[k] = 1.0
+		else:
+			for w in range(W):
+				g1 = <int>(Z[2*i+0,w] == Z[2*j+0,w]) + <int>(Z[2*i+1,w] == Z[2*j+1,w])
+				g2 = <int>(Z[2*i+1,w] == Z[2*j+0,w]) + <int>(Z[2*i+0,w] == Z[2*j+1,w])
+				G[k] += <float>(max(g1, g2))
+			G[k] *= d
+
+# Estimate haplotype sharing matrix in full form
+cpdef void hsmFull(unsigned char[:,::1] Z, float[:,::1] G, int K, int t) \
+		nogil:
+	cdef:
+		int n = Z.shape[0]//2
+		int W = Z.shape[1]
+		int i, j, k, w, g1, g2
+		float d = 1.0/<float>(2*W)
+	for k in prange(K, num_threads=t):
+		i = <int>((sqrt(1 + 8*k) - 1)//2) # Row index in condensed form
+		j = k - <int>(i*(i + 3)//2) + i # Column index in condensed form
+		if i == j: # Diagonal
+			G[i,j] = 1.0
+		else:
+			for w in range(W):
+				g1 = <int>(Z[2*i+0,w] == Z[2*j+0,w]) + <int>(Z[2*i+1,w] == Z[2*j+1,w])
+				g2 = <int>(Z[2*i+1,w] == Z[2*j+0,w]) + <int>(Z[2*i+0,w] == Z[2*j+1,w])
+				G[i,j] += <float>(max(g1, g2))
+			G[i,j] *= d
+			G[j,i] = G[i,j]
+
 # Extract aggregated haplotype cluster counts
 cpdef void haplotypeAggregate(unsigned char[:,::1] Z_mat, unsigned char[:,::1] Z, \
 		float[::1] p, unsigned char[::1] K_vec) noexcept nogil:

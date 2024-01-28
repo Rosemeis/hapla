@@ -60,6 +60,8 @@ def main():
 		metavar="OUTPUT", help="Output prefix")
 	parser_struct.add_argument("--min-freq", type=float,
 		metavar="FLOAT", help="Minimum frequency for haplotype cluster")
+	parser_struct.add_argument("--hsm", action="store_true",
+		help="Estimate haplotype sharing relationship matrix (HSM)")
 	parser_struct.add_argument("--grm", action="store_true",
 		help="Estimate genome-wide relationship matrix (GRM)")
 	parser_struct.add_argument("--alpha", type=float, default=0.0,

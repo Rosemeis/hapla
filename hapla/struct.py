@@ -19,8 +19,9 @@ def main(args):
 	# Check input
 	assert (args.filelist is not None) or (args.clusters is not None), \
 		"No input data (--filelist or --clusters)!"
-	assert (args.grm or (args.pca is not None)), "No analysis selected (--grm, --pca)!"
-	if args.grm:
+	assert (args.hsm or args.grm or (args.pca is not None)), \
+		"No analysis selected (--hsm, --grm, --pca)!"
+	if args.grm or args.hsm:
 		assert args.iid is not None, "Provide sample list for GCTA format (--iid)!"
 	if args.pca is not None:
 		assert args.pca > 0, "Please select a valid number of eigenvectors!"
@@ -66,23 +67,65 @@ def main(args):
 			f"- {W} windows\n"
 			f"- {m} clusters\n")
 
+	# Estimate haplotype sharing matrix
+	if args.hsm:
+		print("Estimating haplotype sharing matrix (HSM).")
+		K = n*(n+1)//2
+		Z = np.ascontiguousarray(Z_mat.T)
+		if args.no_centering:
+			G = np.zeros(K, dtype=np.float32)
+			shared_cy.hsmCondensed(Z, G, args.threads)
+		else:
+			G = np.zeros((n, n), dtype=np.float32)
+			shared_cy.hsmFull(Z, G, K, args.threads)
+			
+			# Centering
+			print("Centering HSM.")
+			u = np.mean(G, axis=1)
+			G -= u.reshape(1, n)
+			u = np.mean(G, axis=1)
+			G -= u.reshape(n, 1)
+
+			# Gower centering
+			G *= float(n-1)/np.trace(G)
+			G = G[np.tril_indices(n)]
+			del u
+		del Z
+		
+		# Save matrix
+		G.tofile(f"{args.out}.hsm.grm.bin")
+		np.full(K, W, dtype=np.float32).tofile(f"{args.out}.hsm.grm.N.bin")
+		iid = np.loadtxt(f"{args.iid}", dtype=np.str_).reshape(-1,1)
+		if args.fid is not None:
+			fid = np.loadtxt(f"{args.fid}", dtype=np.str_).reshape(-1,1)
+			fam = np.hstack((fid, iid))
+		else:
+			fam = np.hstack((np.zeros((n, 1), dtype=np.uint8), iid))
+		np.savetxt(f"{args.out}.hsm.grm.id", fam, delimiter="\t", fmt="%s")
+		print("Saved haplotype sharing matrix in GCTA format:\n" + \
+			f"- {args.out}.hsm.grm.bin\n" + \
+			f"- {args.out}.hsm.grm.N.bin\n" + \
+			f"- {args.out}.hsm.grm.id")
+		del G
+
 	# Populate full matrix and estimate haplotype cluster allele frequencies
-	Z = np.zeros((m, n), dtype=np.uint8)
-	p = np.zeros(m, dtype=np.float32)
-	shared_cy.haplotypeAggregate(Z_mat, Z, p, K_vec)
-	del Z_mat
+	if args.grm or (args.pca is not None):
+		Z = np.zeros((m, n), dtype=np.uint8)
+		p = np.zeros(m, dtype=np.float32)
+		shared_cy.haplotypeAggregate(Z_mat, Z, p, K_vec)
+		del Z_mat
 
-	# Mask non-rare haplotype clusters
-	if args.min_freq is not None:
-		mask = (p >= args.min_freq) & (p <= (1 - args.min_freq))
-		mask = mask.astype(np.uint8)
-		print(f"Removed {m-np.sum(np.sum(mask, dtype=int))}/{m} haplotype clusters.")
-		m = np.sum(mask, dtype=int)
+		# Mask non-rare haplotype clusters
+		if args.min_freq is not None:
+			mask = (p >= args.min_freq) & (p <= (1 - args.min_freq))
+			mask = mask.astype(np.uint8)
+			print(f"Removed {m-np.sum(np.sum(mask, dtype=int))}/{m} haplotype clusters.")
+			m = np.sum(mask, dtype=int)
 
-		# Filter out masked haplotype clusters
-		shared_cy.filterZ(Z, p, s, mask)
-		Z = Z[:m,:]
-		p = p[:m]
+			# Filter out masked haplotype clusters
+			shared_cy.filterZ(Z, p, s, mask)
+			Z = Z[:m,:]
+			p = p[:m]
 	
 	# Estimate genome-wide relationship matrix
 	if args.grm:
