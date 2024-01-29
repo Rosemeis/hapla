@@ -71,7 +71,12 @@ G = np.zeros((args.causal, n), dtype=float) # Genotypes or haplotype clusters
 
 # Sample causal SNPs
 for p in range(args.phenos):
-	c = np.sort(np.random.permutation(m)[:G.shape[0]]).astype(int) # Select causal loci
+	# Environmental component
+	E = np.random.normal(loc=0.0, scale=np.sqrt(1 - args.h2), size=n)
+	E_var = np.var(E, ddof=0)
+
+	# Sample causal loci
+	c = np.sort(np.random.permutation(m)[:G.shape[0]]).astype(int)
 	reader_cy.phenoPlink(G_mat, G, c)
 
 	# Sample causal effects and estimate true PGS
@@ -89,6 +94,12 @@ for p in range(args.phenos):
 		X_scale = np.sqrt(args.h2)/np.std(X, ddof=0)
 		X *= X_scale
 		X -= np.mean(X)
+
+		# Environmental contribution
+		E_cov = np.cov(X, E, ddof=0)[0,1]
+		E_scale = (np.sqrt(E_cov**2 + (1 - args.h2)*E_var) - E_cov)/E_var
+		E *= E_scale
+		E -= np.mean(E)
 	else: # Simulate population specific causal effects
 		for pop in range(len(b_list)-1):
 			if args.alpha is None:
@@ -104,13 +115,11 @@ for p in range(args.phenos):
 			X[b_list[pop]:b_list[pop+1]] *= X_scale
 			X[b_list[pop]:b_list[pop+1]] -= np.mean(X[b_list[pop]:b_list[pop+1]])
 
-	# Environmental contribution
-	E = np.random.normal(loc=0.0, scale=np.sqrt(1 - args.h2), size=n)
-	E_var = np.var(E, ddof=0)
-	E_cov = np.cov(X, E, ddof=0)[0,1]
-	E_scale = (np.sqrt(E_cov**2 + (1 - args.h2)*E_var) - E_cov)/E_var
-	E *= E_scale
-	E -= np.mean(E)
+			# Environmental contribution
+			E_cov = np.cov(X[b_list[pop]:b_list[pop+1]], E[b_list[pop]:b_list[pop+1]], ddof=0)[0,1]
+			E_scale = (np.sqrt(E_cov**2 + (1 - args.h2)*E_var) - E_cov)/E_var
+			E[b_list[pop]:b_list[pop+1]] *= E_scale
+			E[b_list[pop]:b_list[pop+1]] -= np.mean(E[b_list[pop]:b_list[pop+1]])
 
 	# Generate phenotype
 	Y[:,p] = X + E
