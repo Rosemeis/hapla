@@ -123,7 +123,7 @@ def main(args):
 			m = np.sum(mask, dtype=int)
 
 			# Filter out masked haplotype clusters
-			shared_cy.filterZ(Z, p, s, mask)
+			shared_cy.filterZ(Z, p, mask)
 			Z = Z[:m,:]
 			p = p[:m]
 	
