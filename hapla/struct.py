@@ -137,7 +137,7 @@ def main(args):
 		Z_b = np.zeros((args.batch, n), dtype=np.float32)
 
 		# Estimate GRM in batches
-		for b in range(B):
+		for b in np.arange(B):
 			print(f"\rBatch {b+1}/{B}", end="")
 			m_b = b*args.batch
 			if b == (B-1): # Last batch
