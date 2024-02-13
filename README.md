@@ -28,20 +28,20 @@ Coming soon.
 Haplotype clustering is performed on a phased VCF/BCF.
 ```bash
 # Cluster haplotypes in a chromosome with default window size (8 SNPs)
-hapla cluster --bcf file.chr1.bcf --threads 16 --out hapla.chr1
+hapla cluster --bcf pop.chr1.bcf --threads 16 --out hapla.chr1
 # Saves inferred haplotype cluster alleles in a binary NumPy file ("hapla.z.npy")
 
 # Cluster haplotypes in all chromosomes and save output path in a filelist
 for c in {1..22}
 do
-	hapla cluster --bcf file.chr${c}.bcf --threads 16 --out hapla.chr${c}
+	hapla cluster --bcf pop.chr${c}.bcf --threads 16 --out hapla.chr${c}
 	realpath hapla.chr${c}.z.npy >> hapla.filelist
 done
 ```
 
 Optionally, the haplotype cluster alleles can be saved in binary PLINK format for ease of use with other software.
 ```bash
-hapla cluster --bcf file.chr1.bcf --threads 16 --out hapla.chr1 --plink
+hapla cluster --bcf pop.chr1.bcf --threads 16 --out hapla.chr1 --plink
 # Saves inferred haplotype cluster alleles in a binary PLINK format
 #	- hapla.chr1.bed
 #	- hapla.chr1.bim
@@ -53,11 +53,12 @@ hapla cluster --bcf file.chr1.bcf --threads 16 --out hapla.chr1 --plink
 Inferring population structure using the haplotype cluster alleles.
 ```bash
 # Construct genome-wide relationship matrix (GRM)
-hapla struct --filelist hapla.filelist --threads 16 --grm --out hapla
+hapla struct --filelist hapla.filelist --threads 16 --grm --out hapla --iid pop.samples
 # Saves the GRM in binary GCTA format
 #	- hapla.grm.bin
 #	- hapla.grm.N.bin
 #	- hapla.grm.id
+# Requires a file with sample names ("--iid")
 
 # Perform PCA on all chromosomes (genome-wide) using filelist and extract top 10 eigenvectors
 hapla struct --filelist hapla.filelist --threads 16 --pca 10 --out hapla
