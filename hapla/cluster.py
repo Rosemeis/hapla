@@ -23,6 +23,8 @@ def main(args):
 	assert args.min_mac > 2, "Very rare haplotype clusters not allowed!"
 	assert args.max_clusters <= 256, "Max allowed clusters exceeded!"
 	if args.overlap:
+		if args.win == 1: # Special SNP-level case
+			args.num_overlap = 0
 		assert (args.win % (args.num_overlap + 1) == 0), \
 			"Invalid number of overlapping windows chosen!"
 	start = time()
