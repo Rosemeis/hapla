@@ -2,13 +2,13 @@
 import numpy as np
 cimport numpy as np
 from cython.parallel import prange, parallel
+from cpython.mem cimport PyMem_RawCalloc, PyMem_RawFree
 from libc.math cimport log
-from libc.stdlib cimport calloc, free
 
 ##### hapla - haplotype clustering #####
 # Create marginal medians
-cpdef void marginalMedians(signed char[:,::1] M, float[:,::1] C, int[::1] N, int K) \
-		noexcept nogil:
+cpdef void marginalMedians(signed char[:,::1] M, float[:,::1] C, const int[::1] N, \
+		const int K) noexcept nogil:
 	cdef:
 		int m = M.shape[1]
 		int j, k
@@ -22,16 +22,16 @@ cpdef void marginalMedians(signed char[:,::1] M, float[:,::1] C, int[::1] N, int
 				C[k,j] = 0.0
 
 # Compute distances, cluster assignment and prepare for next loop
-cpdef void clusterAssignment(unsigned char[:,::1] X, signed char[:,::1] M, \
-		float[:,::1] C, unsigned char[:,::1] Z, int[::1] c, int[::1] N, int K, \
-		int w, int t):
+cpdef void clusterAssignment(const unsigned char[:,::1] X, const signed char[:,::1] M, \
+		float[:,::1] C, unsigned char[:,::1] Z, int[::1] c, const int[::1] N, \
+		const int K, const int w, const int t):
 	cdef:
 		int n = X.shape[0]
 		int m = X.shape[1]
 		int i, j, k, k2, j2, dist, m_val
 		float* tmp
 	with nogil, parallel(num_threads=t):
-		tmp = <float*>calloc(K*m, sizeof(float))
+		tmp = <float*>PyMem_RawCalloc(K*m, sizeof(float))
 		
 		# Cluster haplotypes
 		for i in prange(n):
@@ -62,10 +62,11 @@ cpdef void clusterAssignment(unsigned char[:,::1] X, signed char[:,::1] M, \
 					C[k2,j2] += tmp[k2*m + j2]
 		
 		# Deallocate thread-local arrays
-		free(tmp)
+		PyMem_RawFree(tmp)
 
 # Count size of clusters
-cpdef void countN(unsigned char[:,::1] Z, int[::1] N, int K, int w) noexcept nogil:
+cpdef void countN(const unsigned char[:,::1] Z, int[::1] N, const int K, const int w) \
+		noexcept nogil:
 	cdef:
 		int n = Z.shape[1]
 		int i, k
@@ -75,7 +76,7 @@ cpdef void countN(unsigned char[:,::1] Z, int[::1] N, int K, int w) noexcept nog
 		N[Z[w,i]] += 1
 
 # Find non-zero cluster with least assignments
-cpdef int findZero(int[::1] N, int n, int thr, int K) noexcept nogil:
+cpdef int findZero(int[::1] N, const int n, const int thr, const int K) noexcept nogil:
 	cdef:
 		int k
 		int minI = 0
@@ -91,7 +92,7 @@ cpdef int findZero(int[::1] N, int n, int thr, int K) noexcept nogil:
 
 # Fix index of medians
 cpdef void medianFix(signed char[:,::1] M, unsigned char[:,::1] Z, \
-		int[::1] N, int K, int w) noexcept nogil:
+		int[::1] N, const int K, const int w) noexcept nogil:
 	cdef:
 		int m = M.shape[1]
 		int n = Z.shape[1]
@@ -114,8 +115,9 @@ cpdef void medianFix(signed char[:,::1] M, unsigned char[:,::1] Z, \
 				M[k,j] = -9
 
 # Generate haplotype log-likelihoods (Bernoulli)
-cpdef void loglikeHaplo(float[:,::1] L, unsigned char[:,::1] X, float[:,::1] C, \
-		unsigned char[:,::1] Z, int[::1] N, int K, int w, int t) noexcept nogil:
+cpdef void loglikeHaplo(float[:,::1] L, const unsigned char[:,::1] X, float[:,::1] C, \
+		const unsigned char[:,::1] Z, const int[::1] N, const int K, const int w, \
+		const int t) noexcept nogil:
 	cdef:
 		int n = X.shape[0]
 		int m = X.shape[1]

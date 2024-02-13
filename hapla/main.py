@@ -43,7 +43,7 @@ def main():
 		help="Use sample list as family ID (PLINK 1.9 compatibility)")
 	parser_cluster.add_argument("--overlap", action="store_true",
 		help="Haplotype clustering in overlapping windows")
-	parser_cluster.add_argument("--num-overlap", type=int,
+	parser_cluster.add_argument("--num-overlap", type=int, default=1,
 		metavar="INT", help="Number of overlapping windows")
 	parser_cluster.add_argument("--verbose", action="store_true",
 		help="Verbose output from each iteration")
@@ -58,14 +58,12 @@ def main():
 		metavar="INT", help="Number of threads (1)")
 	parser_struct.add_argument("-o", "--out", default="hapla.pca",
 		metavar="OUTPUT", help="Output prefix")
-	parser_struct.add_argument("--min-freq", type=float,
-		metavar="FLOAT", help="Minimum frequency for haplotype cluster")
-	parser_struct.add_argument("--hsm", action="store_true",
-		help="Estimate haplotype sharing relationship matrix (HSM)")
 	parser_struct.add_argument("--grm", action="store_true",
 		help="Estimate genome-wide relationship matrix (GRM)")
 	parser_struct.add_argument("--alpha", type=float, default=0.0,
 		metavar="FLOAT", help="Alpha scaling parameter in GRM (0.0)")
+	parser_struct.add_argument("--batch", type=int, default=8192,
+		metavar="INT", help="Number of cluster alleles in batches")
 	parser_struct.add_argument("--no-centering", action="store_true",
 		help="Do not perform Gower and data centering on GRM")
 	parser_struct.add_argument("--iid", metavar="FILE",
@@ -78,8 +76,6 @@ def main():
 		help="Save loadings of SVD")
 	parser_struct.add_argument("--randomized", action="store_true",
 		help="Use randomized SVD (for very large sample sizes)")
-	parser_struct.add_argument("--batch", type=int, default=8192,
-		metavar="INT", help="Number of clusters in batched SVD")
 
 	# hapla predict
 	parser_predict = subparsers.add_parser("predict")

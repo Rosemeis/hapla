@@ -2,12 +2,11 @@
 import numpy as np
 cimport numpy as np
 from cython.parallel import prange
-from libc.math cimport sqrt
 
 ##### Cython function for reading VCF/BCF files #####
 ### Read variant from VCF/BCF into 1-bit integer format
-cpdef void readVar(unsigned char[:,::1] G, short[:,::1] V, int j, int n) \
-		noexcept nogil:
+cpdef void readVar(unsigned char[:,::1] G, const short[:,::1] V, const int j, \
+		const int n) noexcept nogil:
 	cdef:
 		int B = G.shape[1]
 		int i = 0
@@ -24,8 +23,8 @@ cpdef void readVar(unsigned char[:,::1] G, short[:,::1] V, int j, int n) \
 				break
 
 ### Read variant from VCF/BCF into 2-bit integer format
-cpdef void readPred(unsigned char[:,::1] G, short[:,::1] V, int j, int n) \
-		noexcept nogil:
+cpdef void readPred(unsigned char[:,::1] G, const short[:,::1] V, const int j, \
+		const int n) noexcept nogil:
 	cdef:
 		int B = G.shape[1]
 		int i = 0
@@ -71,8 +70,8 @@ cpdef void convertBit(unsigned char[:,::1] G, unsigned char[:,::1] H, \
 					break
 
 ### Convert 1-bit into full array for predicting target clusters
-cpdef void predictBit(unsigned char[:,::1] G, unsigned char[:,::1] H, int w0) \
-		noexcept nogil:
+cpdef void predictBit(const unsigned char[:,::1] G, unsigned char[:,::1] H, \
+		const int w0) noexcept nogil:
 	cdef:
 		int B = G.shape[1]
 		int m = H.shape[0]
@@ -93,8 +92,8 @@ cpdef void predictBit(unsigned char[:,::1] G, unsigned char[:,::1] H, int w0) \
 					break
 
 ### Convert haplotype cluster alleles to 2-bit PLINK format
-cpdef void convertPlink(unsigned char[:,::1] Z_mat, unsigned char[:,::1] Z_bin, \
-		int[:,::1] P_mat, unsigned char[::1] Z_vec, unsigned char[::1] K_vec) \
+cpdef void convertPlink(const unsigned char[:,::1] Z_mat, unsigned char[:,::1] Z_bin, \
+		int[:,::1] P_mat, unsigned char[::1] Z_vec, const unsigned char[::1] K_vec) \
 		noexcept nogil:
 	cdef:
 		int W = Z_mat.shape[0]
@@ -134,8 +133,8 @@ cpdef void convertPlink(unsigned char[:,::1] Z_mat, unsigned char[:,::1] Z_bin, 
 			j += 1
 
 ### Convert 2-bit into standardized genotype array for phenotypes
-cpdef void phenoPlink(unsigned char[:,::1] G_mat, double[:,::1] G, long[::1] c) \
-		noexcept nogil:
+cpdef void phenoPlink(const unsigned char[:,::1] G_mat, double[:,::1] G, \
+		const long[::1] c) noexcept nogil:
 	cdef:
 		int m = G.shape[0]
 		int n = G.shape[1]
