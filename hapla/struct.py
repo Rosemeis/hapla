@@ -74,7 +74,7 @@ def main(args):
 			W = Z_mat.shape[0]
 
 			# Print information
-			print(f"\Processing file {z+1}/{len(Z_list)}", end="")
+			print(f"\rProcessing file {z+1}/{len(Z_list)}", end="")
 
 			# Populate full matrix and estimate cluster frequencies
 			Z = np.zeros((m, n), dtype=np.uint8)
