@@ -25,8 +25,6 @@ def main(args):
 		assert args.iid is not None, "Provide sample list for GCTA format (--iid)!"
 	if args.pca is not None:
 		assert args.pca > 0, "Please select a valid number of eigenvectors!"
-	if args.no_centering:
-		assert args.alpha == 0.0, "VanRaden scaling requires alpha = 0.0!"
 	start = time()
 
 	# Control threads of external numerical libraries
@@ -56,8 +54,8 @@ def main(args):
 		print("Estimating genome-wide relationship matrix (GRM).")
 
 		# Loop through files
-		m_z = 0
-		p_z = 0.0
+		M = 0
+		P = 0.0
 		for z in np.arange(len(Z_list)):
 			Z_mat = np.load(Z_list[z])
 			if z == 0:
@@ -84,7 +82,7 @@ def main(args):
 
 			# Setup GRM part settings
 			B = m//args.batch # Number of batches
-			a = np.power(2*p*(1-p), 0.5*args.alpha)
+			a = np.ones(m, dtype=np.float32)
 			Z_b = np.zeros((args.batch, n), dtype=np.float32)
 
 			# Estimate GRM part in batches
@@ -96,16 +94,16 @@ def main(args):
 
 				# Aggregate across batches
 				G += np.dot(Z_b.T, Z_b)
-			m_z += m
-			if args.no_centering:
-				p_z += np.sum(p*(1 - p))
+			M += m
+			if not args.centering:
+				P += np.sum(p*(1 - p))
 			del a, p, Z, Z_b, K_vec
 		print(".\n")
 		
 		# Centering
-		if not args.no_centering:
+		if args.centering:
 			print("Centering GRM.")
-			G *= (1.0/float(m_z))
+			G *= (1.0/float(M))
 			u = np.mean(G, axis=1)
 			G -= u.reshape(1, n)
 			u = np.mean(G, axis=1)
@@ -115,7 +113,7 @@ def main(args):
 			G *= float(n-1)/np.trace(G)
 			del u
 		else:
-			G *= (1.0/(2.0*p_z)) # VanRaden scaling
+			G *= (1.0/(2.0*P)) # VanRaden scaling
 
 		# Save matrix
 		G = G[np.tril_indices(n)]
