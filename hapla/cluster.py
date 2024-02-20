@@ -206,7 +206,7 @@ def main(args):
 		N_vec.fill(0)
 	del G
 	if not args.verbose:
-		print("")
+		print(".\n")
 
 	##### Save output #####
 	np.save(f"{args.out}.z", Z_mat)
