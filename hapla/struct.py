@@ -145,7 +145,7 @@ def main(args):
 		del Z_tmp
 
 		# Count haplotype cluster alleles
-		K_vec = np.max(Z_mat, axis=1) # Remove first cluster allele
+		K_vec = np.max(Z_mat, axis=1) + 1
 		m = np.sum(K_vec, dtype=int)
 		W = Z_mat.shape[0]
 		n = Z_mat.shape[1]//2
