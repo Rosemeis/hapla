@@ -64,8 +64,8 @@ def main():
 		metavar="FLOAT", help="Alpha scaling parameter in GRM (0.0)")
 	parser_struct.add_argument("--batch", type=int, default=8192,
 		metavar="INT", help="Number of cluster alleles in batches (8192)")
-	parser_struct.add_argument("--no-centering", action="store_true",
-		help="Do not perform Gower and data centering of GRM")
+	parser_struct.add_argument("--centering", action="store_true",
+		help="Perform Gower and data centering of GRM")
 	parser_struct.add_argument("--iid", metavar="FILE",
 		help="Sample ID list for GCTA format")
 	parser_struct.add_argument("--fid", metavar="FILE",
