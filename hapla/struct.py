@@ -25,7 +25,7 @@ def main(args):
 		assert args.iid is not None, "Provide sample list for GCTA format (--iid)!"
 	if args.pca is not None:
 		assert args.pca > 0, "Please select a valid number of eigenvectors!"
-	if args.no_centering:
+	if not args.centering:
 		assert args.alpha == 0.0, "VanRaden scaling requires alpha = 0.0!"
 	start = time()
 
@@ -97,13 +97,13 @@ def main(args):
 				# Aggregate across batches
 				G += np.dot(Z_b.T, Z_b)
 			M += m
-			if args.no_centering:
+			if not args.centering:
 				P += np.sum(p*(1 - p))
 			del a, p, Z, Z_b, K_vec
 		print(".\n")
 		
 		# Centering
-		if not args.no_centering:
+		if args.centering:
 			print("Centering GRM.")
 			G *= (1.0/float(M))
 			u = np.mean(G, axis=1)
