@@ -245,8 +245,9 @@ def main(args):
 		tmp = np.array([f"{chrom}_B{args.win}_W{w}_K{k}" for w,k in P_mat])
 		bim = np.hstack((np.array([chrom]).repeat(K_tot).reshape(-1,1), \
 			tmp.reshape(-1,1), np.zeros((K_tot, 1), dtype=np.uint8), \
-			np.arange(1, K_tot+1).reshape(-1,1), P_mat[:,1].reshape(-1,1), \
-			np.zeros((K_tot, 1), dtype=np.uint8)))
+			np.arange(1, K_tot+1).reshape(-1,1), \
+			np.array(["K"]).repeat(K_tot).reshape(-1,1), \
+			np.ones((K_tot, 1), dtype=np.uint8)))
 		np.savetxt(f"{args.out}.bim", bim, delimiter="\t", fmt="%s")
 		del bim, tmp, P_mat
 		
