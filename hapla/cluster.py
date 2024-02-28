@@ -169,7 +169,7 @@ def main(args):
 			K_tmp = np.sum(N_vec > 0)
 
 			# Remove small clusters iterativly
-			N_mac = ceil(n*args.min_freq)
+			N_mac = max(3, ceil(n*args.min_freq)) # Safety guard
 			if args.verbose:
 				N_sur = np.sum(N_vec >= N_mac)
 				print(f"{N_sur}/{K_tmp} clusters reaching threshold.")
