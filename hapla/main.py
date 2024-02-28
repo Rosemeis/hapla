@@ -27,8 +27,8 @@ def main():
 		metavar="INT", help="Number of threads (1)")
 	parser_cluster.add_argument("-o", "--out", default="hapla.cluster",
 		metavar="OUTPUT", help="Output prefix")
-	parser_cluster.add_argument("--min-mac", type=int, default=10,
-		metavar="INT", help="Minimum allele count for haplotype cluster (10)")
+	parser_cluster.add_argument("--min-freq", type=float, default=0.005,
+		metavar="INT", help="Minimum haplotype cluster frequency (0.005)")
 	parser_cluster.add_argument("--max-clusters", type=int, default=128,
 		metavar="INT", help="Maximum number of haplotype clusters per window (128)")
 	parser_cluster.add_argument("--max-iterations", type=int, default=500,

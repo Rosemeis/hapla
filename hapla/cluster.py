@@ -18,9 +18,9 @@ def main(args):
 	
 	# Check input
 	assert args.vcf is not None, \
-		"Please provide phased genotype file (--bcf or --vcf)!"
-	assert args.win > 0, "Please provide a valid window size!"
-	assert args.min_mac > 2, "Very rare haplotype clusters not allowed!"
+		"No phased genotype file (--bcf or --vcf)!"
+	assert args.win > 0, "Invalid window size!"
+	assert args.min_freq > 0.0, "Invalid haplotype cluster frequency!"
 	assert args.max_clusters <= 256, "Max allowed clusters exceeded!"
 	if args.overlap:
 		if args.win == 1: # Special SNP-level case
@@ -169,15 +169,16 @@ def main(args):
 			K_tmp = np.sum(N_vec > 0)
 
 			# Remove small clusters iterativly
+			N_mac = ceil(n*args.min_freq)
 			if args.verbose:
-				N_sur = np.sum(N_vec >= args.min_mac)
+				N_sur = np.sum(N_vec >= N_mac)
 				print(f"{N_sur}/{K_tmp} clusters reaching threshold.")
 			while K_tmp > 2:
 				cluster_cy.marginalMedians(M, C, N_vec, K)
 
 				# Find smallest cluster
-				N_min = cluster_cy.findZero(N_vec, n, args.min_mac, K)
-				if N_min >= args.min_mac:
+				N_min = cluster_cy.findZero(N_vec, n, N_mac, K)
+				if N_min >= N_mac:
 					break
 				K_tmp -= 1
 
@@ -186,9 +187,9 @@ def main(args):
 					args.threads)
 				cluster_cy.countN(Z_mat, N_vec, K, w)
 				if args.verbose:
-					N_sur = np.sum(N_vec >= args.min_mac)
+					N_sur = np.sum(N_vec >= N_mac)
 					print(f"{N_sur}/{K_tmp} clusters reaching threshold. " + \
-						f"{N_min}/{args.min_mac}.")
+						f"{N_min}/{N_mac}.")
 
 		# Fix cluster median and cluster assignment order
 		cluster_cy.medianFix(M, Z_mat, N_vec, K, w)
