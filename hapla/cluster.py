@@ -62,6 +62,10 @@ def main(args):
 	del V
 	print(f"\rLoaded phased genotype data: {n} haplotypes and {m} SNPs.")
 
+	# Check haplotype cluster frequency
+	N_mac = ceil(n*args.min_freq)
+	assert N_mac < 3, "Frequency threshold too low for sample size (--min-freq)!"
+
 	### Setup windows
 	W = m//args.win
 	if args.overlap is not None:
@@ -167,7 +171,6 @@ def main(args):
 			K_tmp = np.sum(N_vec > 0)
 
 			# Remove small clusters iterativly
-			N_mac = max(3, ceil(n*args.min_freq)) # Safety guard
 			if args.verbose:
 				N_sur = np.sum(N_vec >= N_mac)
 				print(f"{N_sur}/{K_tmp} clusters reaching threshold.")
