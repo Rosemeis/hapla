@@ -54,11 +54,10 @@ def main(args):
 	# Estimate genome-wide relationship matrix
 	if args.grm:
 		print("Estimating genome-wide relationship matrix (GRM).")
-
-		# Loop through files
 		M = 0
 		P = 0.0
-		for z in np.arange(len(Z_list)):
+		for z in np.arange(len(Z_list)): # Loop through files
+			s_beg = f"Processing file {z+1}/{len(Z_list)}"
 			Z_mat = np.load(Z_list[z])
 			if z == 0:
 				n = Z_mat.shape[1]//2
@@ -86,8 +85,7 @@ def main(args):
 
 			# Estimate GRM part in batches
 			for b in np.arange(B):
-				print(f"\rProcessing file {z+1}/{len(Z_list)}. " + \
-					f"Batch {b+1}/{B}", end="") # Print information
+				print(f"\r{s_beg}. Batch {b+1}/{B}    ", end="") # Print information
 				m_b = b*args.batch
 				if b == (B-1): # Last batch
 					Z_b = np.zeros((m - m_b, n), dtype=np.float32)
