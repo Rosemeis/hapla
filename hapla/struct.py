@@ -73,7 +73,7 @@ def main(args):
 					"Number of samples differ between cluster files!"
 
 			# Count haplotype cluster alleles
-			K_vec = np.max(Z_mat, axis=1) + 1
+			K_vec = np.max(Z_mat, axis=1) # Remove one cluster
 			m = np.sum(K_vec, dtype=int)
 			W = Z_mat.shape[0]
 
