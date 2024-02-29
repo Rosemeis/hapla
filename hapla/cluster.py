@@ -64,7 +64,7 @@ def main(args):
 
 	# Check haplotype cluster frequency
 	N_mac = ceil(n*args.min_freq)
-	assert N_mac < 3, "Frequency threshold too low for sample size (--min-freq)!"
+	assert N_mac > 2, "Frequency threshold too low for sample size (--min-freq)!"
 
 	### Setup windows
 	W = m//args.win
