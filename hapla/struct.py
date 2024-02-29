@@ -87,7 +87,7 @@ def main(args):
 			# Estimate GRM part in batches
 			for b in np.arange(B):
 				print(f"\rProcessing file {z+1}/{len(Z_list)}. " + \
-					"Batch {b+1}/{B}", end="") # Print information
+					f"Batch {b+1}/{B}", end="") # Print information
 				m_b = b*args.batch
 				if b == (B-1): # Last batch
 					Z_b = np.zeros((m - m_b, n), dtype=np.float32)
