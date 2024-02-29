@@ -27,8 +27,8 @@ def main():
 		metavar="INT", help="Number of threads (1)")
 	parser_cluster.add_argument("-o", "--out", default="hapla.cluster",
 		metavar="OUTPUT", help="Output prefix")
-	parser_cluster.add_argument("--min-freq", type=float, default=0.005,
-		metavar="INT", help="Minimum haplotype cluster frequency (0.005)")
+	parser_cluster.add_argument("--min-freq", type=float, default=0.001,
+		metavar="INT", help="Minimum haplotype cluster frequency (0.001)")
 	parser_cluster.add_argument("--max-clusters", type=int, default=128,
 		metavar="INT", help="Maximum number of haplotype clusters per window (128)")
 	parser_cluster.add_argument("--max-iterations", type=int, default=500,
@@ -41,9 +41,7 @@ def main():
 		help="Generate binary PLINK output")
 	parser_cluster.add_argument("--duplicate-fid", action="store_true",
 		help="Use sample list as family ID (PLINK 1.9 compatibility)")
-	parser_cluster.add_argument("--overlap", action="store_true",
-		help="Haplotype clustering in overlapping windows")
-	parser_cluster.add_argument("--num-overlap", type=int, default=1,
+	parser_cluster.add_argument("--overlap", type=int,
 		metavar="INT", help="Number of overlapping windows (1)")
 	parser_cluster.add_argument("--verbose", action="store_true",
 		help="Verbose output from each iteration")

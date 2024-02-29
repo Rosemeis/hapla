@@ -18,9 +18,9 @@ cpdef void haplotypeAggregate(const unsigned char[:,::1] Z_mat, \
 	for w in range(W):
 		for k in range(K_vec[w]):
 			for i in range(n):
-				if Z_mat[w,i] == (k+1): # Ignore first cluster
+				if Z_mat[w,i] == k:
 					Z[j,i//2] += 1
-					p[j] += 1
+					p[j] += 1.0
 			p[j] *= d
 			j += 1
 
