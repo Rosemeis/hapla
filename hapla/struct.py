@@ -73,9 +73,6 @@ def main(args):
 			m = np.sum(K_vec, dtype=int)
 			W = Z_mat.shape[0]
 
-			# Print information
-			print(f"\rProcessing file {z+1}/{len(Z_list)}", end="")
-
 			# Populate full matrix and estimate cluster frequencies
 			Z = np.zeros((m, n), dtype=np.uint8)
 			p = np.zeros(m, dtype=np.float32)
@@ -89,6 +86,8 @@ def main(args):
 
 			# Estimate GRM part in batches
 			for b in np.arange(B):
+				print(f"\rProcessing file {z+1}/{len(Z_list)}. " + \
+					"Batch {b+1}/{B}", end="") # Print information
 				m_b = b*args.batch
 				if b == (B-1): # Last batch
 					Z_b = np.zeros((m - m_b, n), dtype=np.float32)
