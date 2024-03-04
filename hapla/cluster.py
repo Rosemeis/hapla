@@ -87,8 +87,11 @@ def main(args):
 	M = np.zeros((args.max_clusters, args.win), dtype=np.int8) # Medians
 	C = np.zeros((args.max_clusters, args.win), dtype=np.float32) # Means
 	Z_mat = np.zeros((W, n), dtype=np.uint8) # Haplotype cluster alleles
+	if args.plink:
+		R_vec = np.zeros(W, dtype=np.uint8) # Rarest clusters in windows
 	if args.medians:
 		M_dict = {}
+		N_dict = {}
 	if args.loglike:
 		L_dict = {}
 		L = np.zeros((n, args.max_clusters), dtype=np.float32) # Log-likelihoods
@@ -196,10 +199,13 @@ def main(args):
 		cluster_cy.medianFix(M, Z_mat, N_vec, K, w)
 		K = np.sum(N_vec > 0, dtype=int)
 		K_vec[w] = K
+		if args.plink:
+			R_vec[w] = np.argmin(N_vec[:K])
 
 		# Generate optional saves (medians and log-likehoods)
 		if args.medians:
 			M_dict[f"W{w}"] = M[:K].copy()
+			N_dict[f"W{w}"] = N_vec[:K].copy()
 		if args.loglike:
 			cluster_cy.loglikeHaplo(L, X, C, Z_mat, N_vec, K, w, args.threads)
 			L_dict[f"W{w}"] = L[:,:K].copy()
@@ -217,8 +223,10 @@ def main(args):
 	print(f"Saved the number of clusters per window as {args.out}.num_clusters")
 	if args.medians:
 		np.savez(f"{args.out}.medians", **M_dict)
+		np.savez(f"{args.out}.counts", **N_dict)
 		print(f"Saved haplotype cluster medians as {args.out}.medians.npz")
-		del M_dict
+		print(f"Saved haplotype cluster counts as {args.out}.counts.npz")
+		del M_dict, N_dict
 	if args.loglike:
 		np.savez(f"{args.out}.loglike", **L_dict)
 		print(f"Saved haplotype cluster log-likelihoods as {args.out}.loglike.npz")
@@ -231,11 +239,11 @@ def main(args):
 		for variant in v_file: # Extract chromosome name from first entry
 			chrom = re.findall(r'\d+', variant.CHROM)[-1]
 			break
-		K_tot = np.sum(K_vec, dtype=int)
+		K_tot = np.sum(K_vec-1, dtype=int)
 		P_mat = np.zeros((K_tot, 2), dtype=np.int32)
 		Z_vec = np.zeros(n//2, dtype=np.uint8)
 		Z_bin = np.zeros((K_tot, B), dtype=np.uint8)
-		reader_cy.convertPlink(Z_mat, Z_bin, P_mat, Z_vec, K_vec)
+		reader_cy.convertPlink(Z_mat, Z_bin, P_mat, Z_vec, R_vec, K_vec)
 		
 		# Save .bed file including magic numbers
 		with open(f"{args.out}.bed", "w") as bfile:

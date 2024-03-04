@@ -21,6 +21,9 @@ def main(args):
 		"Please provide phased genotype file (--bcf or --vcf)!"
 	assert args.medians is not None, \
 		"Please provide pre-estimated haplotype cluster medians (--medians)!"
+	if args.plink:
+		assert args.counts is not None, \
+			"Please provide pre-estimated haplotype cluster counts (--counts)!"
 	start = time()
 
 	# Control threads of external numerical libraries
@@ -82,6 +85,11 @@ def main(args):
 	assert o_cnt != L, "SNP set does not match between files!"
 	W_vec = np.array(W_vec, dtype=int)
 
+	# Haplotype cluster counts
+	if args.plink:
+		N_npz = np.load(args.counts)
+		R_vec = np.zeros(W, dtype=np.uint8) # Rarest clusters in windows
+
 	# Containers
 	K_vec = np.zeros(W, dtype=np.uint8) # Number of clusters in windows
 	H = np.zeros((L, n), dtype=np.uint8) # Haplotypes
@@ -104,6 +112,8 @@ def main(args):
 		# Cluster assignment
 		shared_cy.predictCluster(X, M, Z_mat, K, w, args.threads)
 		K_vec[w] = K
+		if args.plink:
+			R_vec[w] = np.argmin(N_npz[f"W{w}"])
 	del G
 
 	### Save output
@@ -119,11 +129,11 @@ def main(args):
 			break
 		del v_file
 		B = ceil(n/8)
-		K_tot = np.sum(K_vec, dtype=int)
+		K_tot = np.sum(K_vec-1, dtype=int)
 		P_mat = np.zeros((K_tot, 2), dtype=np.int32)
 		Z_vec = np.zeros(n//2, dtype=np.uint8)
 		Z_bin = np.zeros((K_tot, B), dtype=np.uint8)
-		reader_cy.convertPlink(Z_mat, Z_bin, P_mat, Z_vec, K_vec)
+		reader_cy.convertPlink(Z_mat, Z_bin, P_mat, Z_vec, R_vec, K_vec)
 		
 		# Save .bed file including magic numbers
 		with open(f"{args.out}.bed", "w") as bfile:

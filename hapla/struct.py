@@ -71,16 +71,18 @@ def main(args):
 			else:
 				assert n == Z_mat.shape[1]//2, \
 					"Number of samples differ between cluster files!"
-
-			# Count haplotype cluster alleles
-			K_vec = np.max(Z_mat, axis=1) + 1
-			m = np.sum(K_vec, dtype=int)
 			W = Z_mat.shape[0]
+
+			# Count haplotype cluster alleles and find rarest clusters
+			W_vec = np.zeros(W, dtype=np.uint8)
+			K_vec = np.max(Z_mat, axis=1) + 1
+			shared_cy.findClusters(Z_mat, W_vec, K_vec, args.threads)
+			m = np.sum(K_vec-1, dtype=int)
 
 			# Populate full matrix and estimate cluster frequencies
 			Z = np.zeros((m, n), dtype=np.uint8)
 			p = np.zeros(m, dtype=np.float32)
-			shared_cy.haplotypeAggregate(Z_mat, Z, p, K_vec)
+			shared_cy.haplotypeAggregate(Z_mat, Z, p, W_vec, K_vec)
 			del Z_mat
 
 			# Setup GRM part settings
@@ -147,12 +149,14 @@ def main(args):
 			print(f"\rParsed file {z+1}/{len(Z_list)}", end="")
 		Z_mat = np.concatenate(Z_tmp, axis=0)
 		del Z_tmp
-
-		# Count haplotype cluster alleles
-		K_vec = np.max(Z_mat, axis=1) + 1
-		m = np.sum(K_vec, dtype=int)
 		W = Z_mat.shape[0]
 		n = Z_mat.shape[1]//2
+
+		# Count haplotype cluster alleles and find rarest clusters
+		W_vec = np.zeros(W, dtype=np.uint8)
+		K_vec = np.max(Z_mat, axis=1) + 1
+		shared_cy.findClusters(Z_mat, W_vec, K_vec, args.threads)
+		m = np.sum(K_vec-1, dtype=int)
 
 		# Print information
 		print(f"\rLoaded haplotype cluster assignments:\n" + \
@@ -163,7 +167,7 @@ def main(args):
 		# Populate full matrix and estimate cluster frequencies
 		Z = np.zeros((m, n), dtype=np.uint8)
 		p = np.zeros(m, dtype=np.float32)
-		shared_cy.haplotypeAggregate(Z_mat, Z, p, K_vec)
+		shared_cy.haplotypeAggregate(Z_mat, Z, p, W_vec, K_vec)
 		del Z_mat
 		a = np.power(2.0*p*(1-p), -0.5)
 

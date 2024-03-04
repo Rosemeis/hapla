@@ -80,13 +80,15 @@ def main():
 	parser_predict.add_argument("-g", "--vcf", "--bcf", metavar="FILE",
 		help="Input phased genotype file in VCF/BCF format")
 	parser_predict.add_argument("-m", "--medians", metavar="FILE",
-		help="Input haplotype cluster medians as binary NumPy array")
+		help="Input haplotype cluster medians as binary NumPy arrays")
 	parser_predict.add_argument("-t", "--threads", type=int, default=1,
 		metavar="INT", help="Number of threads (1)")
 	parser_predict.add_argument("-o", "--out", default="hapla.predict",
 		metavar="OUTPUT", help="Output prefix")
 	parser_predict.add_argument("--plink", action="store_true",
 		help="Generate binary PLINK output")
+	parser_predict.add_argument("--counts", metavar="FILE",
+		help="Input haplotype cluster counts as binary NumPy arrays")
 	parser_predict.add_argument("--duplicate-fid", action="store_true",
 		help="Use sample list as family ID (PLINK 1.9 compatibility)")
 
