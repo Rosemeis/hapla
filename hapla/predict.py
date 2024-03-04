@@ -88,6 +88,8 @@ def main(args):
 
 	# Clustering
 	for w in np.arange(W):
+		print(f"\rWindow {w+1}/{W}", end="")
+
 		# Load haplotype window
 		M = M_npz[f"W{w}"]
 		K = M.shape[0] # Number of clusters to evaluate
@@ -105,6 +107,7 @@ def main(args):
 		if args.plink:
 			R_vec[w] = np.argmin(N_npz[f"W{w}"])
 	del G
+	print(".\n")
 
 	# Save output
 	np.save(f"{args.out}.z", Z_mat)
@@ -132,7 +135,7 @@ def main(args):
 		del K_vec, Z_bin, Z_mat, Z_vec
 
 		# Save .bim file
-		tmp = np.array([f"{chrom}_B{args.win}_W{w}_K{k}" for w,k in P_mat])
+		tmp = np.array([f"{chrom}_B{win}_W{w}_K{k}" for w,k in P_mat])
 		bim = np.hstack((np.array([chrom]).repeat(K_tot).reshape(-1,1), \
 			tmp.reshape(-1,1), np.zeros((K_tot, 1), dtype=np.uint8), \
 			np.arange(1, K_tot+1).reshape(-1,1), \
