@@ -102,7 +102,7 @@ cpdef void convertPlink(const unsigned char[:,::1] Z_mat, unsigned char[:,::1] Z
 		int b, i, k, l, w, bit
 		int j = 0
 	for w in range(W):
-		for k in range(1, K_vec[w]):
+		for k in range(K_vec[w]):
 			# Create haplotype cluster alleles
 			for i in range(0, 2*n, 2):
 				l = <int>(i/2.0)
