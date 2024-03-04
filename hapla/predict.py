@@ -82,8 +82,8 @@ def main(args):
 
 	# Containers
 	K_vec = np.zeros(W, dtype=np.uint8) # Number of clusters in windows
-	H = np.zeros((L, n), dtype=np.uint8) # Haplotypes
-	X = np.zeros((n, L), dtype=np.uint8) # Haplotypes transposed
+	H = np.zeros((win, n), dtype=np.uint8) # Haplotypes
+	X = np.zeros((n, win), dtype=np.uint8) # Haplotypes transposed
 	Z_mat = np.zeros((W, n), dtype=np.uint8) # Haplotype cluster alleles
 
 	# Clustering
