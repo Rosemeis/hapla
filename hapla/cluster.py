@@ -19,10 +19,12 @@ def main(args):
 	# Check input
 	assert args.vcf is not None, \
 		"No phased genotype file (--bcf or --vcf)!"
-	assert args.win > 1, "Invalid window size!"
+	assert args.win > 0, "Invalid window size!"
 	assert args.min_freq > 0.0, "Invalid haplotype cluster frequency!"
 	assert args.max_clusters <= 256, "Max allowed clusters exceeded!"
 	if args.overlap is not None:
+		if args.win == 1:
+			args.overlap = 0 
 		assert (args.win % (args.overlap + 1) == 0), \
 			"Invalid number of overlapping windows chosen!"
 	start = time()
