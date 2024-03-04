@@ -39,7 +39,7 @@ def main(args):
 	from hapla import reader_cy
 	from hapla import shared_cy
 
-	### Load data into 2-bit matrix
+	# Load data into 2-bit matrix
 	print("\rLoading VCF/BCF file...", end="")
 	v_file = VCF(args.vcf, threads=args.threads)
 	m = 0
@@ -63,26 +63,16 @@ def main(args):
 
 	# Haplotype cluster medians
 	M_npz = np.load(args.medians)
-	M_cnt = 0 # Counter for SNP check
-	L = M_npz["W0"].shape[1]
-	W = m//L
-	for M in M_npz:
-		M_cnt += M_npz[M].shape[1]
-	assert M_cnt < m, "SNP set does not match between files!"
-	if M_cnt == m:
-		W_vec = [w*L for w in range(W)]
-		print(f"Clustering {W} non-overlapping windows of {L} SNPs.")
+	m_ref, win, W, overlap = list(M_npz["I"])
+	assert m == m_ref, "SNP set does not match between files!"
+
+	# Setup windows
+	if overlap > 0:
+		W_vec = [w*(win//(overlap + 1)) for w in range(W)]
+		print(f"Clustering {W} overlapping windows of {win} SNPs.")
 	else:
-		o_cnt = 1
-		for o in range(1, L):
-			if m == (m + (m//L - 1)*L*o):
-				print(f"Number of overlapping windows per window: {o}")
-				W += (W - 1)*o
-				W_vec = [w*(L//(o + 1)) for w in range(W)]
-				print(f"Clustering {W} overlapping windows of {L} SNPs.")
-				break
-			o_cnt += 1
-	assert o_cnt != L, "SNP set does not match between files!"
+		W_vec = [w*win for w in range(W)]
+		print(f"Clustering {W} non-overlapping windows of {win} SNPs.")
 	W_vec = np.array(W_vec, dtype=int)
 
 	# Haplotype cluster counts
@@ -96,7 +86,7 @@ def main(args):
 	X = np.zeros((n, L), dtype=np.uint8) # Haplotypes transposed
 	Z_mat = np.zeros((W, n), dtype=np.uint8) # Haplotype cluster alleles
 
-	### Clustering
+	# Clustering
 	for w in np.arange(W):
 		# Load haplotype window
 		M = M_npz[f"W{w}"]
@@ -116,7 +106,7 @@ def main(args):
 			R_vec[w] = np.argmin(N_npz[f"W{w}"])
 	del G
 
-	### Save output
+	# Save output
 	np.save(f"{args.out}.z", Z_mat)
 	print(f"Saved predicted haplotype cluster alleles as {args.out}.z.npy")
 	if args.plink:

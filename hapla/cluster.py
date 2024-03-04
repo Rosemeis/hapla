@@ -27,6 +27,8 @@ def main(args):
 			args.overlap = 0 
 		assert (args.win % (args.overlap + 1) == 0), \
 			"Invalid number of overlapping windows chosen!"
+	else:
+		args.overlap = 0
 	start = time()
 
 	# Control threads of external numerical libraries
@@ -42,7 +44,7 @@ def main(args):
 	from hapla import reader_cy
 	from hapla import cluster_cy
 
-	### Load data into 1-bit matrix
+	# Load data into 1-bit matrix
 	print("\rLoading VCF/BCF file...", end="")
 	v_file = VCF(args.vcf, threads=args.threads)
 	m = 0
@@ -68,9 +70,9 @@ def main(args):
 	N_mac = ceil(n*args.min_freq)
 	assert N_mac > 2, "Frequency threshold too low for sample size (--min-freq)!"
 
-	### Setup windows
+	# Setup windows
 	W = m//args.win
-	if args.overlap is not None:
+	if args.overlap > 0:
 		W += (W - 1)*args.overlap
 		W_vec = [w*(args.win//(args.overlap + 1)) for w in range(W)]
 		print(f"Clustering {W} overlapping windows of {args.win} SNPs.")
@@ -79,7 +81,7 @@ def main(args):
 		print(f"Clustering {W} non-overlapping windows of {args.win} SNPs.")
 	W_vec = np.array(W_vec, dtype=int)
 
-	### Containers
+	# Containers
 	c_vec = np.zeros(n, dtype=np.int32) # Cost vector
 	z_pre = np.zeros(n, dtype=np.uint8) # Help vector
 	K_vec = np.zeros(W, dtype=np.uint8) # Number of clusters in windows
@@ -92,13 +94,13 @@ def main(args):
 	if args.plink:
 		R_vec = np.zeros(W, dtype=np.uint8) # Rarest clusters in windows
 	if args.medians:
-		M_dict = {}
+		M_dict = {"I":np.array([m, args.win, W, args.overlap], dtype=int)}
 		N_dict = {}
 	if args.loglike:
 		L_dict = {}
 		L = np.zeros((n, args.max_clusters), dtype=np.float32) # Log-likelihoods
 
-	##### Clustering using DC-DP-Medians #####
+	# Clustering using DC-DP-Medians
 	for w in np.arange(W):
 		if args.verbose:
 			print(f"Window {w+1}/{W}")
@@ -218,7 +220,7 @@ def main(args):
 	if not args.verbose:
 		print(".\n")
 
-	##### Save output #####
+	# Save output
 	np.save(f"{args.out}.z", Z_mat)
 	np.savetxt(f"{args.out}.num_clusters", K_vec, fmt="%i")
 	print(f"Saved haplotype cluster assignments as {args.out}.z.npy")
