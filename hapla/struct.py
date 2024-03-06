@@ -74,15 +74,15 @@ def main(args):
 			W = Z_mat.shape[0]
 
 			# Count haplotype cluster alleles and find rarest clusters
-			W_vec = np.zeros(W, dtype=np.uint8)
+			R_vec = np.zeros(W, dtype=np.uint8)
 			K_vec = np.max(Z_mat, axis=1) + 1
-			shared_cy.findClusters(Z_mat, W_vec, K_vec, args.threads)
+			shared_cy.findClusters(Z_mat, R_vec, K_vec, args.threads)
 			m = np.sum(K_vec-1, dtype=int)
 
 			# Populate full matrix and estimate cluster frequencies
 			Z = np.zeros((m, n), dtype=np.uint8)
 			p = np.zeros(m, dtype=np.float32)
-			shared_cy.haplotypeAggregate(Z_mat, Z, p, W_vec, K_vec)
+			shared_cy.haplotypeAggregate(Z_mat, Z, p, R_vec, K_vec)
 			del Z_mat
 
 			# Setup GRM part settings
@@ -105,7 +105,7 @@ def main(args):
 			if args.no_centering:
 				P += np.sum(p*(1 - p))
 			s_pre = s_bat
-			del a, p, Z, Z_b, K_vec
+			del a, p, Z, Z_b, R_vec, K_vec
 		print(".\n")
 		
 		# Centering
@@ -153,9 +153,9 @@ def main(args):
 		n = Z_mat.shape[1]//2
 
 		# Count haplotype cluster alleles and find rarest clusters
-		W_vec = np.zeros(W, dtype=np.uint8)
+		R_vec = np.zeros(W, dtype=np.uint8)
 		K_vec = np.max(Z_mat, axis=1) + 1
-		shared_cy.findClusters(Z_mat, W_vec, K_vec, args.threads)
+		shared_cy.findClusters(Z_mat, R_vec, K_vec, args.threads)
 		m = np.sum(K_vec-1, dtype=int)
 
 		# Print information
@@ -167,8 +167,8 @@ def main(args):
 		# Populate full matrix and estimate cluster frequencies
 		Z = np.zeros((m, n), dtype=np.uint8)
 		p = np.zeros(m, dtype=np.float32)
-		shared_cy.haplotypeAggregate(Z_mat, Z, p, W_vec, K_vec)
-		del Z_mat
+		shared_cy.haplotypeAggregate(Z_mat, Z, p, R_vec, K_vec)
+		del Z_mat, R_vec, K_vec
 		a = np.power(2.0*p*(1-p), -0.5)
 
 		# Randomized SVD
