@@ -6,7 +6,7 @@ from cython.parallel import prange, parallel
 ##### hapla - analyses on haplotype cluster assignments #####
 ### hapla struct
 # Find rarest cluster in each window
-cpdef void findClusters(const unsigned char[:,::1] Z_mat, unsigned char[::1] W_vec, \
+cpdef void findRare(const unsigned char[:,::1] Z_mat, unsigned char[::1] R_vec, \
 		const unsigned char[::1] K_vec, int t) noexcept nogil:
 	cdef:
 		int W = Z_mat.shape[0]
@@ -21,11 +21,11 @@ cpdef void findClusters(const unsigned char[:,::1] Z_mat, unsigned char[::1] W_v
 					k_min = k_min + 1
 			if k_min < k_cnt: # Set rarest cluster
 				k_cnt = k_min
-				W_vec[w] = k
+				R_vec[w] = k
 
 # Extract aggregated haplotype cluster counts
 cpdef void haplotypeAggregate(const unsigned char[:,::1] Z_mat, \
-		unsigned char[:,::1] Z, float[::1] p, const unsigned char[::1] W_vec, \
+		unsigned char[:,::1] Z, float[::1] p, const unsigned char[::1] R_vec, \
 		const unsigned char[::1] K_vec) noexcept nogil:
 	cdef:
 		int W = Z_mat.shape[0]
@@ -35,7 +35,7 @@ cpdef void haplotypeAggregate(const unsigned char[:,::1] Z_mat, \
 		float d = 1.0/<float>n
 	for w in range(W):
 		for k in range(K_vec[w]):
-			if k != W_vec[w]: # Skip rarest cluster
+			if k != R_vec[w]: # Skip rarest cluster
 				for i in range(n):
 					if Z_mat[w,i] == k:
 						Z[j,i//2] += 1

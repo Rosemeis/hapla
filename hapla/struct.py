@@ -76,7 +76,7 @@ def main(args):
 			# Count haplotype cluster alleles and find rarest clusters
 			R_vec = np.zeros(W, dtype=np.uint8)
 			K_vec = np.max(Z_mat, axis=1) + 1
-			shared_cy.findClusters(Z_mat, R_vec, K_vec, args.threads)
+			shared_cy.findRare(Z_mat, R_vec, K_vec, args.threads)
 			m = np.sum(K_vec-1, dtype=int)
 
 			# Populate full matrix and estimate cluster frequencies
@@ -155,7 +155,7 @@ def main(args):
 		# Count haplotype cluster alleles and find rarest clusters
 		R_vec = np.zeros(W, dtype=np.uint8)
 		K_vec = np.max(Z_mat, axis=1) + 1
-		shared_cy.findClusters(Z_mat, R_vec, K_vec, args.threads)
+		shared_cy.findRare(Z_mat, R_vec, K_vec, args.threads)
 		m = np.sum(K_vec-1, dtype=int)
 
 		# Print information
