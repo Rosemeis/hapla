@@ -12,7 +12,7 @@ from time import time
 ##### hapla struct #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.5)")
+	print("hapla by Jonas Meisner (v0.6)")
 	print(f"hapla struct using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 
@@ -67,7 +67,6 @@ def main(args):
 			if z == 0:
 				n = Z_mat.shape[1]//2
 				G = np.zeros((n, n), dtype=np.float32)
-				K = n*(n+1)//2
 			else:
 				assert n == Z_mat.shape[1]//2, \
 					"Number of samples differ between cluster files!"

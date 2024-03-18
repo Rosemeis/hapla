@@ -1,4 +1,4 @@
-# hapla (v0.5)
+# hapla (v0.6)
 ***hapla*** is a framework for performing window-based haplotype clustering in phased genotype data. The inferred haplotype cluster alleles can be used to infer fine-scale population structure, perform polygenic prediction and haplotype cluster based association studies.
 
 ### Citation
@@ -17,15 +17,16 @@ pip3 install .
 Coming soon.
 
 ## Quick start
-***hapla*** contains the following subcommands:
+***hapla*** contains the following subcommands at this moment:
 - cluster
 - struct
 - predict
+- score
 
 
 ### Haplotype clustering
 **hapla cluster**
-Haplotype clustering is performed on a phased VCF/BCF.
+Window-based haplotype clustering in a phased VCF/BCF.
 ```bash
 # Cluster haplotypes in a chromosome with default window size (8 SNPs)
 hapla cluster --bcf pop.chr1.bcf --threads 16 --out hapla.chr1
@@ -39,7 +40,7 @@ do
 done
 ```
 
-Optionally, the haplotype cluster alleles can be saved in binary PLINK format for ease of use with other software.
+Optionally, the haplotype cluster alleles can be saved in binary PLINK format for ease of use with other software. Be aware that one allele is removed from each window to prevent identifiability issues (rarest allele removed).
 ```bash
 hapla cluster --bcf pop.chr1.bcf --threads 16 --out hapla.chr1 --plink
 # Saves inferred haplotype cluster alleles in a binary PLINK format
@@ -48,9 +49,9 @@ hapla cluster --bcf pop.chr1.bcf --threads 16 --out hapla.chr1 --plink
 #	- hapla.chr1.fam
 ```
 
-### Population structure inference
+### GRM estimation and population structure inference
 **hapla struct**
-Inferring population structure using the haplotype cluster alleles.
+Estimate genome-wide relationship matrix (GRM) and infer population structure using the haplotype cluster alleles.
 ```bash
 # Construct genome-wide relationship matrix (GRM)
 hapla struct --filelist hapla.filelist --threads 16 --grm --out hapla --iid pop.samples

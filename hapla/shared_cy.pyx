@@ -89,3 +89,35 @@ cpdef void predictCluster(const unsigned char[:,::1] X, const signed char[:,::1]
 				Z[w,i] = k # Cluster assignment
 				m_val = dist
 					
+
+
+### hapla score
+# Extract aggregated haplotype cluster counts in PRS
+cpdef void scoreAggregate(const unsigned char[:,::1] Z_mat, \
+		unsigned char[:,::1] Z, const unsigned char[::1] R_vec, \
+		const unsigned char[::1] K_vec) noexcept nogil:
+	cdef:
+		int W = Z_mat.shape[0]
+		int n = Z_mat.shape[1]
+		int j = 0
+		int i, k, w
+	for w in range(W):
+		for k in range(K_vec[w]):
+			if k != R_vec[w]: # Skip rarest cluster
+				for i in range(n):
+					if Z_mat[w,i] == k:
+						Z[j,i//2] += 1
+				j += 1
+
+# Standardize the batch haplotype cluster assignment matrix in PRS
+cpdef void scoreZ(const unsigned char[:,::1] Z, float[:,::1] Z_b, const float[::1] p, \
+		const float[::1] a, const int m_b, const int M_z, const int t) noexcept nogil:
+	cdef:
+		int m = Z_b.shape[0]
+		int n = Z_b.shape[1]
+		int i, j, j_b, j_z
+	for j in prange(m, num_threads=t):
+		j_b = m_b+j
+		j_z = M_z+j
+		for i in range(n):
+			Z_b[j,i] = (Z[j_b,i] - 2*p[j_z])*a[j_z]

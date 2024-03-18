@@ -59,7 +59,7 @@ def main():
 	parser_struct.add_argument("--grm", action="store_true",
 		help="Estimate genome-wide relationship matrix (GRM)")
 	parser_struct.add_argument("--alpha", type=float, default=0.0,
-		metavar="FLOAT", help="Alpha scaling parameter in GRM (0.0)")
+		metavar="FLOAT", help="Alpha scaling parameter (0.0)")
 	parser_struct.add_argument("--batch", type=int, default=8192,
 		metavar="INT", help="Number of cluster alleles in batches (8192)")
 	parser_struct.add_argument("--no-centering", action="store_true",
@@ -91,6 +91,25 @@ def main():
 		help="Input haplotype cluster counts as binary NumPy arrays")
 	parser_predict.add_argument("--duplicate-fid", action="store_true",
 		help="Use sample list as family ID (PLINK 1.9 compatibility)")
+	
+	# hapla score
+	parser_score = subparsers.add_parser("score")
+	parser_score.add_argument("-f", "--filelist", metavar="FILE",
+		help="Filelist with paths to haplotype cluster alleles files")
+	parser_score.add_argument("-z", "--clusters", metavar="FILE",
+		help="Path to a single haplotype cluster alleles file")
+	parser_score.add_argument("-b", "--blups", metavar="FILE",
+		help="Path to BLUP file")
+	parser_score.add_argument("-e", "--effects", metavar="FILE",
+		help="Path to file of pre-computed cluster effects")
+	parser_score.add_argument("-t", "--threads", type=int, default=1,
+		metavar="INT", help="Number of threads (1)")
+	parser_score.add_argument("-o", "--out", default="hapla.score",
+		metavar="OUTPUT", help="Output prefix")
+	parser_score.add_argument("--predict", action="store_true",
+		help="Predict BLUPs using haplotype clusters")
+	parser_score.add_argument("--alpha", type=float, default=0.0,
+		metavar="FLOAT", help="Alpha scaling parameter (0.0)")
 
 	# Parse arguments
 	args = parser.parse_args()
@@ -125,6 +144,15 @@ def main():
 		else:
 			from hapla import predict
 			predict.main(args)
+
+	# hapla score
+	if sys.argv[1] == "score":
+		if len(sys.argv) < 3:
+			parser_score.print_help()
+			sys.exit()
+		else:
+			from hapla import score
+			score.main(args)
 
 
 
