@@ -64,6 +64,7 @@ def main(args):
 		reader_cy.readVar(G, V, j, n//2)
 		j += 1
 	del V
+	t_dat = time()-start
 	print(f"\rLoaded phased genotype data: {n} haplotypes and {m} SNPs.")
 
 	# Check haplotype cluster frequency
@@ -279,7 +280,10 @@ def main(args):
 			f"- {args.out}.fam")
 		del fam, s_list
 
-	# Print elapsed time for estimation
+	# Print elapsed time for parsing and total computation
+	t_min = int(t_dat//60)
+	t_sec = int(t_dat - t_min*60)
+	print(f"Total parsing time: {t_min}m{t_sec}s")
 	t_tot = time()-start
 	t_min = int(t_tot//60)
 	t_sec = int(t_tot - t_min*60)

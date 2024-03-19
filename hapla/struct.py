@@ -222,7 +222,7 @@ def main(args):
 		print(f"Saved eigenvectors as {args.out}.eigenvec")
 		print(f"Saved eigenvalues as {args.out}.eigenval\n")
 
-	# Print elapsed time for estimation
+	# Print elapsed time for computation
 	t_tot = time()-start
 	t_min = int(t_tot//60)
 	t_sec = int(t_tot - t_min*60)

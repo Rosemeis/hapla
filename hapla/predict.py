@@ -158,7 +158,7 @@ def main(args):
 			f"- {args.out}.fam")
 		del fam, s_list
 
-	# Print elapsed time for estimation
+	# Print elapsed time for computation
 	t_tot = time()-start
 	t_min = int(t_tot//60)
 	t_sec = int(t_tot - t_min*60)
