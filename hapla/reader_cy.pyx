@@ -63,7 +63,7 @@ cpdef void convertBit(unsigned char[:,::1] G, unsigned char[:,::1] H, \
 			byte = G[w0+j,b]
 			for bit in range(8):
 				H[j,i] = byte & mask
-				C[0,j] = C[0,j] + H[j,i]
+				C[0,j] += H[j,i]
 				byte = byte >> 1 # Right shift 1 bit
 				i += 1
 				if i == n:

@@ -1,21 +1,20 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, initializedcheck=False, cdivision=True
 import numpy as np
 cimport numpy as np
-from cython.parallel import prange, parallel
-from cpython.mem cimport PyMem_RawCalloc, PyMem_RawFree
+from cython.parallel import prange
 from libc.math cimport log
 
 ##### hapla - haplotype clustering #####
 # Create marginal medians
-cpdef void marginalMedians(signed char[:,::1] M, float[:,::1] C, const int[::1] N, \
+cpdef void marginalMedians(signed char[:,::1] M, float[:,::1] C, const int[::1] N_vec, \
 		const int K) noexcept nogil:
 	cdef:
 		int m = M.shape[1]
 		int j, k
 		float Nk
 	for k in range(K):
-		if N[k] > 0:
-			Nk = 1.0/<float>N[k]
+		if N_vec[k] > 0:
+			Nk = 1.0/<float>N_vec[k]
 			for j in range(m):
 				C[k,j] = C[k,j]*Nk
 				M[k,j] = <signed char>(C[k,j] > 0.5)
@@ -23,22 +22,26 @@ cpdef void marginalMedians(signed char[:,::1] M, float[:,::1] C, const int[::1] 
 
 # Compute distances, cluster assignment and prepare for next loop
 cpdef void clusterAssignment(const unsigned char[:,::1] X, const signed char[:,::1] M, \
-		float[:,::1] C, unsigned char[:,::1] Z, int[::1] c, const int[::1] N, \
-		const int K, const int w, const int t):
+		unsigned char[:,::1] Z, int[::1] c_vec, const int[::1] N_vec, \
+		const int[:,::1] I_thr, int[:,::1] N_thr, float[:,:,::1] C_thr, const int K, \
+		const int w, const int t) noexcept nogil:
 	cdef:
 		int n = X.shape[0]
 		int m = X.shape[1]
-		int i, j, k, k2, j2, dist, m_val
-		float* tmp
-	with nogil, parallel(num_threads=t):
-		tmp = <float*>PyMem_RawCalloc(K*m, sizeof(float))
-		
+		int i, j, k, thr, dist
+	for thr in prange(t, num_threads=t, schedule="static", chunksize=1):
+		# Reset thread-local arrays
+		for k in range(K):
+			N_thr[thr,k] = 0
+			for j in range(m):
+				C_thr[thr,k,j] = 0.0
+
 		# Cluster haplotypes
-		for i in prange(n):
-			m_val = m
+		for i in range(I_thr[thr,0], I_thr[thr,1]):
+			c_vec[i] = m
 			for k in range(K):
 				# Distances
-				if N[k] > 0:
+				if N_vec[k] > 0:
 					dist = 0
 					for j in range(m):
 						if X[i,j] != M[k,j]:
@@ -46,60 +49,41 @@ cpdef void clusterAssignment(const unsigned char[:,::1] X, const signed char[:,:
 				else:
 					dist = m
 				# Assignment
-				if dist < m_val:
-					Z[w,i] = k # Cluster assignment
-					m_val = dist
-			c[i] = m_val # Per individual cost
+				if dist < c_vec[i]:
+					Z[w,i] = k
+					c_vec[i] = dist
 
-			# Add individual contributions to thread local array
+			# Add individual contributions to thread local arrays
+			N_thr[thr,Z[w,i]] = N_thr[thr,Z[w,i]] + 1
 			for j in range(m):
-				tmp[Z[w,i]*m + j] = tmp[Z[w,i]*m + j] + <float>X[i,j]
-
-		# Construct new centroids (unnormalized)
-		with gil:
-			for k2 in range(K):
-				for j2 in range(m):
-					C[k2,j2] += tmp[k2*m + j2]
-		
-		# Deallocate thread-local arrays
-		PyMem_RawFree(tmp)
-
-# Count size of clusters
-cpdef void countN(const unsigned char[:,::1] Z, int[::1] N, const int K, const int w) \
-		noexcept nogil:
-	cdef:
-		int n = Z.shape[1]
-		int i, k
-	for k in range(K):
-		N[k] = 0
-	for i in range(n):
-		N[Z[w,i]] += 1
+				C_thr[thr,Z[w,i],j] = C_thr[thr,Z[w,i],j] + X[i,j]
 
 # Find non-zero cluster with least assignments
-cpdef int findZero(int[::1] N, const int n, const int thr, const int K) noexcept nogil:
+cpdef int findZero(int[::1] N_vec, const int n, const int mac, const int K) \
+		noexcept nogil:
 	cdef:
 		int k
 		int minI = 0
 		int minN = n
 	for k in range(K):
-		if N[k] > 0:
-			if N[k] <= minN:
+		if N_vec[k] > 0:
+			if N_vec[k] <= minN:
 				minI = k
-				minN = N[k]
-	if minN < thr:
-		N[minI] = 0
+				minN = N_vec[k]
+	if minN < mac:
+		N_vec[minI] = 0
 	return minN
 
 # Fix index of medians
 cpdef void medianFix(signed char[:,::1] M, unsigned char[:,::1] Z, \
-		int[::1] N, const int K, const int w) noexcept nogil:
+		int[::1] N_vec, const int K, const int w) noexcept nogil:
 	cdef:
 		int m = M.shape[1]
 		int n = Z.shape[1]
 		int i, j, k
 		int c = 0
 	for k in range(K):
-		if N[k] > 0:
+		if N_vec[k] > 0:
 			if k != c:
 				for j in range(m):
 					M[c,j] = M[k,j]
@@ -107,8 +91,8 @@ cpdef void medianFix(signed char[:,::1] M, unsigned char[:,::1] Z, \
 				for i in range(n):
 					if Z[w,i] == k:
 						Z[w,i] = c
-				N[c] = N[k]
-				N[k] = 0
+				N_vec[c] = N_vec[k]
+				N_vec[k] = 0
 			c += 1
 		else:
 			for j in range(m):
@@ -116,7 +100,7 @@ cpdef void medianFix(signed char[:,::1] M, unsigned char[:,::1] Z, \
 
 # Generate haplotype log-likelihoods (Bernoulli)
 cpdef void loglikeHaplo(float[:,::1] L, const unsigned char[:,::1] X, float[:,::1] C, \
-		const unsigned char[:,::1] Z, const int[::1] N, const int K, const int w, \
+		const unsigned char[:,::1] Z, const int[::1] N_vec, const int K, const int w, \
 		const int t) noexcept nogil:
 	cdef:
 		int n = X.shape[0]
@@ -125,7 +109,7 @@ cpdef void loglikeHaplo(float[:,::1] L, const unsigned char[:,::1] X, float[:,::
 		float p
 	for i in range(n):
 		for j in range(m):
-			C[Z[w,i],j] += (<float>X[i,j])/(<float>N[Z[w,i]])
+			C[Z[w,i],j] += (<float>X[i,j])/(<float>N_vec[Z[w,i]])
 	for i in prange(n, num_threads=t):
 		for k in range(K):
 			L[i,k] = 0.0
