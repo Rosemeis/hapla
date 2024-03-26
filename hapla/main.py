@@ -58,8 +58,6 @@ def main():
 		metavar="OUTPUT", help="Output prefix")
 	parser_struct.add_argument("--grm", action="store_true",
 		help="Estimate genome-wide relationship matrix (GRM)")
-	parser_struct.add_argument("--alpha", type=float, default=0.0,
-		metavar="FLOAT", help="Alpha scaling parameter (0.0)")
 	parser_struct.add_argument("--batch", type=int, default=8192,
 		metavar="INT", help="Number of cluster alleles in batches (8192)")
 	parser_struct.add_argument("--no-centering", action="store_true",

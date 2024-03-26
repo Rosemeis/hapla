@@ -25,8 +25,6 @@ def main(args):
 		assert args.iid is not None, "Provide sample list for GCTA format (--iid)!"
 	if args.pca is not None:
 		assert args.pca > 0, "Please select a valid number of eigenvectors!"
-	if args.no_centering:
-		assert args.alpha == 0.0, "VanRaden scaling requires alpha = 0.0!"
 	start = time()
 
 	# Control threads of external numerical libraries
@@ -83,11 +81,11 @@ def main(args):
 			Z = np.zeros((m, n), dtype=np.uint8)
 			p = np.zeros(m, dtype=np.float32)
 			shared_cy.haplotypeAggregate(Z_mat, Z, p, R_vec, K_vec)
-			del Z_mat
+			del Z_mat, R_vec, K_vec
 
 			# Setup GRM part settings
 			B = ceil(m/args.batch) # Number of batches
-			a = np.power(2*p*(1-p), 0.5*args.alpha)
+			a = np.ones(m, dtype=np.float32)
 			Z_b = np.zeros((args.batch, n), dtype=np.float32)
 
 			# Estimate GRM part in batches
@@ -102,18 +100,15 @@ def main(args):
 				# Aggregate across batches
 				G += np.dot(Z_b.T, Z_b)
 			M += m
-			if args.no_centering:
-				P += np.sum(p*(1 - p))
+			P += np.sum(p*(1 - p))
 			s_pre = s_bat
-			del a, p, Z, Z_b, R_vec, K_vec
+			del a, p, Z, Z_b
+		G *= (1.0/(2.0*P)) # VanRaden scaling
 		print(".\n")
 		
 		# Centering
-		if args.no_centering:
-			G *= (1.0/(2.0*P)) # VanRaden scaling
-		else:
+		if not args.no_centering:
 			print("Centering GRM.")
-			G *= (1.0/float(M))
 			u = np.mean(G, axis=1)
 			G -= u.reshape(1, n)
 			u = np.mean(G, axis=1)
@@ -126,7 +121,7 @@ def main(args):
 		# Save matrix
 		G = G[np.tril_indices(n)]
 		G.tofile(f"{args.out}.grm.bin")
-		np.full(n*(n+1)//2, m, dtype=np.float32).tofile(f"{args.out}.grm.N.bin")
+		np.full(n*(n+1)//2, M, dtype=np.float32).tofile(f"{args.out}.grm.N.bin")
 		iid = np.loadtxt(f"{args.iid}", dtype=np.str_).reshape(-1,1)
 		if args.fid is not None:
 			fid = np.loadtxt(f"{args.fid}", dtype=np.str_).reshape(-1,1)
