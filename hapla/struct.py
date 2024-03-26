@@ -37,6 +37,7 @@ def main(args):
 
 	# Import numerical libraries and cython functions
 	import numpy as np
+	from math import ceil
 	from scipy.sparse.linalg import svds
 	from hapla import functions
 	from hapla import shared_cy
@@ -85,7 +86,7 @@ def main(args):
 			del Z_mat
 
 			# Setup GRM part settings
-			B = m//args.batch # Number of batches
+			B = ceil(m/args.batch) # Number of batches
 			a = np.power(2*p*(1-p), 0.5*args.alpha)
 			Z_b = np.zeros((args.batch, n), dtype=np.float32)
 
