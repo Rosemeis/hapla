@@ -82,8 +82,7 @@ cpdef void predictCluster(const unsigned char[:,::1] X, const signed char[:,::1]
 			dist = 0
 			for j in range(m):
 				if X[i,j] != 9: # Ignore missing
-					if X[i,j] != M[k,j]:
-						dist = dist + 1
+					dist = dist + (X[i,j] ^ M[k,j])
 			# Assignment
 			if dist < m_val:
 				Z[w,i] = k # Cluster assignment
