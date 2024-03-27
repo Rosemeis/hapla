@@ -18,7 +18,6 @@ cpdef void marginalMedians(signed char[:,::1] M, float[:,::1] C, const int[::1] 
 			for j in range(m):
 				C[k,j] = C[k,j]*Nk
 				M[k,j] = <signed char>(C[k,j] > 0.5)
-				C[k,j] = 0.0
 
 # Compute distances, cluster assignment and prepare for next loop
 cpdef void clusterAssignment(const unsigned char[:,::1] X, const signed char[:,::1] M, \
@@ -44,8 +43,7 @@ cpdef void clusterAssignment(const unsigned char[:,::1] X, const signed char[:,:
 				if N_vec[k] > 0:
 					dist = 0
 					for j in range(m):
-						if X[i,j] != M[k,j]:
-							dist = dist + 1
+						dist = dist + (X[i,j] ^ M[k,j])
 				else:
 					dist = m
 				# Assignment
@@ -76,7 +74,7 @@ cpdef int findZero(int[::1] N_vec, const int n, const int mac, const int K) \
 
 # Fix index of medians
 cpdef void medianFix(signed char[:,::1] M, unsigned char[:,::1] Z, \
-		int[::1] N_vec, const int K, const int w) noexcept nogil:
+		int[::1] N_vec, const int K, const int w, const int t) noexcept nogil:
 	cdef:
 		int m = M.shape[1]
 		int n = Z.shape[1]
@@ -88,7 +86,7 @@ cpdef void medianFix(signed char[:,::1] M, unsigned char[:,::1] Z, \
 				for j in range(m):
 					M[c,j] = M[k,j]
 					M[k,j] = -9
-				for i in range(n):
+				for i in prange(n, num_threads=t):
 					if Z[w,i] == k:
 						Z[w,i] = c
 				N_vec[c] = N_vec[k]

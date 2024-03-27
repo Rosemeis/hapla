@@ -152,9 +152,9 @@ def main(args):
 				M[K,:] = X[c_arg,:]
 				C[K,:] = X[c_arg,:]
 				C[Z[w,c_arg],:] -= X[c_arg,:]
+				N_vec[K] = 1
 				N_vec[Z[w,c_arg]] -= 1
 				Z[w,c_arg] = K
-				N_vec[Z[w,c_arg]] = 1
 				K += 1
 
 			# Check for convergence
@@ -218,7 +218,7 @@ def main(args):
 						f"{N_min}/{N_mac}.")
 
 		# Fix cluster median and cluster assignment order
-		cluster_cy.medianFix(M, Z, N_vec, K, w)
+		cluster_cy.medianFix(M, Z, N_vec, K, w, args.threads)
 		K = np.sum(N_vec > 0, dtype=int)
 		K_vec[w] = K
 		if args.plink:
