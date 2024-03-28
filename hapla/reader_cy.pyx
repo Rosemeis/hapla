@@ -93,8 +93,8 @@ cpdef void predictBit(const unsigned char[:,::1] G, unsigned char[:,::1] H, \
 
 ### Convert haplotype cluster alleles to 2-bit PLINK format
 cpdef void convertPlink(const unsigned char[:,::1] Z_mat, unsigned char[:,::1] Z_bin, \
-		int[:,::1] P_mat, unsigned char[::1] Z_vec, const unsigned char[::1] R_vec, \
-		const unsigned char[::1] K_vec) noexcept nogil:
+		int[:,::1] P_mat, unsigned char[::1] Z_vec, const unsigned char[::1] K_vec) \
+		noexcept nogil:
 	cdef:
 		int W = Z_mat.shape[0]
 		int n = Z_mat.shape[1]//2
@@ -103,35 +103,34 @@ cpdef void convertPlink(const unsigned char[:,::1] Z_mat, unsigned char[:,::1] Z
 		int j = 0
 	for w in range(W):
 		for k in range(K_vec[w]):
-			if k != R_vec[w]: # Skip rarest cluster
-				# Create haplotype cluster alleles
-				for i in range(0, 2*n, 2):
-					l = <int>(i/2.0)
-					Z_vec[l] = 0
-					if Z_mat[w,i] == k:
-						Z_vec[l] += 1
-					if Z_mat[w,i+1] == k:
-						Z_vec[l] += 1
+			# Create haplotype cluster alleles
+			for i in range(0, 2*n, 2):
+				l = <int>(i/2.0)
+				Z_vec[l] = 0
+				if Z_mat[w,i] == k:
+					Z_vec[l] += 1
+				if Z_mat[w,i+1] == k:
+					Z_vec[l] += 1
 
-				# Save in 2-bit form with bit-wise operations
-				i = 0
-				for b in range(B):
-					for bit in range(0, 8, 2):
-						if Z_vec[i] == 0:
-							Z_bin[j,b] |= (1<<bit)
-							Z_bin[j,b] |= (1<<(bit+1))
-						if Z_vec[i] == 1:
-							Z_bin[j,b] |= (1<<(bit+1))
+			# Save in 2-bit form with bit-wise operations
+			i = 0
+			for b in range(B):
+				for bit in range(0, 8, 2):
+					if Z_vec[i] == 0:
+						Z_bin[j,b] |= (1<<bit)
+						Z_bin[j,b] |= (1<<(bit+1))
+					if Z_vec[i] == 1:
+						Z_bin[j,b] |= (1<<(bit+1))
 
-						# Increase counter and check for break
-						i += 1
-						if i == n:
-							break
-				
-				# Save window and cluster information
-				P_mat[j,0] = w + 1
-				P_mat[j,1] = k + 1
-				j += 1
+					# Increase counter and check for break
+					i += 1
+					if i == n:
+						break
+			
+			# Save window and cluster information
+			P_mat[j,0] = w + 1
+			P_mat[j,1] = k + 1
+			j += 1
 
 ### Convert 2-bit into standardized genotype array for phenotypes
 cpdef void phenoPlink(const unsigned char[:,::1] G_mat, double[:,::1] G, \

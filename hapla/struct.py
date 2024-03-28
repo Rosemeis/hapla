@@ -72,16 +72,14 @@ def main(args):
 			W = Z_mat.shape[0]
 
 			# Count haplotype cluster alleles and find rarest clusters
-			R_vec = np.zeros(W, dtype=np.uint8)
 			K_vec = np.max(Z_mat, axis=1) + 1
-			shared_cy.findRare(Z_mat, R_vec, K_vec, args.threads)
-			m = np.sum(K_vec-1, dtype=int)
+			m = np.sum(K_vec, dtype=int)
 
 			# Populate full matrix and estimate cluster frequencies
 			Z = np.zeros((m, n), dtype=np.uint8)
 			p = np.zeros(m, dtype=np.float32)
-			shared_cy.haplotypeAggregate(Z_mat, Z, p, R_vec, K_vec)
-			del Z_mat, R_vec, K_vec
+			shared_cy.haplotypeAggregate(Z_mat, Z, p, K_vec)
+			del Z_mat, K_vec
 
 			# Setup GRM part settings
 			B = ceil(m/args.batch) # Number of batches
@@ -100,10 +98,9 @@ def main(args):
 				# Aggregate across batches
 				G += np.dot(Z_b.T, Z_b)
 			M += m
-			P += np.sum(p*(1 - p))
 			s_pre = s_bat
 			del a, p, Z, Z_b
-		G *= (1.0/(2.0*P)) # VanRaden scaling
+		G *= (1.0/M)
 		print(".\n")
 		
 		# Centering
@@ -147,11 +144,9 @@ def main(args):
 		W = Z_mat.shape[0]
 		n = Z_mat.shape[1]//2
 
-		# Count haplotype cluster alleles and find rarest clusters
-		R_vec = np.zeros(W, dtype=np.uint8)
+		# Count haplotype cluster alleles
 		K_vec = np.max(Z_mat, axis=1) + 1
-		shared_cy.findRare(Z_mat, R_vec, K_vec, args.threads)
-		m = np.sum(K_vec-1, dtype=int)
+		m = np.sum(K_vec, dtype=int)
 
 		# Print information
 		print(f"\rLoaded haplotype cluster assignments:\n" + \
@@ -162,8 +157,8 @@ def main(args):
 		# Populate full matrix and estimate cluster frequencies
 		Z = np.zeros((m, n), dtype=np.uint8)
 		p = np.zeros(m, dtype=np.float32)
-		shared_cy.haplotypeAggregate(Z_mat, Z, p, R_vec, K_vec)
-		del Z_mat, R_vec, K_vec
+		shared_cy.haplotypeAggregate(Z_mat, Z, p, K_vec, K_vec)
+		del Z_mat, K_vec
 		a = np.power(2.0*p*(1-p), -0.5)
 
 		# Randomized SVD

@@ -5,28 +5,10 @@ from cython.parallel import prange, parallel
 
 ##### hapla - analyses on haplotype cluster assignments #####
 ### hapla struct
-# Find rarest cluster in each window
-cpdef void findRare(const unsigned char[:,::1] Z_mat, unsigned char[::1] R_vec, \
-		const unsigned char[::1] K_vec, int t) noexcept nogil:
-	cdef:
-		int W = Z_mat.shape[0]
-		int n = Z_mat.shape[1]
-		int i, k, w, k_cnt, k_min
-	for w in prange(W, num_threads=t):
-		k_cnt = n
-		for k in range(K_vec[w]):
-			k_min = 0
-			for i in range(n):
-				if Z_mat[w,i] == k:
-					k_min = k_min + 1
-			if k_min < k_cnt: # Set rarest cluster
-				k_cnt = k_min
-				R_vec[w] = k
-
 # Extract aggregated haplotype cluster counts
 cpdef void haplotypeAggregate(const unsigned char[:,::1] Z_mat, \
-		unsigned char[:,::1] Z, float[::1] p, const unsigned char[::1] R_vec, \
-		const unsigned char[::1] K_vec) noexcept nogil:
+		unsigned char[:,::1] Z, float[::1] p, const unsigned char[::1] K_vec) \
+		noexcept nogil:
 	cdef:
 		int W = Z_mat.shape[0]
 		int n = Z_mat.shape[1]
@@ -35,13 +17,12 @@ cpdef void haplotypeAggregate(const unsigned char[:,::1] Z_mat, \
 		float d = 1.0/<float>n
 	for w in range(W):
 		for k in range(K_vec[w]):
-			if k != R_vec[w]: # Skip rarest cluster
-				for i in range(n):
-					if Z_mat[w,i] == k:
-						Z[j,i//2] += 1
-						p[j] += 1.0
-				p[j] *= d
-				j += 1
+			for i in range(n):
+				if Z_mat[w,i] == k:
+					Z[j,i//2] += 1
+					p[j] += 1.0
+			p[j] *= d
+			j += 1
 
 # Standardize the batch haplotype cluster assignment matrix
 cpdef void batchZ(const unsigned char[:,::1] Z, float[:,::1] Z_b, const float[::1] p, \
@@ -93,8 +74,8 @@ cpdef void predictCluster(const unsigned char[:,::1] X, const signed char[:,::1]
 ### hapla score
 # Extract aggregated haplotype cluster counts in PRS
 cpdef void scoreAggregate(const unsigned char[:,::1] Z_mat, \
-		unsigned char[:,::1] Z, const unsigned char[::1] R_vec, \
-		const unsigned char[::1] K_vec) noexcept nogil:
+		unsigned char[:,::1] Z, const unsigned char[::1] K_vec) \
+		noexcept nogil:
 	cdef:
 		int W = Z_mat.shape[0]
 		int n = Z_mat.shape[1]
@@ -102,11 +83,10 @@ cpdef void scoreAggregate(const unsigned char[:,::1] Z_mat, \
 		int i, k, w
 	for w in range(W):
 		for k in range(K_vec[w]):
-			if k != R_vec[w]: # Skip rarest cluster
-				for i in range(n):
-					if Z_mat[w,i] == k:
-						Z[j,i//2] += 1
-				j += 1
+			for i in range(n):
+				if Z_mat[w,i] == k:
+					Z[j,i//2] += 1
+			j += 1
 
 # Standardize the batch haplotype cluster assignment matrix in PRS
 cpdef void scoreZ(const unsigned char[:,::1] Z, float[:,::1] Z_b, const float[::1] p, \
