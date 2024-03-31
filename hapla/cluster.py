@@ -218,8 +218,6 @@ def main(args):
 		cluster_cy.medianFix(M, Z, N_vec, K, w, args.threads)
 		K = np.sum(N_vec > 0, dtype=int)
 		K_vec[w] = K
-		if args.plink:
-			R_vec[w] = np.argmin(N_vec[:K])
 
 		# Generate optional saves (medians and log-likehoods)
 		if args.medians:
