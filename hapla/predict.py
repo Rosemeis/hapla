@@ -21,9 +21,6 @@ def main(args):
 		"Please provide phased genotype file (--bcf or --vcf)!"
 	assert args.medians is not None, \
 		"Please provide pre-estimated haplotype cluster medians (--medians)!"
-	if args.plink:
-		assert args.counts is not None, \
-			"Please provide pre-estimated haplotype cluster counts (--counts)!"
 	start = time()
 
 	# Control threads of external numerical libraries
