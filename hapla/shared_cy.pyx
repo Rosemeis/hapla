@@ -51,7 +51,7 @@ cpdef void standardizeZ(const unsigned char[:,::1] Z, float[:,::1] Z_s, \
 
 ### hapla predict
 # Haplotype cluster assignment based on pre-estimated medians
-cpdef void predictCluster(const unsigned char[:,::1] X, const signed char[:,::1] M, \
+cpdef void predictCluster(const unsigned char[:,::1] X, const unsigned char[:,::1] M, \
 		unsigned char[:,::1] Z, const int K, const int w, const int t) noexcept nogil:
 	cdef:
 		int n = X.shape[0]

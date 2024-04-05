@@ -87,9 +87,8 @@ def main(args):
 	z_pre = np.zeros(n, dtype=np.uint8) # Help vector
 	K_vec = np.zeros(W, dtype=np.uint8) # Number of clusters in windows
 	N_vec = np.zeros(args.max_clusters, dtype=np.int32) # Size vector
-	H = np.zeros((args.win, n), dtype=np.uint8) # Haplotypes
-	X = np.zeros((n, args.win), dtype=np.uint8) # Haplotypes transposed
-	M = np.zeros((args.max_clusters, args.win), dtype=np.int8) # Medians
+	X = np.zeros((n, args.win), dtype=np.uint8) # Haplotypes
+	M = np.zeros((args.max_clusters, args.win), dtype=np.uint8) # Medians
 	C = np.zeros((args.max_clusters, args.win), dtype=np.float32) # Means
 	Z = np.zeros((W, n), dtype=np.uint8) # Haplotype cluster assignments
 
@@ -116,19 +115,13 @@ def main(args):
 			print(f"\rWindow {w+1}/{W}", end="")
 
 		# Load haplotype window
-		if w < (W-1):
-			M.fill(-9)
-		else: # Last window
-			H = np.zeros((m-w_vec[w], n), dtype=np.uint8)
+		if w == (W-1): # Last window
 			X = np.zeros((n, m-w_vec[w]), dtype=np.uint8)
-			M = np.full((args.max_clusters, H.shape[0]), -9, dtype=np.int8)
-			C = np.zeros((args.max_clusters, H.shape[0]), dtype=np.float32)
-			C_thr = np.zeros((args.threads, args.max_clusters, H.shape[0]), \
+			M = np.zeros((args.max_clusters, X.shape[1]), dtype=np.uint8)
+			C = np.zeros((args.max_clusters, X.shape[1]), dtype=np.float32)
+			C_thr = np.zeros((args.threads, args.max_clusters, X.shape[1]), \
 				dtype=np.float32)
-		reader_cy.convertBit(G, H, C, w_vec[w])
-
-		# Transposed in contiguous memory
-		np.copyto(X, H.T, casting="no")
+		reader_cy.convertBit(G, X, C, w_vec[w])
 
 		# Compute mean and initialize first median
 		K = 1
@@ -145,7 +138,7 @@ def main(args):
 			# Check for extra cluster
 			c_max = np.max(c_vec)
 			c_arg = np.argmax(c_vec)
-			if (c_max > args.lmbda*H.shape[0]) & (K < args.max_clusters):
+			if (c_max > args.lmbda*X.shape[1]) & (K < args.max_clusters):
 				M[K,:] = X[c_arg,:]
 				C[K,:] = X[c_arg,:]
 				C[Z[w,c_arg],:] -= X[c_arg,:]
@@ -171,18 +164,18 @@ def main(args):
 						Z[w,c_arg] = K
 						K += 1
 			if args.verbose:
-				cost = np.sum(c_vec) + args.lmbda*H.shape[0]*K
+				cost = np.sum(c_vec) + args.lmbda*X.shape[1]*K
 				print(f"Epoch {it}: Cost {cost:.1f}")
 			
 			# Count sizes and construct marginal medians
 			cluster_cy.marginalMedians(M, C, N_vec, K)
 			np.copyto(z_pre, Z[w], casting="no")
 
-		# Ensure correct medians
-		cluster_cy.marginalMedians(M, C, N_vec, K)
-
-		# Remove small haplotype clusters and rescue as many as possible
+		# Iterative re-clustering of haplotypes
 		if K > 2:
+			# Ensure correct medians
+			cluster_cy.marginalMedians(M, C, N_vec, K)
+
 			# Remove singletons in one go
 			N_vec[N_vec == 1] = 0
 			cluster_cy.clusterAssignment(X, M, Z, c_vec, N_vec, I_thr, N_thr, C_thr, \
@@ -196,7 +189,12 @@ def main(args):
 				N_sur = np.sum(N_vec >= N_mac)
 				print(f"{N_sur}/{K_tmp} clusters reaching threshold.")
 			while K_tmp > 2:
+				# Re-assign haplotypes
 				cluster_cy.marginalMedians(M, C, N_vec, K)
+				cluster_cy.clusterAssignment(X, M, Z, c_vec, N_vec, I_thr, N_thr, \
+					C_thr, K, w, args.threads)
+				np.sum(C_thr, axis=0, out=C)
+				np.sum(N_thr, axis=0, out=N_vec)
 
 				# Find smallest cluster
 				N_min = cluster_cy.findZero(N_vec, n, N_mac, K)
@@ -204,15 +202,17 @@ def main(args):
 					break
 				K_tmp -= 1
 
-				# Re-assign haplotypes
-				cluster_cy.clusterAssignment(X, M, Z, c_vec, N_vec, I_thr, N_thr, \
-					C_thr, K, w, args.threads)
-				np.sum(C_thr, axis=0, out=C)
-				np.sum(N_thr, axis=0, out=N_vec)
+				# Print verbose information
 				if args.verbose:
 					N_sur = np.sum(N_vec >= N_mac)
 					print(f"{N_sur}/{K_tmp} clusters reaching threshold. " + \
 						f"{N_min}/{N_mac}.")
+			
+			# Re-cluster K = 2 non-break case
+			if (K_tmp == 2) and (N_min < N_mac):
+				cluster_cy.clusterAssignment(X, M, Z, c_vec, N_vec, I_thr, N_thr, \
+					C_thr, K, w, args.threads)
+				np.sum(N_thr, axis=0, out=N_vec)
 
 		# Fix cluster median and cluster assignment order
 		cluster_cy.medianFix(M, Z, N_vec, K, w, args.threads)

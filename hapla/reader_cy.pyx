@@ -1,7 +1,6 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, initializedcheck=False, cdivision=True
 import numpy as np
 cimport numpy as np
-from cython.parallel import prange
 
 ##### Cython function for reading VCF/BCF files #####
 ### Read variant from VCF/BCF into 1-bit integer format
@@ -47,12 +46,12 @@ cpdef void readPred(unsigned char[:,::1] G, const short[:,::1] V, const int j, \
 				break
 
 ### Convert 1-bit into full array and initialize cluster mean
-cpdef void convertBit(unsigned char[:,::1] G, unsigned char[:,::1] H, \
+cpdef void convertBit(const unsigned char[:,::1] G, unsigned char[:,::1] X, \
 		float[:,::1] C, int w0) noexcept nogil:
 	cdef:
 		int B = G.shape[1]
-		int m = H.shape[0]
-		int n = H.shape[1]
+		int n = X.shape[0]
+		int m = X.shape[1]
 		int b, i, j, bit
 		unsigned char mask = 1
 		unsigned char byte
@@ -62,20 +61,20 @@ cpdef void convertBit(unsigned char[:,::1] G, unsigned char[:,::1] H, \
 		for b in range(B):
 			byte = G[w0+j,b]
 			for bit in range(8):
-				H[j,i] = byte & mask
-				C[0,j] += H[j,i]
+				X[i,j] = byte & mask
+				C[0,j] += <float>(byte & mask)
 				byte = byte >> 1 # Right shift 1 bit
 				i += 1
 				if i == n:
 					break
 
 ### Convert 1-bit into full array for predicting target clusters
-cpdef void predictBit(const unsigned char[:,::1] G, unsigned char[:,::1] H, \
+cpdef void predictBit(const unsigned char[:,::1] G, unsigned char[:,::1] X, \
 		const int w0) noexcept nogil:
 	cdef:
 		int B = G.shape[1]
-		int m = H.shape[0]
-		int n = H.shape[1]
+		int n = X.shape[0]
+		int m = X.shape[1]
 		int b, i, j, bit
 		unsigned char[4] recode = [0, 9, 9, 1]
 		unsigned char mask = 3
@@ -85,7 +84,7 @@ cpdef void predictBit(const unsigned char[:,::1] G, unsigned char[:,::1] H, \
 		for b in range(B):
 			byte = G[w0+j,b]
 			for bit in range(4):
-				H[j,i] = recode[byte & mask]
+				X[i,j] = recode[byte & mask]
 				byte = byte >> 2 # Right shift 2 bit
 				i += 1
 				if i == n:

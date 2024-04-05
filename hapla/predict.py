@@ -74,9 +74,8 @@ def main(args):
 
 	# Containers
 	K_vec = np.zeros(W, dtype=np.uint8) # Number of clusters in windows
-	H = np.zeros((win, n), dtype=np.uint8) # Haplotypes
-	X = np.zeros((n, win), dtype=np.uint8) # Haplotypes transposed
-	Z_mat = np.zeros((W, n), dtype=np.uint8) # Haplotype cluster alleles
+	X = np.zeros((n, win), dtype=np.uint8) # Haplotypes
+	Z = np.zeros((W, n), dtype=np.uint8) # Haplotype cluster alleles
 
 	# Clustering
 	for w in np.arange(W):
@@ -86,21 +85,17 @@ def main(args):
 		M = M_npz[f"W{w}"]
 		K = M.shape[0] # Number of clusters to evaluate
 		if w == (W-1): # Last window
-			H = np.zeros((M.shape[1], n), dtype=np.uint8)
 			X = np.zeros((n, M.shape[1]), dtype=np.uint8)
-		reader_cy.predictBit(G, H, W_vec[w])
-		
-		# Transposed in contiguous memory
-		np.copyto(X, H.T, casting="no")
+		reader_cy.predictBit(G, X, W_vec[w])
 		
 		# Cluster assignment
-		shared_cy.predictCluster(X, M, Z_mat, K, w, args.threads)
+		shared_cy.predictCluster(X, M, Z, K, w, args.threads)
 		K_vec[w] = K
 	del G
 	print(".\n")
 
 	# Save output
-	np.save(f"{args.out}.z", Z_mat)
+	np.save(f"{args.out}.z", Z)
 	print(f"Saved predicted haplotype cluster alleles as {args.out}.z.npy")
 	if args.plink:
 		print("\rGenerating binary PLINK output.", end="")
@@ -116,13 +111,13 @@ def main(args):
 		P_mat = np.zeros((K_tot, 2), dtype=np.int32)
 		Z_vec = np.zeros(n//2, dtype=np.uint8)
 		Z_bin = np.zeros((K_tot, B), dtype=np.uint8)
-		reader_cy.convertPlink(Z_mat, Z_bin, P_mat, Z_vec, K_vec)
+		reader_cy.convertPlink(Z, Z_bin, P_mat, Z_vec, K_vec)
 		
 		# Save .bed file including magic numbers
 		with open(f"{args.out}.bed", "w") as bfile:
 			np.array([108, 27, 1], dtype=np.uint8).tofile(bfile)
 			Z_bin.tofile(bfile)
-		del K_vec, Z_bin, Z_mat, Z_vec
+		del K_vec, Z_bin, Z, Z_vec
 
 		# Save .bim file
 		tmp = np.array([f"{chrom}_B{win}_W{w}_K{k}" for w,k in P_mat])

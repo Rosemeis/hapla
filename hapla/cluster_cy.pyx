@@ -6,8 +6,8 @@ from libc.math cimport log
 
 ##### hapla - haplotype clustering #####
 # Create marginal medians
-cpdef void marginalMedians(signed char[:,::1] M, float[:,::1] C, const int[::1] N_vec, \
-		const int K) noexcept nogil:
+cpdef void marginalMedians(unsigned char[:,::1] M, float[:,::1] C, \
+		const int[::1] N_vec, const int K) noexcept nogil:
 	cdef:
 		int m = M.shape[1]
 		int j, k
@@ -20,10 +20,10 @@ cpdef void marginalMedians(signed char[:,::1] M, float[:,::1] C, const int[::1] 
 				M[k,j] = <signed char>(C[k,j] > 0.5)
 
 # Compute distances, cluster assignment and prepare for next loop
-cpdef void clusterAssignment(const unsigned char[:,::1] X, const signed char[:,::1] M, \
-		unsigned char[:,::1] Z, int[::1] c_vec, const int[::1] N_vec, \
-		const int[:,::1] I_thr, int[:,::1] N_thr, float[:,:,::1] C_thr, const int K, \
-		const int w, const int t) noexcept nogil:
+cpdef void clusterAssignment(const unsigned char[:,::1] X, \
+		const unsigned char[:,::1] M, unsigned char[:,::1] Z, int[::1] c_vec, \
+		const int[::1] N_vec, const int[:,::1] I_thr, int[:,::1] N_thr, \
+		float[:,:,::1] C_thr, const int K, const int w, const int t) noexcept nogil:
 	cdef:
 		int n = X.shape[0]
 		int m = X.shape[1]
@@ -73,7 +73,7 @@ cpdef int findZero(int[::1] N_vec, const int n, const int mac, const int K) \
 	return minN
 
 # Fix index of medians
-cpdef void medianFix(signed char[:,::1] M, unsigned char[:,::1] Z, \
+cpdef void medianFix(unsigned char[:,::1] M, unsigned char[:,::1] Z, \
 		int[::1] N_vec, const int K, const int w, const int t) noexcept nogil:
 	cdef:
 		int m = M.shape[1]
@@ -85,16 +85,12 @@ cpdef void medianFix(signed char[:,::1] M, unsigned char[:,::1] Z, \
 			if k != c:
 				for j in range(m):
 					M[c,j] = M[k,j]
-					M[k,j] = -9
 				for i in prange(n, num_threads=t):
 					if Z[w,i] == k:
 						Z[w,i] = c
 				N_vec[c] = N_vec[k]
 				N_vec[k] = 0
 			c += 1
-		else:
-			for j in range(m):
-				M[k,j] = -9
 
 # Generate haplotype log-likelihoods (Bernoulli)
 cpdef void loglikeHaplo(float[:,::1] L, const unsigned char[:,::1] X, float[:,::1] C, \
