@@ -159,7 +159,7 @@ def main(args):
 		p = np.zeros(m, dtype=np.float32)
 		shared_cy.haplotypeAggregate(Z_mat, Z, p, K_vec, K_vec)
 		del Z_mat, K_vec
-		a = np.power(2.0*p*(1-p), -0.5)
+		a = np.power(2.0*p*(1-p), args.scaling)
 
 		# Randomized SVD
 		if args.randomized:

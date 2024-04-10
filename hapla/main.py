@@ -68,6 +68,8 @@ def main():
 		help="Family ID list for GCTA format")
 	parser_struct.add_argument("--pca", type=int,
 		metavar="INT", help="Perform PCA and extract eigenvectors")
+	parser_struct.add_argument("--scaling", type=float, default=-0.5,
+		help="Scaling factor to use in PCA (-0.5)")
 	parser_struct.add_argument("--loadings", action="store_true",
 		help="Save loadings of SVD")
 	parser_struct.add_argument("--randomized", action="store_true",
