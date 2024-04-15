@@ -47,7 +47,7 @@ cpdef void readPred(unsigned char[:,::1] G, const short[:,::1] V, const int j, \
 
 ### Convert 1-bit into full array and initialize cluster mean
 cpdef void convertBit(const unsigned char[:,::1] G, unsigned char[:,::1] X, \
-		float[:,::1] C, int w0) noexcept nogil:
+		float[:,::1] C, const int w0) noexcept nogil:
 	cdef:
 		int B = G.shape[1]
 		int n = X.shape[0]
