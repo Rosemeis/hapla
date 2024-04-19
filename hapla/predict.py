@@ -12,7 +12,7 @@ from time import time
 ##### hapla predict #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.6)")
+	print("hapla by Jonas Meisner (v0.7)")
 	print(f"hapla predict using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 	
@@ -60,21 +60,13 @@ def main(args):
 
 	# Haplotype cluster medians
 	M_npz = np.load(args.medians)
-	m_ref, win, W, overlap = list(M_npz["I"])
-	assert m == m_ref, "SNP set does not match between files!"
-
-	# Setup windows
-	if overlap > 0:
-		W_vec = [w*(win//(overlap + 1)) for w in range(W)]
-		print(f"Clustering {W} overlapping windows of {win} SNPs.")
-	else:
-		W_vec = [w*win for w in range(W)]
-		print(f"Clustering {W} non-overlapping windows of {win} SNPs.")
-	W_vec = np.array(W_vec, dtype=int)
+	w_vec = M_npz["W"]
+	assert m == w_vec[-1], "SNP set does not match between files!"
+	W = w_vec.shape[0] - 1
+	print(f"Clustering {W} windows.")
 
 	# Containers
 	K_vec = np.zeros(W, dtype=np.uint8) # Number of clusters in windows
-	X = np.zeros((n, win), dtype=np.uint8) # Haplotypes
 	Z = np.zeros((W, n), dtype=np.uint8) # Haplotype cluster alleles
 
 	# Clustering
@@ -84,9 +76,8 @@ def main(args):
 		# Load haplotype window
 		M = M_npz[f"W{w}"]
 		K = M.shape[0] # Number of clusters to evaluate
-		if w == (W-1): # Last window
-			X = np.zeros((n, M.shape[1]), dtype=np.uint8)
-		reader_cy.predictBit(G, X, W_vec[w])
+		X = np.zeros((n, w_vec[w+1]-w_vec[w]), dtype=np.uint8)
+		reader_cy.predictBit(G, X, w_vec[w])
 		
 		# Cluster assignment
 		shared_cy.predictCluster(X, M, Z, K, w, args.threads)
@@ -108,10 +99,10 @@ def main(args):
 		del v_file
 		B = ceil(n/8)
 		K_tot = np.sum(K_vec, dtype=int)
-		P_mat = np.zeros((K_tot, 2), dtype=np.int32)
+		P_mat = np.zeros((K_tot, 3), dtype=np.int32)
 		Z_vec = np.zeros(n//2, dtype=np.uint8)
 		Z_bin = np.zeros((K_tot, B), dtype=np.uint8)
-		reader_cy.convertPlink(Z, Z_bin, P_mat, Z_vec, K_vec)
+		reader_cy.convertPlink(Z, Z_bin, P_mat, Z_vec, K_vec, w_vec)
 		
 		# Save .bed file including magic numbers
 		with open(f"{args.out}.bed", "w") as bfile:
@@ -120,7 +111,7 @@ def main(args):
 		del K_vec, Z_bin, Z, Z_vec
 
 		# Save .bim file
-		tmp = np.array([f"{chrom}_B{win}_W{w}_K{k}" for w,k in P_mat])
+		tmp = np.array([f"{chrom}_B{l}_W{w}_K{k}" for w,k,l in P_mat])
 		bim = np.hstack((np.array([chrom]).repeat(K_tot).reshape(-1,1), \
 			tmp.reshape(-1,1), np.zeros((K_tot, 1), dtype=np.uint8), \
 			np.arange(1, K_tot+1).reshape(-1,1), \

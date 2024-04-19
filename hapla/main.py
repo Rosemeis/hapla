@@ -19,8 +19,10 @@ def main():
 	parser_cluster = subparsers.add_parser("cluster")
 	parser_cluster.add_argument("-g", "--vcf", "--bcf", metavar="FILE",
 		help="Input phased genotype file in VCF/BCF format")
-	parser_cluster.add_argument("-w", "--win", type=int, default=8,
-		metavar="INT", help="Window size (8)")
+	parser_cluster.add_argument("-f", "--fixed", type=int,
+		metavar="INT", help="Use fixed window size")
+	parser_cluster.add_argument("-w", "--windows", metavar="FILE",
+		help="Use provided window indices")
 	parser_cluster.add_argument("-l", "--lmbda", type=float, default=0.1,
 		metavar="FLOAT", help="Set lambda hyperparameter (0.1)")
 	parser_cluster.add_argument("-t", "--threads", type=int, default=1,
@@ -41,10 +43,27 @@ def main():
 		help="Generate binary PLINK output")
 	parser_cluster.add_argument("--duplicate-fid", action="store_true",
 		help="Use sample list as family ID (PLINK 1.9 compatibility)")
-	parser_cluster.add_argument("--overlap", type=int,
-		metavar="INT", help="Number of overlapping windows (1)")
+	parser_cluster.add_argument("--overlap", type=int, default=0,
+		metavar="INT", help="Number of overlapping windows (0)")
 	parser_cluster.add_argument("--verbose", action="store_true",
 		help="Verbose output from each iteration")
+
+	# hapla split
+	parser_split = subparsers.add_parser("split")
+	parser_split.add_argument("-g", "--vcf", "--bcf", metavar="FILE",
+		help="Input phased genotype file in VCF/BCF format")
+	parser_split.add_argument("-t", "--threads", type=int, default=1,
+		metavar="INT", help="Number of threads (1)")
+	parser_split.add_argument("-o", "--out", default="hapla.split",
+		metavar="OUTPUT", help="Output prefix")
+	parser_split.add_argument("--min-length", type=int, default=8,
+		help="Minimum number of SNPs in windows")
+	parser_split.add_argument("--max-length", type=int, default=32,
+		help="Maximum number of SNPs in windows")
+	parser_split.add_argument("--batch", type=int, default=8192,
+		help="Number of SNPs to process at a time")
+	parser_split.add_argument("--threshold", type=float, default=0.5,
+		help="r2 threshold to be included (0.5)")
 
 	# hapla struct
 	parser_struct = subparsers.add_parser("struct")
@@ -124,6 +143,15 @@ def main():
 		else:
 			from hapla import cluster
 			cluster.main(args)
+
+	# hapla split
+	if sys.argv[1] == "split":
+		if len(sys.argv) < 3:
+			parser_split.print_help()
+			sys.exit()
+		else:
+			from hapla import split
+			split.main(args)
 	
 	# hapla struct
 	if sys.argv[1] == "struct":

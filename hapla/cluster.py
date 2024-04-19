@@ -12,22 +12,24 @@ from time import time
 ##### hapla cluster #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.6)")
+	print("hapla by Jonas Meisner (v0.7)")
 	print(f"hapla cluster using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 	
 	# Check input
 	assert args.vcf is not None, \
 		"No phased genotype file (--bcf or --vcf)!"
-	assert args.win > 0, "Invalid window size!"
 	assert args.min_freq > 0.0, "Invalid haplotype cluster frequency!"
 	assert args.max_clusters <= 256, "Max allowed clusters exceeded!"
-	if args.overlap is not None:
-		if args.win == 1:
-			args.overlap = 0 
-		assert (args.win % (args.overlap + 1) == 0), \
-			"Invalid number of overlapping windows chosen!"
+	if args.fixed is not None:
+		assert args.fixed > 0, "Invalid window size!"
+		if args.overlap > 0:
+			if args.fixed == 1:
+				args.overlap = 0 
+			assert (args.fixed % (args.overlap + 1) == 0), \
+				"Invalid number of overlapping windows chosen!"
 	else:
+		assert args.windows is not None, "No window option (--fixed or --windows)!"
 		args.overlap = 0
 	start = time()
 
@@ -72,37 +74,48 @@ def main(args):
 	assert N_mac > 2, "Frequency threshold too low for sample size (--min-freq)!"
 
 	# Setup windows
-	W = m//args.win
-	if args.overlap > 0:
-		W += (W - 1)*args.overlap
-		w_vec = [w*(args.win//(args.overlap + 1)) for w in range(W)]
-		print(f"Clustering {W} overlapping windows of {args.win} SNPs.")
+	if args.fixed is not None:
+		W = m//args.fixed
+		if args.overlap > 0:
+			W += (W - 1)*args.overlap
+			w_vec = [w*(args.fixed//(args.overlap + 1)) for w in range(W)]
+			w_vec.append(m)
+			print(f"Clustering {W} overlapping windows of {args.fixed} SNPs.")
+		else:
+			w_vec = [w*args.fixed for w in range(W)]
+			w_vec.append(m)
+			print(f"Clustering {W} non-overlapping windows of {args.fixed} SNPs.")
+		w_vec = np.array(w_vec, dtype=np.int32)
 	else:
-		w_vec = [w*args.win for w in range(W)]
-		print(f"Clustering {W} non-overlapping windows of {args.win} SNPs.")
-	w_vec = np.array(w_vec, dtype=int)
+		w_vec = np.loadtxt(args.windows, dtype=np.int32)
+		assert w_vec[-1] == m, "Genotype and window files do not match!"
+		W = w_vec.shape[0] - 1
+		print(f"Clustering {W} windows with provided SNP lengths.")
 
 	# Containers
 	c_vec = np.zeros(n, dtype=np.int32) # Cost vector
 	z_pre = np.zeros(n, dtype=np.uint8) # Help vector
 	K_vec = np.zeros(W, dtype=np.uint8) # Number of clusters in windows
 	N_vec = np.zeros(args.max_clusters, dtype=np.int32) # Size vector
-	X = np.zeros((n, args.win), dtype=np.uint8) # Haplotypes
-	M = np.zeros((args.max_clusters, args.win), dtype=np.uint8) # Medians
-	C = np.zeros((args.max_clusters, args.win), dtype=np.float32) # Means
 	Z = np.zeros((W, n), dtype=np.uint8) # Haplotype cluster assignments
+	if args.fixed is not None: # Window length-based 
+		X = np.zeros((n, args.fixed), dtype=np.uint8) # Haplotypes
+		M = np.zeros((args.max_clusters, args.fixed), dtype=np.uint8) # Medians
+		C = np.zeros((args.max_clusters, args.fixed), dtype=np.float32) # Means
 
 	# Thread-local containers
 	I_thr = np.zeros((args.threads, 2), dtype=np.int32)
 	N_thr = np.zeros((args.threads, args.max_clusters), dtype=np.int32)
-	C_thr = np.zeros((args.threads, args.max_clusters, args.win), dtype=np.float32)
+	if args.fixed is not None:
+		C_thr = np.zeros((args.threads, args.max_clusters, args.fixed), \
+			dtype=np.float32)
 	for t in range(args.threads-1):
 		I_thr[t] = [t*(n//args.threads), (t+1)*(n//args.threads)]
 	I_thr[args.threads-1] = [(args.threads-1)*(n//args.threads), n]
 
 	# Optional containers
 	if args.medians:
-		M_dict = {"I":np.array([m, args.win, W, args.overlap], dtype=int)}
+		M_dict = {"W":w_vec.copy()}
 	if args.loglike:
 		L_dict = {}
 		L = np.zeros((n, args.max_clusters), dtype=np.float32) # Log-likelihoods
@@ -113,6 +126,14 @@ def main(args):
 			print(f"Window {w+1}/{W}")
 		else:
 			print(f"\rWindow {w+1}/{W}", end="")
+
+		# Prepare containers if window indices provided
+		if args.fixed is None:
+			X = np.zeros((n, w_vec[w+1]-w_vec[w]), dtype=np.uint8)
+			M = np.zeros((args.max_clusters, X.shape[1]), dtype=np.uint8)
+			C = np.zeros((args.max_clusters, X.shape[1]), dtype=np.float32)
+			C_thr = np.zeros((args.threads, args.max_clusters, X.shape[1]), \
+				dtype=np.float32)
 
 		# Load haplotype window
 		if w == (W-1): # Last window
@@ -229,7 +250,7 @@ def main(args):
 		# Clean up
 		C_thr.fill(0)
 		N_thr.fill(0)
-		N_vec.fill(0)		
+		N_vec.fill(0)	
 	del G
 	if not args.verbose:
 		print(".\n")
@@ -256,10 +277,10 @@ def main(args):
 			chrom = re.findall(r'\d+', variant.CHROM)[-1]
 			break
 		K_tot = np.sum(K_vec, dtype=int)
-		P_mat = np.zeros((K_tot, 2), dtype=np.int32)
+		P_mat = np.zeros((K_tot, 3), dtype=np.int32)
 		Z_vec = np.zeros(n//2, dtype=np.uint8)
 		Z_bin = np.zeros((K_tot, B), dtype=np.uint8)
-		reader_cy.convertPlink(Z, Z_bin, P_mat, Z_vec, K_vec)
+		reader_cy.convertPlink(Z, Z_bin, P_mat, Z_vec, K_vec, w_vec)
 		
 		# Save .bed file including magic numbers
 		with open(f"{args.out}.bed", "w") as bfile:
@@ -268,7 +289,7 @@ def main(args):
 		del K_vec, Z_bin, Z, Z_vec
 
 		# Save .bim file
-		tmp = np.array([f"{chrom}_B{args.win}_W{w}_K{k}" for w,k in P_mat])
+		tmp = np.array([f"{chrom}_B{l}_W{w}_K{k}" for w,k,l in P_mat])
 		bim = np.hstack((np.array([chrom]).repeat(K_tot).reshape(-1,1), \
 			tmp.reshape(-1,1), np.zeros((K_tot, 1), dtype=np.uint8), \
 			np.arange(1, K_tot+1).reshape(-1,1), \

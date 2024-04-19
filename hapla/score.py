@@ -12,7 +12,7 @@ from time import time
 ##### hapla score #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.6)")
+	print("hapla by Jonas Meisner (v0.7)")
 	print(f"hapla score using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 
@@ -220,3 +220,7 @@ def main(args):
 	t_sec = int(t_tot - t_min*60)
 	print(f"Total elapsed time: {t_min}m{t_sec}s")
 
+
+
+##### Main exception #####
+assert __name__ != "__main__", "Please use the 'hapla score' command!"

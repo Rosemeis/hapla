@@ -54,11 +54,11 @@ for p in {afr,eur,all}
 do
 	for w in {1,16,32}
 	do 
-		hapla cluster --bcf data/${p}.bcf --win $w --overlap 1 --threads 8 --out clusters/${p}.hapla.w${w}
-		hapla cluster --bcf data/${p}.down.bcf --win $w --overlap 1 --threads 8 --out clusters/${p}.down.hapla.w${w}
+		hapla cluster --bcf data/${p}.bcf --fixed $w --overlap 1 --threads 8 --out clusters/${p}.hapla.w${w}
+		hapla cluster --bcf data/${p}.down.bcf --fixed $w --overlap 1 --threads 8 --out clusters/${p}.down.hapla.w${w}
 	done
-	hapla cluster --bcf data/${p}.bcf --win 8 --overlap 1 --threads 8 --out clusters/${p}.hapla.w8 --plink # For phenotype generation
-	hapla cluster --bcf data/${p}.down.bcf --win 8 --overlap 1 --threads 8 --out clusters/${p}.down.hapla.w8
+	hapla cluster --bcf data/${p}.bcf --fixed 8 --overlap 1 --threads 8 --out clusters/${p}.hapla.w8 --plink # For phenotype generation
+	hapla cluster --bcf data/${p}.down.bcf --fixed 8 --overlap 1 --threads 8 --out clusters/${p}.down.hapla.w8
 done
 
 # Phenotype generation
