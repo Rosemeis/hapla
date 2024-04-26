@@ -12,7 +12,7 @@ from time import time
 ##### hapla struct #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.6)")
+	print("hapla by Jonas Meisner (v0.7)")
 	print(f"hapla struct using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 
@@ -157,7 +157,7 @@ def main(args):
 		# Populate full matrix and estimate cluster frequencies
 		Z = np.zeros((m, n), dtype=np.uint8)
 		p = np.zeros(m, dtype=np.float32)
-		shared_cy.haplotypeAggregate(Z_mat, Z, p, K_vec, K_vec)
+		shared_cy.haplotypeAggregate(Z_mat, Z, p, K_vec)
 		del Z_mat, K_vec
 		a = np.power(2.0*p*(1-p), args.scaling)
 

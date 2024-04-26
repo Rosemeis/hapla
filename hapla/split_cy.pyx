@@ -39,11 +39,10 @@ cpdef void extractG(const unsigned char[:,::1] G, float[:,::1] X, const int m_b,
 
 # Estimate squared correlation between variants (r^2) and compute L matrix
 cpdef void estimateL(const float[:,::1] X, float[:,::1] L, const float thr, \
-		const int t) noexcept nogil:
+		const int W, const int t) noexcept nogil:
 	cdef:
 		int m = X.shape[0]
 		int n = X.shape[1]
-		int W = L.shape[1]
 		int i, j, k, c
 		float cor, r2
 	for i in prange(m-1, num_threads=t):
@@ -63,11 +62,10 @@ cpdef void estimateL(const float[:,::1] X, float[:,::1] L, const float thr, \
 			c = c - 1
 
 # Estimate E matrix used for cost estimation
-cpdef void estimateE(const float[:,::1] L, float[:,::1] E) noexcept nogil:
+cpdef void estimateE(const float[:,::1] L, float[:,::1] E, const int m, const int W) \
+		noexcept nogil:
 	cdef:
-		int m = E.shape[0]
-		int W = E.shape[1]
-		int i, j, k
+		int i, j
 	for i in range(m-2, -1, -1):
 		for j in range(W-1, -1, -1):
 			if j == 0:
@@ -77,10 +75,8 @@ cpdef void estimateE(const float[:,::1] L, float[:,::1] E) noexcept nogil:
 
 # Compute cost for different number of splits
 cpdef int estimateC(const float[:,::1] E, float[:,::1] C, int[:,::1] I, \
-		const int minW, const int t) noexcept nogil:
+		const int minW, const int m, const int W, const int t) noexcept nogil:
 	cdef:
-		int m = E.shape[0]
-		int W = E.shape[1]
 		int K = C.shape[1]
 		int c, i, j, k, w, optK
 		float cost, optC

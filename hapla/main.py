@@ -60,10 +60,10 @@ def main():
 		help="Minimum number of SNPs in windows")
 	parser_split.add_argument("--max-length", type=int, default=32,
 		help="Maximum number of SNPs in windows")
-	parser_split.add_argument("--batch", type=int, default=8192,
-		help="Number of SNPs to process at a time")
 	parser_split.add_argument("--threshold", type=float, default=0.5,
 		help="r2 threshold to be included (0.5)")
+	parser_split.add_argument("--batch", type=int, default=8192,
+		help="Number of SNPs to process at a time")
 
 	# hapla struct
 	parser_struct = subparsers.add_parser("struct")
@@ -108,6 +108,29 @@ def main():
 		help="Generate binary PLINK output")
 	parser_predict.add_argument("--duplicate-fid", action="store_true",
 		help="Use sample list as family ID (PLINK 1.9 compatibility)")
+
+	# hapla admix
+	parser_admix = subparsers.add_parser("admix")
+	parser_admix.add_argument("-f", "--filelist", metavar="FILE",
+		help="Filelist with paths to haplotype cluster alleles files")
+	parser_admix.add_argument("-z", "--clusters", metavar="FILE",
+		help="Path to a single haplotype cluster alleles file")
+	parser_admix.add_argument("-k", "--K", type=int,
+		metavar="INT", help="Number of ancestral components")
+	parser_admix.add_argument("-t", "--threads", type=int, default=1,
+		metavar="INT", help="Number of threads (1)")
+	parser_admix.add_argument("-o", "--out", default="hapla.pca",
+		metavar="OUTPUT", help="Output prefix")
+	parser_admix.add_argument("--seed", type=int, default=42,
+		metavar="INT", help="Random seed (42)")
+	parser_admix.add_argument("--iter", type=int, default=1000,
+		metavar="INT", help="Maximum number of iterations (1000)")
+	parser_admix.add_argument("--tole", type=float, default=1.0,
+		metavar="FLOAT", help="Tolerance in log-likelihood between iterations (1.0)")
+	parser_admix.add_argument("--check", type=int, default=10,
+		metavar="INT", help="Check for convergence every c-th iteration (10)")
+	parser_admix.add_argument("--save-freq", action="store_true",
+		help="Save haplotype cluster frequencies")
 	
 	# hapla score
 	parser_score = subparsers.add_parser("score")
@@ -170,6 +193,15 @@ def main():
 		else:
 			from hapla import predict
 			predict.main(args)
+
+	# hapla admix
+	if sys.argv[1] == "admix":
+		if len(sys.argv) < 3:
+			parser_admix.print_help()
+			sys.exit()
+		else:
+			from hapla import admix
+			admix.main(args)
 
 	# hapla score
 	if sys.argv[1] == "score":

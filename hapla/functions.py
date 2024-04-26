@@ -2,6 +2,7 @@ import subprocess
 import numpy as np
 from math import ceil
 from hapla import shared_cy
+from hapla import admix_cy
 
 ##### hapla - functions #####
 ### hapla struct
@@ -34,6 +35,26 @@ def randomizedSVD(Z, p, a, K, batch, threads):
 	U = np.ascontiguousarray(U[:,:K])
 	V = np.ascontiguousarray(V[:K,:].T)
 	return U, S[:K], V
+
+
+
+### hapla admix
+# SQUAREM update for admixture estimation
+def squarem(Z, P, Q, P0, Q0, Q_new, dP1, dP2, dP3, dQ1, dQ2, dQ3, K_vec, threads):
+	np.copyto(P0, P, casting="no")
+	np.copyto(Q0, Q, casting="no")
+
+	# 1st EM step
+	admix_cy.accelP(Z, P, Q, Q_new, dP1, K_vec, threads)
+	admix_cy.accelQ(Q, Q_new, dQ1, Z.shape[0])
+
+	# 2nd EM step
+	admix_cy.accelP(Z, P, Q, Q_new, dP2, K_vec, threads)
+	admix_cy.accelQ(Q, Q_new, dQ2, Z.shape[0])
+
+	# Acceleation update
+	admix_cy.alphaP(P, P0, dP1, dP2, dP3, K_vec, threads)
+	admix_cy.alphaQ(Q, Q0, dQ1, dQ2, dQ3)
 
 
 

@@ -69,13 +69,26 @@ def main(args):
 	X = np.zeros((args.batch, n), dtype=np.float32)
 	L = np.zeros((args.batch, args.max_length), dtype=np.float32)
 	E = np.zeros((args.batch, args.max_length), dtype=np.float32)
-	C = np.zeros((args.batch, m_w), dtype=np.float32)
-	I = np.zeros((args.batch, m_w), dtype=np.int32)
+	C = np.full((args.batch, m_w), np.inf, dtype=np.float32)
+	I = np.full((args.batch, m_w), -1, dtype=np.int32)
 	P = np.zeros(m_w, dtype=np.int32)
 
 	# Loop through batches
-	print("Estimating optimal window splits...")
+	print("Estimating optimal window splits.")
 	while (m_b + args.batch) < (m - args.max_length):
+		# Estimate matrices and compute optimal paths
+		split_cy.extractG(G, X, m_b, args.threads)
+		split_cy.estimateL(X, L, args.threshold, args.max_length, args.threads)
+		split_cy.estimateE(L, E, args.batch, args.max_length)
+		optK = split_cy.estimateC(E, C, I, args.min_length, args.batch, \
+			args.max_length, args.threads)
+		split_cy.constructP(I, P, m_b, optK)
+		P_w = P[P <= (m_b + args.batch - args.max_length)]
+		P_w = P_w[:(P_w.shape[0]-(np.sum(P_w == 0)-1))]
+		W_b = P_w[(P_w.shape[0]-2)::-1].copy()
+		W += list(W_b)
+		m_b = W_b[-1]
+
 		# Reset arrays
 		L.fill(0.0)
 		E.fill(0.0)
@@ -83,46 +96,30 @@ def main(args):
 		I.fill(-1)
 		P.fill(0.0)
 
-		# Estimate matrices and compute optimal paths
-		split_cy.extractG(G, X, m_b, args.threads)
-		split_cy.estimateL(X, L, args.threshold, args.threads)
-		split_cy.estimateE(L, E)
-		optK = split_cy.estimateC(E, C, I, args.min_length, args.threads)
-		split_cy.constructP(I, P, m_b, optK)
-		P_w = P[P <= (m_b + args.batch - args.max_length)]
-		P_w = P_w[:(P_w.shape[0]-(np.sum(P_w == 0)-1))]
-		
-		# Add splits to list
-		W += list(P_w[(P_w.shape[0]-2)::-1])
-		m_b = W[-1]
-		b += 1
-	
 	# Last batch
-	m_w = ceil((m - W[-1])/args.min_length) + 1
-	X = np.zeros((m - W[-1], n), dtype=np.float32)
-	L = np.zeros((m - W[-1], args.max_length), dtype=np.float32)
-	E = np.zeros((m - W[-1], args.max_length), dtype=np.float32)
-	C = np.full((m - W[-1], m_w), np.inf, dtype=np.float32)
-	I = np.full((m - W[-1], m_w), -1, dtype=np.int32)
+	w_i = m - W[-1]
+	m_w = ceil(w_i/args.min_length) + 1
+	X = np.zeros((w_i, n), dtype=np.float32)
+	L = np.zeros((w_i, args.max_length), dtype=np.float32)
+	E = np.zeros((w_i, args.max_length), dtype=np.float32)
+	C = np.full((w_i, m_w), np.inf, dtype=np.float32)
+	I = np.full((w_i, m_w), -1, dtype=np.int32)
 	P = np.zeros(m_w, dtype=np.int32)
 
-	# Load batch
+	# Estimate matrices and compute optimal paths of last batch
 	split_cy.extractG(G, X, m_b, args.threads)
-
-	# Estimate matrices and compute optimal paths
-	split_cy.estimateL(X, L, args.threshold, args.threads)
-	split_cy.estimateE(L, E)
-	optK = split_cy.estimateC(E, C, I, args.min_length, args.threads)
+	split_cy.estimateL(X, L, args.threshold, args.max_length, args.threads)
+	split_cy.estimateE(L, E, w_i, args.max_length)
+	optK = split_cy.estimateC(E, C, I, args.min_length, w_i, args.max_length, \
+		args.threads)
 	split_cy.constructP(I, P, m_b, optK)
-	P = P[P <= (m_b + args.batch)]
-	P = P[:(P.shape[0]-(np.sum(P == 0)-1))]
-	
-	# Add splits to list
-	W += list(P[(P.shape[0]-2)::-1])
+	P_w = P[:(P.shape[0]-(np.sum(P == 0)-1))]
+	W_b = P_w[(P_w.shape[0]-2)::-1].copy()
+	W += list(W_b)
 
 	# Save optimal window splits to file
 	np.savetxt(f"{args.out}.opt.windows", np.array(W, dtype=int), fmt="%i")
-	print(f"Saved optimal window indices in {args.out}.opt.windows")
+	print(f"Saved optimal window splits in {args.out}.opt.windows")
 
 	# Print elapsed time for parsing and total computation
 	t_min = int(t_par//60)

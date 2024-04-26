@@ -4,6 +4,14 @@ import numpy
 
 extensions = [
 	Extension(
+		"hapla.reader_cy",
+		["hapla/reader_cy.pyx"],
+		extra_compile_args=['-fopenmp', '-O3', '-g0', '-Wno-unreachable-code'],
+		extra_link_args=['-fopenmp'],
+		include_dirs=[numpy.get_include()],
+		define_macros=[('NPY_NO_DEPRECATED_API', 'NPY_1_7_API_VERSION')]
+	),
+	Extension(
 		"hapla.cluster_cy",
 		["hapla/cluster_cy.pyx"],
 		extra_compile_args=['-fopenmp', '-O3', '-g0', '-Wno-unreachable-code'],
@@ -11,14 +19,6 @@ extensions = [
 		include_dirs=[numpy.get_include()],
 		define_macros=[('NPY_NO_DEPRECATED_API', 'NPY_1_7_API_VERSION')]
 	),
-	Extension(
-		"hapla.split_cy",
-		["hapla/split_cy.pyx"],
-		extra_compile_args=['-fopenmp', '-O3', '-g0', '-Wno-unreachable-code'],
-		extra_link_args=['-fopenmp'],
-		include_dirs=[numpy.get_include()],
-		define_macros=[('NPY_NO_DEPRECATED_API', 'NPY_1_7_API_VERSION')]
-	), 
 	Extension(
 		"hapla.shared_cy",
 		["hapla/shared_cy.pyx"],
@@ -28,13 +28,21 @@ extensions = [
 		define_macros=[('NPY_NO_DEPRECATED_API', 'NPY_1_7_API_VERSION')]
 	), 
 	Extension(
-		"hapla.reader_cy",
-		["hapla/reader_cy.pyx"],
+		"hapla.split_cy",
+		["hapla/split_cy.pyx"],
 		extra_compile_args=['-fopenmp', '-O3', '-g0', '-Wno-unreachable-code'],
 		extra_link_args=['-fopenmp'],
 		include_dirs=[numpy.get_include()],
 		define_macros=[('NPY_NO_DEPRECATED_API', 'NPY_1_7_API_VERSION')]
-	)
+	),
+	Extension(
+		"hapla.admix_cy",
+		["hapla/admix_cy.pyx"],
+		extra_compile_args=['-fopenmp', '-O3', '-g0', '-Wno-unreachable-code'],
+		extra_link_args=['-fopenmp'],
+		include_dirs=[numpy.get_include()],
+		define_macros=[('NPY_NO_DEPRECATED_API', 'NPY_1_7_API_VERSION')]
+	),
 ]
 
 setup(
