@@ -7,6 +7,7 @@ __author__ = "Jonas Meisner"
 
 # Libraries
 import os
+import re
 from time import time
 
 ##### hapla cluster #####
@@ -49,12 +50,18 @@ def main(args):
 	# Load data into 1-bit matrix
 	print("\rLoading VCF/BCF file...", end="")
 	v_file = VCF(args.vcf, threads=args.threads)
+	v_list = []
 	m = 0
 	n = 2*len(v_file.samples)
 	B = ceil(n/8)
+	if args.plink:
+		s_list = np.array(v_file.samples).reshape(-1,1)
 
 	# Check number of sites and allocate memory
 	for variant in v_file:
+		if m == 0:
+			chrom = re.findall(r'\d+', variant.CHROM)[-1]
+		v_list.append(variant.POS)
 		m += 1
 	G = np.zeros((m, B), dtype=np.uint8)
 
@@ -79,18 +86,27 @@ def main(args):
 		if args.overlap > 0:
 			W += (W - 1)*args.overlap
 			w_vec = [w*(args.fixed//(args.overlap + 1)) for w in range(W)]
-			w_vec.append(m)
 			print(f"Clustering {W} overlapping windows of {args.fixed} SNPs.")
 		else:
 			w_vec = [w*args.fixed for w in range(W)]
-			w_vec.append(m)
 			print(f"Clustering {W} non-overlapping windows of {args.fixed} SNPs.")
+		w_vec.append(m)
 		w_vec = np.array(w_vec, dtype=np.int32)
 	else:
 		w_vec = np.loadtxt(args.windows, dtype=np.int32)
 		assert w_vec[-1] == m, "Genotype and window files do not match!"
 		W = w_vec.shape[0] - 1
 		print(f"Clustering {W} windows with provided SNP lengths.")
+
+	# Extract window information
+	v_vec = np.array(v_list, dtype=np.int32)
+	s_vec = v_vec[w_vec[:-1]].copy()
+	if args.fixed is not None:
+		e_vec = v_vec[w_vec[:-1]+args.fixed-1].copy()
+		e_vec[-1] = v_vec[-1]
+	else:
+		e_vec = v_vec[w_vec[1:]-1]
+	del v_list, v_vec
 
 	# Containers
 	c_vec = np.zeros(n, dtype=np.int32) # Cost vector
@@ -254,12 +270,20 @@ def main(args):
 	del G
 	if not args.verbose:
 		print(".\n")
+	
+	# Create window information array
+	win = np.hstack((
+		np.array([chrom]).repeat(W).reshape(-1, 1), \
+		s_vec.reshape(-1, 1), e_vec.reshape(-1, 1), (e_vec - s_vec).reshape(-1, 1), \
+		(w_vec[1:] - w_vec[:-1]).reshape(-1, 1), K_vec.reshape(-1 ,1)
+	))
 
 	# Save output
 	np.save(f"{args.out}.z", Z)
-	np.savetxt(f"{args.out}.num_clusters", K_vec, fmt="%i")
+	np.savetxt(f"{args.out}.win.info", win, delimiter="\t", fmt="%s")
 	print(f"Saved haplotype cluster assignments as {args.out}.z.npy")
-	print(f"Saved the number of clusters per window as {args.out}.num_clusters")
+	print(f"Saved window information as {args.out}.win.info")
+	del win
 	if args.medians:
 		np.savez(f"{args.out}.medians", **M_dict)
 		print(f"Saved haplotype cluster medians as {args.out}.medians.npz")
@@ -270,17 +294,11 @@ def main(args):
 		del L_dict
 	if args.plink:
 		print("\rGenerating binary PLINK output.", end="")
-		import re
-		v_file = VCF(args.vcf, threads=args.threads)
-		s_list = np.array(v_file.samples).reshape(-1,1)
-		for variant in v_file: # Extract chromosome name from first entry
-			chrom = re.findall(r'\d+', variant.CHROM)[-1]
-			break
 		K_tot = np.sum(K_vec, dtype=int)
-		P_mat = np.zeros((K_tot, 3), dtype=np.int32)
+		P_mat = np.zeros((K_tot, 2), dtype=np.int32)
 		Z_vec = np.zeros(n//2, dtype=np.uint8)
 		Z_bin = np.zeros((K_tot, B), dtype=np.uint8)
-		reader_cy.convertPlink(Z, Z_bin, P_mat, Z_vec, K_vec, w_vec)
+		reader_cy.convertPlink(Z, Z_bin, P_mat, Z_vec, K_vec)
 		
 		# Save .bed file including magic numbers
 		with open(f"{args.out}.bed", "w") as bfile:
@@ -289,12 +307,14 @@ def main(args):
 		del K_vec, Z_bin, Z, Z_vec
 
 		# Save .bim file
-		tmp = np.array([f"{chrom}_B{l}_W{w}_K{k}" for w,k,l in P_mat])
-		bim = np.hstack((np.array([chrom]).repeat(K_tot).reshape(-1,1), \
-			tmp.reshape(-1,1), np.zeros((K_tot, 1), dtype=np.uint8), \
-			np.arange(1, K_tot+1).reshape(-1,1), \
-			np.array(["K"]).repeat(K_tot).reshape(-1,1), \
-			np.zeros((K_tot, 1), dtype=np.uint8)))
+		tmp = np.array([f"{chrom}_W{w}_K{k}" for w,k in P_mat])
+		bim = np.hstack((
+			np.array([chrom]).repeat(K_tot).reshape(-1, 1), \
+			tmp.reshape(-1, 1), np.zeros((K_tot, 1), dtype=np.uint8), \
+			np.arange(1, K_tot+1).reshape(-1, 1), \
+			np.array(["K"]).repeat(K_tot).reshape(-1, 1), \
+			np.zeros((K_tot, 1), dtype=np.uint8)
+		))
 		np.savetxt(f"{args.out}.bim", bim, delimiter="\t", fmt="%s")
 		del bim, tmp, P_mat
 		
@@ -303,8 +323,10 @@ def main(args):
 			s_list = s_list.repeat(2, axis=1)
 		else:
 			s_list = np.hstack((np.zeros((n//2, 1), dtype=np.uint8), s_list))
-		fam = np.hstack((s_list, np.zeros((n//2, 3), dtype=np.uint8), \
-			np.full((n//2, 1), -9, dtype=np.int8)))
+		fam = np.hstack((
+			s_list, np.zeros((n//2, 3), dtype=np.uint8), \
+			np.full((n//2, 1), -9, dtype=np.int8)
+		))
 		np.savetxt(f"{args.out}.fam", fam, delimiter="\t", fmt="%s")
 		print("\rSaved haplotype cluster alleles in binary PLINK format:\n" + \
 			f"- {args.out}.bed\n" + \

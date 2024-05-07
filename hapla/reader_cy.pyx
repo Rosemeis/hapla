@@ -92,8 +92,8 @@ cpdef void predictBit(const unsigned char[:,::1] G, unsigned char[:,::1] X, \
 
 ### Convert haplotype cluster alleles to 2-bit PLINK format
 cpdef void convertPlink(const unsigned char[:,::1] Z_mat, unsigned char[:,::1] Z_bin, \
-		int[:,::1] P_mat, unsigned char[::1] Z_vec, const unsigned char[::1] K_vec, \
-		const int[::1] W_vec) noexcept nogil:
+		int[:,::1] P_mat, unsigned char[::1] Z_vec, const unsigned char[::1] K_vec) \
+		noexcept nogil:
 	cdef:
 		int W = Z_mat.shape[0]
 		int n = Z_mat.shape[1]//2
@@ -129,7 +129,6 @@ cpdef void convertPlink(const unsigned char[:,::1] Z_mat, unsigned char[:,::1] Z
 			# Save window and cluster information
 			P_mat[j,0] = w + 1
 			P_mat[j,1] = k + 1
-			P_mat[j,2] = W_vec[w+1] - W_vec[w]
 			j += 1
 
 ### Convert 2-bit into standardized genotype array for phenotypes
@@ -153,11 +152,3 @@ cpdef void phenoPlink(const unsigned char[:,::1] G_mat, double[:,::1] G, \
 				i += 1
 				if i == n:
 					break
-
-### Read VCF/BCF position information
-cpdef void readPOS(v_file, double[:,::1] P):
-	cdef:
-		int j = 0
-	for var in v_file: # Loop through VCF file
-		P[j,1] = <double>var.POS
-		j += 1

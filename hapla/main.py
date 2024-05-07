@@ -48,23 +48,6 @@ def main():
 	parser_cluster.add_argument("--verbose", action="store_true",
 		help="Verbose output from each iteration")
 
-	# hapla split
-	parser_split = subparsers.add_parser("split")
-	parser_split.add_argument("-g", "--vcf", "--bcf", metavar="FILE",
-		help="Input phased genotype file in VCF/BCF format")
-	parser_split.add_argument("-t", "--threads", type=int, default=1,
-		metavar="INT", help="Number of threads (1)")
-	parser_split.add_argument("-o", "--out", default="hapla.split",
-		metavar="OUTPUT", help="Output prefix")
-	parser_split.add_argument("--min-length", type=int, default=8,
-		help="Minimum number of SNPs in windows")
-	parser_split.add_argument("--max-length", type=int, default=32,
-		help="Maximum number of SNPs in windows")
-	parser_split.add_argument("--threshold", type=float, default=0.5,
-		help="r2 threshold to be included (0.5)")
-	parser_split.add_argument("--batch", type=int, default=8192,
-		help="Number of SNPs to process at a time")
-
 	# hapla struct
 	parser_struct = subparsers.add_parser("struct")
 	parser_struct.add_argument("-f", "--filelist", metavar="FILE",
@@ -77,8 +60,8 @@ def main():
 		metavar="OUTPUT", help="Output prefix")
 	parser_struct.add_argument("--grm", action="store_true",
 		help="Estimate genome-wide relationship matrix (GRM)")
-	parser_struct.add_argument("--batch", type=int, default=8192,
-		metavar="INT", help="Number of cluster alleles in batches (8192)")
+	parser_struct.add_argument("--batch", type=int, default=4096,
+		metavar="INT", help="Number of cluster alleles in batches (4096)")
 	parser_struct.add_argument("--no-centering", action="store_true",
 		help="Do not perform Gower and data centering of GRM")
 	parser_struct.add_argument("--iid", metavar="FILE",
@@ -166,15 +149,6 @@ def main():
 		else:
 			from hapla import cluster
 			cluster.main(args)
-
-	# hapla split
-	if sys.argv[1] == "split":
-		if len(sys.argv) < 3:
-			parser_split.print_help()
-			sys.exit()
-		else:
-			from hapla import split
-			split.main(args)
 	
 	# hapla struct
 	if sys.argv[1] == "struct":

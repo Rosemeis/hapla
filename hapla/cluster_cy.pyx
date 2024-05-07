@@ -43,7 +43,7 @@ cpdef void clusterAssignment(const unsigned char[:,::1] X, \
 				if N_vec[k] > 0:
 					dist = 0
 					for j in range(m):
-						dist = dist + (X[i,j] ^ M[k,j])
+						dist += X[i,j] ^ M[k,j]
 				else:
 					dist = m
 				# Assignment
@@ -52,9 +52,9 @@ cpdef void clusterAssignment(const unsigned char[:,::1] X, \
 					c_vec[i] = dist
 
 			# Add individual contributions to thread local arrays
-			N_thr[thr,Z[w,i]] = N_thr[thr,Z[w,i]] + 1
+			N_thr[thr,Z[w,i]] += 1
 			for j in range(m):
-				C_thr[thr,Z[w,i],j] = C_thr[thr,Z[w,i],j] + X[i,j]
+				C_thr[thr,Z[w,i],j] += X[i,j]
 
 # Find non-zero cluster with least assignments
 cpdef int findZero(int[::1] N_vec, const int n, const int mac, const int K) \
