@@ -14,10 +14,10 @@ cpdef void marginalMedians(unsigned char[:,::1] M, float[:,::1] C, \
 		float Nk
 	for k in range(K):
 		if N_vec[k] > 0:
-			Nk = 1.0/<float>N_vec[k]
+			Nk = 1.0/(<float>N_vec[k])
 			for j in range(m):
 				C[k,j] = C[k,j]*Nk
-				M[k,j] = <signed char>(C[k,j] > 0.5)
+				M[k,j] = <unsigned char>(C[k,j] > 0.5)
 
 # Compute distances, cluster assignment and prepare for next loop
 cpdef void clusterAssignment(const unsigned char[:,::1] X, \

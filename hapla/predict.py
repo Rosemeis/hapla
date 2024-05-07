@@ -7,6 +7,7 @@ __author__ = "Jonas Meisner"
 
 # Libraries
 import os
+import re
 from time import time
 
 ##### hapla predict #####
@@ -37,14 +38,20 @@ def main(args):
 	from hapla import shared_cy
 
 	# Load data into 2-bit matrix
-	print("\rLoading VCF/BCF file...", end="")
 	v_file = VCF(args.vcf, threads=args.threads)
 	m = 0
 	n = 2*len(v_file.samples)
 	B = ceil(n/4)
+	if args.plink:
+		v_list = []
+		s_list = np.array(v_file.samples).reshape(-1, 1)
 
 	# Check number of sites and allocate memory
 	for variant in v_file:
+		if args.plink:
+			if m == 0:
+				chrom = re.findall(r'\d+', variant.CHROM)[-1]
+			v_list.append(variant.POS)
 		m += 1
 	G = np.zeros((m, B), dtype=np.uint8)
 
@@ -65,6 +72,13 @@ def main(args):
 	W = w_vec.shape[0] - 1
 	print(f"Clustering {W} windows.")
 
+	# Extract window information for PLINK output
+	if args.plink:
+		v_vec = np.array(v_list, dtype=np.int32)
+		s_vec = v_vec[w_vec[:-1]].copy()
+		b_vec = np.zeros(W, dtype=np.int32)
+		del v_list, v_vec
+
 	# Containers
 	K_vec = np.zeros(W, dtype=np.uint8) # Number of clusters in windows
 	Z = np.zeros((W, n), dtype=np.uint8) # Haplotype cluster alleles
@@ -76,13 +90,15 @@ def main(args):
 		# Load haplotype window
 		M = M_npz[f"W{w}"]
 		K = M.shape[0] # Number of clusters to evaluate
-		X = np.zeros((n, w_vec[w+1]-w_vec[w]), dtype=np.uint8)
+		X = np.zeros((n, M.shape[1]), dtype=np.uint8)
 		reader_cy.predictBit(G, X, w_vec[w])
+		if args.plink:
+			b_vec[w] = M.shape[1]
 		
 		# Cluster assignment
 		shared_cy.predictCluster(X, M, Z, K, w, args.threads)
 		K_vec[w] = K
-	del G
+	del G, w_vec
 	print(".\n")
 
 	# Save output
@@ -90,35 +106,30 @@ def main(args):
 	print(f"Saved predicted haplotype cluster alleles as {args.out}.z.npy")
 	if args.plink:
 		print("\rGenerating binary PLINK output.", end="")
-		import re
-		v_file = VCF(args.vcf, threads=args.threads)
-		s_list = np.array(v_file.samples).reshape(-1,1)
-		for variant in v_file: # Extract chromosome name from first entry
-			chrom = re.findall(r'\d+', variant.CHROM)[-1]
-			break
-		del v_file
 		B = ceil(n/8)
 		K_tot = np.sum(K_vec, dtype=int)
 		P_mat = np.zeros((K_tot, 3), dtype=np.int32)
 		Z_vec = np.zeros(n//2, dtype=np.uint8)
 		Z_bin = np.zeros((K_tot, B), dtype=np.uint8)
-		reader_cy.convertPlink(Z, Z_bin, P_mat, Z_vec, K_vec, w_vec)
+		reader_cy.convertPlink(Z, Z_bin, P_mat, Z_vec, K_vec, b_vec)
 		
 		# Save .bed file including magic numbers
 		with open(f"{args.out}.bed", "w") as bfile:
 			np.array([108, 27, 1], dtype=np.uint8).tofile(bfile)
 			Z_bin.tofile(bfile)
-		del K_vec, Z_bin, Z, Z_vec
+		del b_vec, Z_bin, Z, Z_vec
 
 		# Save .bim file
-		tmp = np.array([f"{chrom}_B{l}_W{w}_K{k}" for w,k,l in P_mat])
-		bim = np.hstack((np.array([chrom]).repeat(K_tot).reshape(-1,1), \
-			tmp.reshape(-1,1), np.zeros((K_tot, 1), dtype=np.uint8), \
-			np.arange(1, K_tot+1).reshape(-1,1), \
-			np.array(["K"]).repeat(K_tot).reshape(-1,1), \
-			np.zeros((K_tot, 1), dtype=np.uint8)))
+		tmp = np.array([f"{chrom}_W{w}_K{k}_B{l}" for w,k,l in P_mat])
+		bim = np.hstack((
+			np.array([chrom]).repeat(K_tot).reshape(-1, 1), \
+			tmp.reshape(-1, 1), np.zeros((K_tot, 1), dtype=np.int32), \
+			s_vec.repeat(K_vec).reshape(-1, 1), \
+			np.array(["K"]).repeat(K_tot).reshape(-1, 1), \
+			np.zeros((K_tot, 1), dtype=np.int32)
+		))
 		np.savetxt(f"{args.out}.bim", bim, delimiter="\t", fmt="%s")
-		del bim, tmp, P_mat
+		del K_vec, s_vec, bim, tmp, P_mat
 		
 		# Save .fam file
 		if args.duplicate_fid:

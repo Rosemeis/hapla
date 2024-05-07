@@ -55,7 +55,7 @@ def main(args):
 	n = 2*len(v_file.samples)
 	B = ceil(n/8)
 	if args.plink:
-		s_list = np.array(v_file.samples).reshape(-1,1)
+		s_list = np.array(v_file.samples).reshape(-1, 1)
 
 	# Check number of sites and allocate memory
 	for variant in v_file:
@@ -104,8 +104,11 @@ def main(args):
 	if args.fixed is not None:
 		e_vec = v_vec[w_vec[:-1]+args.fixed-1].copy()
 		e_vec[-1] = v_vec[-1]
+		b_vec = np.full(W, args.fixed, dtype=np.int32)
+		b_vec[-1] = w_vec[-1] - w_vec[-2]
 	else:
 		e_vec = v_vec[w_vec[1:]-1]
+		b_vec = w_vec[1:] - w_vec[:-1]
 	del v_list, v_vec
 
 	# Containers
@@ -131,7 +134,7 @@ def main(args):
 
 	# Optional containers
 	if args.medians:
-		M_dict = {"W":w_vec.copy()}
+		M_dict = {"W":w_vec.copy(), "B":b_vec.copy()}
 	if args.loglike:
 		L_dict = {}
 		L = np.zeros((n, args.max_clusters), dtype=np.float32) # Log-likelihoods
@@ -267,7 +270,7 @@ def main(args):
 		C_thr.fill(0)
 		N_thr.fill(0)
 		N_vec.fill(0)	
-	del G
+	del G, w_vec
 	if not args.verbose:
 		print(".\n")
 	
@@ -275,15 +278,15 @@ def main(args):
 	win = np.hstack((
 		np.array([chrom]).repeat(W).reshape(-1, 1), \
 		s_vec.reshape(-1, 1), e_vec.reshape(-1, 1), (e_vec - s_vec).reshape(-1, 1), \
-		(w_vec[1:] - w_vec[:-1]).reshape(-1, 1), K_vec.reshape(-1 ,1)
+		b_vec.reshape(-1, 1), K_vec.reshape(-1 ,1)
 	))
 
 	# Save output
 	np.save(f"{args.out}.z", Z)
-	np.savetxt(f"{args.out}.win.info", win, delimiter="\t", fmt="%s")
+	np.savetxt(f"{args.out}.windows", win, delimiter="\t", fmt="%s")
 	print(f"Saved haplotype cluster assignments as {args.out}.z.npy")
-	print(f"Saved window information as {args.out}.win.info")
-	del win
+	print(f"Saved window information as {args.out}.windows")
+	del win, e_vec
 	if args.medians:
 		np.savez(f"{args.out}.medians", **M_dict)
 		print(f"Saved haplotype cluster medians as {args.out}.medians.npz")
@@ -295,28 +298,28 @@ def main(args):
 	if args.plink:
 		print("\rGenerating binary PLINK output.", end="")
 		K_tot = np.sum(K_vec, dtype=int)
-		P_mat = np.zeros((K_tot, 2), dtype=np.int32)
+		P_mat = np.zeros((K_tot, 3), dtype=np.int32)
 		Z_vec = np.zeros(n//2, dtype=np.uint8)
 		Z_bin = np.zeros((K_tot, B), dtype=np.uint8)
-		reader_cy.convertPlink(Z, Z_bin, P_mat, Z_vec, K_vec)
+		reader_cy.convertPlink(Z, Z_bin, P_mat, Z_vec, K_vec, b_vec)
 		
 		# Save .bed file including magic numbers
 		with open(f"{args.out}.bed", "w") as bfile:
 			np.array([108, 27, 1], dtype=np.uint8).tofile(bfile)
 			Z_bin.tofile(bfile)
-		del K_vec, Z_bin, Z, Z_vec
+		del b_vec, Z_bin, Z, Z_vec
 
 		# Save .bim file
-		tmp = np.array([f"{chrom}_W{w}_K{k}" for w,k in P_mat])
+		tmp = np.array([f"{chrom}_W{w}_K{k}_B{l}" for w,k,l in P_mat])
 		bim = np.hstack((
 			np.array([chrom]).repeat(K_tot).reshape(-1, 1), \
-			tmp.reshape(-1, 1), np.zeros((K_tot, 1), dtype=np.uint8), \
-			np.arange(1, K_tot+1).reshape(-1, 1), \
+			tmp.reshape(-1, 1), np.zeros((K_tot, 1), dtype=np.int32), \
+			s_vec.repeat(K_vec).reshape(-1, 1), \
 			np.array(["K"]).repeat(K_tot).reshape(-1, 1), \
-			np.zeros((K_tot, 1), dtype=np.uint8)
+			np.zeros((K_tot, 1), dtype=np.int32)
 		))
 		np.savetxt(f"{args.out}.bim", bim, delimiter="\t", fmt="%s")
-		del bim, tmp, P_mat
+		del K_vec, s_vec, bim, tmp, P_mat
 		
 		# Save .fam file
 		if args.duplicate_fid:
