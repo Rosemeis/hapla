@@ -283,9 +283,9 @@ def main(args):
 
 	# Save output
 	np.save(f"{args.out}.z", Z)
-	np.savetxt(f"{args.out}.windows", win, delimiter="\t", fmt="%s")
+	np.savetxt(f"{args.out}.win", win, delimiter="\t", fmt="%s")
 	print(f"Saved haplotype cluster assignments as {args.out}.z.npy")
-	print(f"Saved window information as {args.out}.windows")
+	print(f"Saved window information as {args.out}.win")
 	del win, e_vec
 	if args.medians:
 		np.savez(f"{args.out}.medians", **M_dict)
