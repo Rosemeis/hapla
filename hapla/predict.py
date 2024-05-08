@@ -60,7 +60,7 @@ def main(args):
 	j = 0
 	for variant in v_file:
 		V = variant.genotype.array()
-		reader_cy.readPred(G, V, j, n//2)
+		reader_cy.predVar(G, V, j, n//2)
 		j += 1
 	del V
 	print(f"\rLoaded phased genotype data: {n} haplotypes and {m} SNPs.")

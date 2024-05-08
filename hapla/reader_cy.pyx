@@ -2,7 +2,7 @@
 import numpy as np
 cimport numpy as np
 
-##### Cython function for reading VCF/BCF files #####
+##### Cython functions for reading genotype files #####
 ### Read variant from VCF/BCF into 1-bit integer format
 cpdef void readVar(unsigned char[:,::1] G, const short[:,::1] V, const int j, \
 		const int n) noexcept nogil:
@@ -22,7 +22,7 @@ cpdef void readVar(unsigned char[:,::1] G, const short[:,::1] V, const int j, \
 				break
 
 ### Read variant from VCF/BCF into 2-bit integer format
-cpdef void readPred(unsigned char[:,::1] G, const short[:,::1] V, const int j, \
+cpdef void predVar(unsigned char[:,::1] G, const short[:,::1] V, const int j, \
 		const int n) noexcept nogil:
 	cdef:
 		int B = G.shape[1]
