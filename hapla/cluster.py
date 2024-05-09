@@ -195,7 +195,7 @@ def main(args):
 							print(f"Converged! K={K}.")
 						break
 					else: # Make sure two haplotype clusters are generated
-						print(" No diversity (K=1)! Adding extra cluster.")
+						print(", No diversity (K=1)! Adding extra cluster.")
 						M[K,:] = X[c_arg,:]
 						C[K,:] = X[c_arg,:]
 						C[Z[w,c_arg],:] -= X[c_arg,:]
