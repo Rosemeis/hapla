@@ -16,7 +16,7 @@ cpdef void marginalMedians(unsigned char[:,::1] M, float[:,::1] C, \
 		if N_vec[k] > 0:
 			Nk = 1.0/(<float>N_vec[k])
 			for j in range(m):
-				C[k,j] = C[k,j]*Nk
+				C[k,j] *= Nk
 				M[k,j] = <unsigned char>(C[k,j] > 0.5)
 
 # Compute distances, cluster assignment and prepare for next loop
@@ -43,13 +43,12 @@ cpdef void clusterAssignment(const unsigned char[:,::1] X, \
 				if N_vec[k] > 0:
 					dist = 0
 					for j in range(m):
-						dist += X[i,j] ^ M[k,j]
-				else:
-					dist = m
-				# Assignment
-				if dist < c_vec[i]:
-					Z[w,i] = k
-					c_vec[i] = dist
+						dist = dist + (X[i,j] ^ M[k,j])
+
+					# Assignment
+					if dist < c_vec[i]:
+						Z[w,i] = k
+						c_vec[i] = dist
 
 			# Add individual contributions to thread local arrays
 			N_thr[thr,Z[w,i]] += 1

@@ -139,7 +139,7 @@ def main(args):
 		L_dict = {}
 		L = np.zeros((n, args.max_clusters), dtype=np.float32) # Log-likelihoods
 
-	# Clustering using DC-DP-Medians
+	# Clustering using PDC-DP-Medians
 	for w in np.arange(W):
 		if args.verbose:
 			print(f"Window {w+1}/{W}")
@@ -177,8 +177,8 @@ def main(args):
 
 			# Check for extra cluster
 			c_max = np.max(c_vec)
-			c_arg = np.argmax(c_vec)
 			if (c_max > args.lmbda*X.shape[1]) & (K < args.max_clusters):
+				c_arg = np.argmax(c_vec) # Extreme point
 				M[K,:] = X[c_arg,:]
 				C[K,:] = X[c_arg,:]
 				C[Z[w,c_arg],:] -= X[c_arg,:]
@@ -196,6 +196,7 @@ def main(args):
 						break
 					else: # Make sure two haplotype clusters are generated
 						print(", No diversity (K=1)! Adding extra cluster.")
+						c_arg = np.argmax(c_vec) # Extreme point
 						M[K,:] = X[c_arg,:]
 						C[K,:] = X[c_arg,:]
 						C[Z[w,c_arg],:] -= X[c_arg,:]
@@ -269,7 +270,7 @@ def main(args):
 		# Clean up
 		C_thr.fill(0)
 		N_thr.fill(0)
-		N_vec.fill(0)	
+		N_vec.fill(0)
 	del G, w_vec
 	if not args.verbose:
 		print(".\n")
