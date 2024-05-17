@@ -37,7 +37,7 @@ cpdef void clusterAssignment(const unsigned char[:,::1] X, \
 
 		# Cluster haplotypes
 		for i in range(I_thr[thr,0], I_thr[thr,1]):
-			c_vec[i] = m
+			c_vec[i] = m + 1
 			for k in range(K):
 				# Distances
 				if N_vec[k] > 0:

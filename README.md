@@ -1,4 +1,4 @@
-# hapla (v0.7)
+# hapla (v0.8)
 ***hapla*** is a framework for performing window-based haplotype clustering in phased genotype data. The inferred haplotype cluster alleles can be used to infer fine-scale population structure, perform polygenic prediction and haplotype cluster based association studies.
 
 ### Citation
@@ -21,8 +21,8 @@ Coming soon.
 - cluster
 - struct
 - predict
-- score
 - admix
+- fatash
 
 
 ### Haplotype clustering
@@ -93,11 +93,28 @@ Estimate ancestry proportions and ancestral haplotype cluster frequencies with a
 ```bash
 # Estimate ancestry proportions assuming K=3 ancestral sources for a single chromosome
 hapla admix --clusters hapla.chr1.z.npy --K 3 --seed 1 --threads 16 --out hapla.chr1
-# Saves ancestry proportions (Q-matrix) in text-format ("hapla.chr1.K3.s1.Q")
+# Saves Q matrix in a text-file and P matrix in a binary NumPy file
+#	- hapla.chr1.K3.s1.Q
+#	- hapla.chr1.K3.s1.P.npy
 
-# Estimate ancestry proportions assuming K=3 ancestral sources using filelist with all chromosomes and save frequencies
-hapla admix --filelist hapla.filelist --K 3 --seed 1 --threads 16 --out hapla --save-freq
+# Estimate ancestry proportions assuming K=3 ancestral sources using filelist with all chromosomes
+hapla admix --filelist hapla.filelist --K 3 --seed 1 --threads 16 --out hapla
 # Saves Q matrix in a text-file and P matrix in a binary NumPy file
 #	- hapla.K3.s1.Q
 #	- hapla.K3.s1.P.npy
+```
+
+### Local ancestry inference
+**hapla fatash**
+Infer local ancestry tracts unsupervised using the admixture estimation in a hidden markov model. Using a modified fastPHASE model for haplotype clusters.
+```bash
+# Infer local ancestry tracts for a single chromosome
+hapla fatash --clusters hapla.chr1.z.npy --q-matrix hapla.chr1.K3.s1.Q --p-matrix hapla.chr1.K3.s1.P.npy --threads 16 --out hapla.chr1
+# Saves posterior decoding path in text-format ("hapla.chr1.path")
+
+# Infer local ancestry tracts using filelist with all chromosome and optimize alpha rates in transition matrix
+hapla fatash --filelist hapla.filelist --q-matrix hapla.K3.s1.Q --p-matrix hapla.K3.s1.P.npy --threads 16 --out hapla --optim --save-alpha
+# Saves path and alpha rates in a text-file
+#	- hapla.path
+#	- hapla.alpha
 ```

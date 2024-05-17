@@ -13,7 +13,7 @@ from time import time
 ##### hapla predict #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.7)")
+	print("hapla by Jonas Meisner (v0.8)")
 	print(f"hapla predict using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 	

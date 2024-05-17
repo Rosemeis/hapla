@@ -35,7 +35,7 @@ cpdef void updateP(const unsigned char[:,::1] Z, double[:,:,::1] P, \
 		int n = Z.shape[1]
 		int K = P.shape[1]
 		int C = P.shape[2]
-		int w, i, k, c, x, y
+		int w, i, k, c, z, x, y
 		double a, h, sumP
 		double* P_thr
 		double* Q_thr
@@ -45,12 +45,13 @@ cpdef void updateP(const unsigned char[:,::1] Z, double[:,:,::1] P, \
 		for w in prange(W):
 			for i in range(n):
 				h = 0.0
+				z = <int>Z[w,i]
 				for k in range(K):
-					h = h + P[w,k,Z[w,i]]*Q[i//2,k]
+					h = h + P[w,k,z]*Q[i//2,k]
 				for k in range(K):
-					a = (P[w,k,Z[w,i]]*Q[i//2,k])/h
-					P_thr[k*C+Z[w,i]] += a
-					Q_thr[(i//2)*K+k] += a
+					a = (P[w,k,z]*Q[i//2,k])/h
+					P_thr[k*C+z] = P_thr[k*C+z] + a
+					Q_thr[(i//2)*K+k] = Q_thr[(i//2)*K+k] + a
 			for k in range(K):
 				sumP = 0.0
 				for c in range(K_vec[w]):
@@ -75,7 +76,7 @@ cpdef void accelP(const unsigned char[:,::1] Z, double[:,:,::1] P, \
 		int n = Z.shape[1]
 		int K = P.shape[1]
 		int C = P.shape[2]
-		int w, i, k, c, x, y
+		int w, i, k, c, z, x, y
 		double a, h, P0, sumP
 		double* P_thr
 		double* Q_thr
@@ -85,12 +86,13 @@ cpdef void accelP(const unsigned char[:,::1] Z, double[:,:,::1] P, \
 		for w in prange(W):
 			for i in range(n):
 				h = 0.0
+				z = <int>Z[w,i]
 				for k in range(K):
-					h = h + P[w,k,Z[w,i]]*Q[i//2,k]
+					h = h + P[w,k,z]*Q[i//2,k]
 				for k in range(K):
-					a = (P[w,k,Z[w,i]]*Q[i//2,k])/h
-					P_thr[k*C+Z[w,i]] += a
-					Q_thr[(i//2)*K+k] += a
+					a = (P[w,k,z]*Q[i//2,k])/h
+					P_thr[k*C+z] = P_thr[k*C+z] + a
+					Q_thr[(i//2)*K+k] = Q_thr[(i//2)*K+k] + a
 			for k in range(K):
 				sumP = 0.0
 				for c in range(K_vec[w]):

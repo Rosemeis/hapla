@@ -13,7 +13,7 @@ from time import time
 ##### hapla cluster #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.7)")
+	print("hapla by Jonas Meisner (v0.8)")
 	print(f"hapla cluster using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 	
@@ -264,6 +264,7 @@ def main(args):
 		if args.medians:
 			M_dict[f"W{w}"] = M[:K].copy()
 		if args.loglike:
+			C.fill(0.0)
 			cluster_cy.loglikeHaplo(L, X, C, Z, N_vec, K, w, args.threads)
 			L_dict[f"W{w}"] = L[:,:K].copy()
 			

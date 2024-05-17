@@ -12,7 +12,7 @@ from time import time
 ##### hapla admix #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.7)")
+	print("hapla by Jonas Meisner (v0.8)")
 	print(f"hapla admix using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 
@@ -120,18 +120,18 @@ def main(args):
 			lkPre = lkCur
 			ts = time()
 
+	# Save output
+	np.savetxt(f"{args.out}.K{args.K}.s{args.seed}.Q", Q, fmt="%.6f")
+	print(f"Saved Q matrix as {args.out}.K{args.K}.s{args.seed}.Q")
+	if not args.no_freq:
+		np.save(f"{args.out}.K{args.K}.s{args.seed}.P", P)
+		print(f"Saved P matrix as {args.out}.K{args.K}.s{args.seed}.P.npy")
+
 	# Print elapsed time for computation
 	t_tot = time()-start
 	t_min = int(t_tot//60)
 	t_sec = int(t_tot - t_min*60)
 	print(f"Total elapsed time: {t_min}m{t_sec}s")
-
-	# Save output
-	np.savetxt(f"{args.out}.K{args.K}.s{args.seed}.Q", Q, fmt="%.6f")
-	print(f"Saved Q matrix as {args.out}.K{args.K}.s{args.seed}.Q")
-	if args.save_freq:
-		np.save(f"{args.out}.K{args.K}.s{args.seed}.P", P)
-		print(f"Saved P matrix as {args.out}.K{args.K}.s{args.seed}.P.npy")
 
 
 
