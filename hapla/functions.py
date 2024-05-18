@@ -64,7 +64,7 @@ def squarem(Z, P, Q, P0, Q0, Q_new, dP1, dP2, dP3, dQ1, dQ2, dQ3, K_vec, threads
 def loglikeWrapper(param, *args):
 	E, Q, T, A, v, i = args
 	fatash_cy.calcTransition(T, Q, i//2, param)
-	return fatash_cy.loglikeFatash(E, Q, T, A, v, i)
+	return -fatash_cy.loglikeFatash(E, Q, T, A, v, i)
 
 
 

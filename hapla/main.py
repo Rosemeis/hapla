@@ -129,14 +129,12 @@ def main():
 		metavar="INT", help="Number of threads (1)")
 	parser_fatash.add_argument("-o", "--out", default="hapla.fatash",
 		metavar="OUTPUT", help="Output prefix")
-	parser_fatash.add_argument("--alpha", type=float, default=0.01,
-		metavar="FLOAT", help="Set fixed individual alpha rates (0.01)")
+	parser_fatash.add_argument("--alpha", type=float, default=0.0001,
+		metavar="FLOAT", help="Set fixed alpha rate (0.0001)")
 	parser_fatash.add_argument("--alpha-bound", nargs=2, type=float,
-		default=[0.0001, 0.1], help="Bounds on alpha [0.0001, 0.1]")
+		default=[0.0001, 0.1], help="Bounds on alpha [0.000001, 0.1]")
 	parser_fatash.add_argument("--optim", action="store_true",
 		help="Optimize individual alpha rates using SciPy")
-	parser_fatash.add_argument("--save-alpha", action="store_true",
-		help="Save individual alpha rates")
 
 	# Parse arguments
 	args = parser.parse_args()

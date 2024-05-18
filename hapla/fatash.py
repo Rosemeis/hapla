@@ -54,8 +54,8 @@ def main(args):
 	K = P.shape[1]
 
 	# Containers
-	if args.save_alpha:
-		a = np.full(n, args.alpha)
+	if args.optim:
+		a = np.zeros(n) # Individual alpha rates
 	v = np.zeros(K) # Help vector
 	T = np.zeros((K, K)) # Transitions
 
@@ -96,8 +96,7 @@ def main(args):
 					bounds=tuple(args.alpha_bound)
 				)
 				alpha = opt.x
-				if args.save_alpha:
-					a[i] = alpha
+				a[i] = alpha
 			else:
 				alpha = args.alpha
 
@@ -110,16 +109,16 @@ def main(args):
 		if n_chr == 1:
 			np.savetxt(f"{args.out}.path", L.argmax(axis=2), fmt="%i")
 			print(f"Saved posterior decoding path as {args.out}.path")
-			if args.save_alpha:
+			if args.optim:
 				np.savetxt(f"{args.out}.alpha", a, fmt="%.6f")
-				print(f"Saved individual alpha values as {args.out}.alpha")
-			print("\n")
+				print(f"Saved individual alpha rates as {args.out}.alpha")
+			print("")
 		else:
 			np.savetxt(f"{args.out}.chr{c+1}.path", L.argmax(axis=2), fmt="%i")
 			print(f"Saved posterior decoding path as {args.out}.chr{c+1}.path")
-			if args.save_alpha:
+			if args.optim:
 				np.savetxt(f"{args.out}.chr{c+1}.alpha", a, fmt="%.6f")
-				print(f"Saved individual alpha values as {args.out}.chr{c+1}.alpha")
+				print(f"Saved individual alpha rates as {args.out}.chr{c+1}.alpha")
 			
 			# Print elapsed time of chromosome 
 			t_chr = time()-s_chr
