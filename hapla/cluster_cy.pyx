@@ -19,6 +19,16 @@ cpdef void marginalMedians(unsigned char[:,::1] M, float[:,::1] C, \
 				C[k,j] *= Nk
 				M[k,j] = <unsigned char>(C[k,j] > 0.5)
 
+# Calculate Hamming distance
+cdef int hammingDist(const unsigned char* X, const unsigned char* M, \
+		const int m) noexcept nogil:
+	cdef:
+		int dist = 0
+		int j
+	for j in range(m):
+		dist += <int>(X[j] ^ M[j])
+	return dist
+
 # Compute distances, cluster assignment and prepare for next loop
 cpdef void clusterAssignment(const unsigned char[:,::1] X, \
 		const unsigned char[:,::1] M, unsigned char[:,::1] Z, int[::1] c_vec, \
@@ -41,9 +51,7 @@ cpdef void clusterAssignment(const unsigned char[:,::1] X, \
 			for k in range(K):
 				# Distances
 				if N_vec[k] > 0:
-					dist = 0
-					for j in range(m):
-						dist = dist + (X[i,j] ^ M[k,j])
+					dist = hammingDist(&X[i,0], &M[k,0], m)
 
 					# Assignment
 					if dist < c_vec[i]:
