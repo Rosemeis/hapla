@@ -80,7 +80,7 @@ def main(args):
 		del v_list, v_vec
 
 	# Containers
-	K_vec = np.zeros(W, dtype=np.uint8) # Number of clusters in windows
+	k_vec = np.zeros(W, dtype=np.uint8) # Number of clusters in windows
 	Z = np.zeros((W, n), dtype=np.uint8) # Haplotype cluster alleles
 
 	# Clustering
@@ -97,7 +97,7 @@ def main(args):
 		
 		# Cluster assignment
 		shared_cy.predictCluster(X, M, Z, K, w, args.threads)
-		K_vec[w] = K
+		k_vec[w] = K
 	del G, w_vec
 	print(".\n")
 
@@ -107,29 +107,29 @@ def main(args):
 	if args.plink:
 		print("\rGenerating binary PLINK output.", end="")
 		B = ceil(n/8)
-		K_tot = np.sum(K_vec, dtype=int)
+		K_tot = np.sum(k_vec, dtype=int)
 		P_mat = np.zeros((K_tot, 3), dtype=np.int32)
-		Z_vec = np.zeros(n//2, dtype=np.uint8)
 		Z_bin = np.zeros((K_tot, B), dtype=np.uint8)
-		reader_cy.convertPlink(Z, Z_bin, P_mat, Z_vec, K_vec, b_vec)
+		z_vec = np.zeros(n//2, dtype=np.uint8)
+		reader_cy.convertPlink(Z, Z_bin, P_mat, z_vec, k_vec, b_vec)
 		
 		# Save .bed file including magic numbers
 		with open(f"{args.out}.bed", "w") as bfile:
 			np.array([108, 27, 1], dtype=np.uint8).tofile(bfile)
 			Z_bin.tofile(bfile)
-		del b_vec, Z_bin, Z, Z_vec
+		del b_vec, Z_bin, Z, z_vec
 
 		# Save .bim file
 		tmp = np.array([f"{chrom}_W{w}_K{k}_B{l}" for w,k,l in P_mat])
 		bim = np.hstack((
 			np.array([chrom]).repeat(K_tot).reshape(-1, 1), \
 			tmp.reshape(-1, 1), np.zeros((K_tot, 1), dtype=np.int32), \
-			s_vec.repeat(K_vec).reshape(-1, 1), \
+			s_vec.repeat(k_vec).reshape(-1, 1), \
 			np.array(["K"]).repeat(K_tot).reshape(-1, 1), \
 			np.zeros((K_tot, 1), dtype=np.int32)
 		))
 		np.savetxt(f"{args.out}.bim", bim, delimiter="\t", fmt="%s")
-		del K_vec, s_vec, bim, tmp, P_mat
+		del k_vec, s_vec, bim, tmp, P_mat
 		
 		# Save .fam file
 		if args.duplicate_fid:

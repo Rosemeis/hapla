@@ -114,8 +114,8 @@ def main(args):
 	# Containers
 	c_vec = np.zeros(n, dtype=np.int32) # Cost vector
 	z_pre = np.zeros(n, dtype=np.uint8) # Help vector
-	K_vec = np.zeros(W, dtype=np.uint8) # Number of clusters in windows
-	N_vec = np.zeros(args.max_clusters, dtype=np.int32) # Size vector
+	k_vec = np.zeros(W, dtype=np.uint8) # Number of clusters in windows
+	n_vec = np.zeros(args.max_clusters, dtype=np.int32) # Size vector
 	Z = np.zeros((W, n), dtype=np.uint8) # Haplotype cluster assignments
 	if args.fixed is not None: # Window length-based 
 		X = np.zeros((n, args.fixed), dtype=np.uint8) # Haplotypes
@@ -165,15 +165,15 @@ def main(args):
 
 		# Compute mean and initialize first median
 		K = 1
-		N_vec[0] = n
-		cluster_cy.marginalMedians(M, C, N_vec, K)
+		n_vec[0] = n
+		cluster_cy.marginalMedians(M, C, n_vec, K)
 
 		# Perform PDC-DP-Medians
 		for it in np.arange(args.max_iterations):
-			cluster_cy.clusterAssignment(X, M, Z, c_vec, N_vec, I_thr, N_thr, C_thr, \
+			cluster_cy.clusterAssignment(X, M, Z, c_vec, n_vec, I_thr, N_thr, C_thr, \
 				K, w, args.threads)
 			np.sum(C_thr, axis=0, out=C)
-			np.sum(N_thr, axis=0, out=N_vec)
+			np.sum(N_thr, axis=0, out=n_vec)
 
 			# Check for extra cluster
 			c_max = np.max(c_vec)
@@ -182,8 +182,8 @@ def main(args):
 				M[K,:] = X[c_arg,:]
 				C[K,:] = X[c_arg,:]
 				C[Z[w,c_arg],:] -= X[c_arg,:]
-				N_vec[K] = 1
-				N_vec[Z[w,c_arg]] -= 1
+				n_vec[K] = 1
+				n_vec[Z[w,c_arg]] -= 1
 				Z[w,c_arg] = K
 				K += 1
 
@@ -200,8 +200,8 @@ def main(args):
 						M[K,:] = X[c_arg,:]
 						C[K,:] = X[c_arg,:]
 						C[Z[w,c_arg],:] -= X[c_arg,:]
-						N_vec[K] = 1
-						N_vec[Z[w,c_arg]] -= 1
+						n_vec[K] = 1
+						n_vec[Z[w,c_arg]] -= 1
 						Z[w,c_arg] = K
 						K += 1
 			if args.verbose:
@@ -209,69 +209,69 @@ def main(args):
 				print(f"Epoch {it}: Cost {cost:.1f}")
 			
 			# Count sizes and construct marginal medians
-			cluster_cy.marginalMedians(M, C, N_vec, K)
+			cluster_cy.marginalMedians(M, C, n_vec, K)
 			np.copyto(z_pre, Z[w], casting="no")
 
 		# Iterative re-clustering of haplotypes
 		if K > 2:
 			# Ensure correct medians
-			cluster_cy.marginalMedians(M, C, N_vec, K)
+			cluster_cy.marginalMedians(M, C, n_vec, K)
 
 			# Remove singletons in one go
-			N_vec[N_vec == 1] = 0
-			cluster_cy.clusterAssignment(X, M, Z, c_vec, N_vec, I_thr, N_thr, C_thr, \
+			n_vec[n_vec == 1] = 0
+			cluster_cy.clusterAssignment(X, M, Z, c_vec, n_vec, I_thr, N_thr, C_thr, \
 				K, w, args.threads)
 			np.sum(C_thr, axis=0, out=C)
-			np.sum(N_thr, axis=0, out=N_vec)
-			K_tmp = np.sum(N_vec > 0)
+			np.sum(N_thr, axis=0, out=n_vec)
+			K_tmp = np.sum(n_vec > 0)
 
 			# Remove small clusters iterativly
 			if args.verbose:
-				N_sur = np.sum(N_vec >= N_mac)
+				N_sur = np.sum(n_vec >= N_mac)
 				print(f"{N_sur}/{K_tmp} clusters reaching threshold.")
 			while K_tmp > 2:
 				# Re-assign haplotypes
-				cluster_cy.marginalMedians(M, C, N_vec, K)
-				cluster_cy.clusterAssignment(X, M, Z, c_vec, N_vec, I_thr, N_thr, \
+				cluster_cy.marginalMedians(M, C, n_vec, K)
+				cluster_cy.clusterAssignment(X, M, Z, c_vec, n_vec, I_thr, N_thr, \
 					C_thr, K, w, args.threads)
 				np.sum(C_thr, axis=0, out=C)
-				np.sum(N_thr, axis=0, out=N_vec)
+				np.sum(N_thr, axis=0, out=n_vec)
 
 				# Find smallest cluster
-				N_min = cluster_cy.findZero(N_vec, n, N_mac, K)
+				N_min = cluster_cy.findZero(n_vec, n, N_mac, K)
 				if N_min >= N_mac:
 					break
 				K_tmp -= 1
 
 				# Print verbose information
 				if args.verbose:
-					N_sur = np.sum(N_vec >= N_mac)
+					N_sur = np.sum(n_vec >= N_mac)
 					print(f"{N_sur}/{K_tmp} clusters reaching threshold. " + \
 						f"{N_min}/{N_mac}.")
 			
 			# Re-cluster K = 2 non-break case
 			if (K_tmp == 2) and (N_min < N_mac):
-				cluster_cy.clusterAssignment(X, M, Z, c_vec, N_vec, I_thr, N_thr, \
+				cluster_cy.clusterAssignment(X, M, Z, c_vec, n_vec, I_thr, N_thr, \
 					C_thr, K, w, args.threads)
-				np.sum(N_thr, axis=0, out=N_vec)
+				np.sum(N_thr, axis=0, out=n_vec)
 
 		# Fix cluster median and cluster assignment order
-		cluster_cy.medianFix(M, Z, N_vec, K, w, args.threads)
-		K = np.sum(N_vec > 0, dtype=int)
-		K_vec[w] = K
+		cluster_cy.medianFix(M, Z, n_vec, K, w, args.threads)
+		K = np.sum(n_vec > 0, dtype=int)
+		k_vec[w] = K
 
 		# Generate optional saves (medians and log-likehoods)
 		if args.medians:
 			M_dict[f"W{w}"] = M[:K].copy()
 		if args.loglike:
 			C.fill(0.0)
-			cluster_cy.loglikeHaplo(L, X, C, Z, N_vec, K, w, args.threads)
+			cluster_cy.loglikeHaplo(L, X, C, Z, n_vec, K, w, args.threads)
 			L_dict[f"W{w}"] = L[:,:K].copy()
 			
 		# Clean up
 		C_thr.fill(0)
 		N_thr.fill(0)
-		N_vec.fill(0)
+		n_vec.fill(0)
 	del G, w_vec
 	if not args.verbose:
 		print(".\n")
@@ -280,7 +280,7 @@ def main(args):
 	win = np.hstack((
 		np.array([chrom]).repeat(W).reshape(-1, 1), \
 		s_vec.reshape(-1, 1), e_vec.reshape(-1, 1), (e_vec - s_vec).reshape(-1, 1), \
-		b_vec.reshape(-1, 1), K_vec.reshape(-1 ,1)
+		b_vec.reshape(-1, 1), k_vec.reshape(-1 ,1)
 	))
 
 	# Save output
@@ -299,29 +299,29 @@ def main(args):
 		del L_dict
 	if args.plink:
 		print("\rGenerating binary PLINK output.", end="")
-		K_tot = np.sum(K_vec, dtype=int)
+		K_tot = np.sum(k_vec, dtype=int)
 		P_mat = np.zeros((K_tot, 3), dtype=np.int32)
-		Z_vec = np.zeros(n//2, dtype=np.uint8)
 		Z_bin = np.zeros((K_tot, B), dtype=np.uint8)
-		reader_cy.convertPlink(Z, Z_bin, P_mat, Z_vec, K_vec, b_vec)
+		z_vec = np.zeros(n//2, dtype=np.uint8)
+		reader_cy.convertPlink(Z, Z_bin, P_mat, z_vec, k_vec, b_vec)
 		
 		# Save .bed file including magic numbers
 		with open(f"{args.out}.bed", "w") as bfile:
 			np.array([108, 27, 1], dtype=np.uint8).tofile(bfile)
 			Z_bin.tofile(bfile)
-		del b_vec, Z_bin, Z, Z_vec
+		del b_vec, Z_bin, Z, z_vec
 
 		# Save .bim file
 		tmp = np.array([f"{chrom}_W{w}_K{k}_B{l}" for w,k,l in P_mat])
 		bim = np.hstack((
 			np.array([chrom]).repeat(K_tot).reshape(-1, 1), \
 			tmp.reshape(-1, 1), np.zeros((K_tot, 1), dtype=np.int32), \
-			s_vec.repeat(K_vec).reshape(-1, 1), \
+			s_vec.repeat(k_vec).reshape(-1, 1), \
 			np.array(["K"]).repeat(K_tot).reshape(-1, 1), \
 			np.zeros((K_tot, 1), dtype=np.int32)
 		))
 		np.savetxt(f"{args.out}.bim", bim, delimiter="\t", fmt="%s")
-		del K_vec, s_vec, bim, tmp, P_mat
+		del k_vec, s_vec, bim, tmp, P_mat
 		
 		# Save .fam file
 		if args.duplicate_fid:

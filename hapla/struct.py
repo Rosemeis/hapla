@@ -54,7 +54,6 @@ def main(args):
 	if args.grm:
 		print("Estimating genome-wide relationship matrix (GRM).")
 		M = 0
-		P = 0.0
 		s_pre = ""
 		for z in np.arange(len(Z_list)): # Loop through files
 			# Print information
@@ -72,14 +71,14 @@ def main(args):
 			W = Z_mat.shape[0]
 
 			# Count haplotype cluster alleles and find rarest clusters
-			K_vec = np.max(Z_mat, axis=1) + 1
-			m = np.sum(K_vec, dtype=int)
+			k_vec = np.max(Z_mat, axis=1) + 1
+			m = np.sum(k_vec, dtype=int)
 
 			# Populate full matrix and estimate cluster frequencies
 			Z = np.zeros((m, n), dtype=np.uint8)
 			p = np.zeros(m, dtype=np.float32)
-			shared_cy.haplotypeAggregate(Z_mat, Z, p, K_vec)
-			del Z_mat, K_vec
+			shared_cy.haplotypeAggregate(Z_mat, Z, p, k_vec)
+			del Z_mat, k_vec
 
 			# Setup GRM part settings
 			B = ceil(m/args.batch) # Number of batches
@@ -123,6 +122,7 @@ def main(args):
 		if args.fid is not None:
 			fid = np.loadtxt(f"{args.fid}", dtype=np.str_).reshape(-1,1)
 			fam = np.hstack((fid, iid))
+			del fid
 		else:
 			fam = np.hstack((np.zeros((n, 1), dtype=np.uint8), iid))
 		np.savetxt(f"{args.out}.grm.id", fam, delimiter="\t", fmt="%s")
@@ -130,7 +130,7 @@ def main(args):
 			f"- {args.out}.grm.bin\n" + \
 			f"- {args.out}.grm.N.bin\n" + \
 			f"- {args.out}.grm.id\n")
-		del G
+		del G, iid, fam
 	
 	# Infer population structure using PCA
 	if args.pca is not None:
@@ -145,8 +145,8 @@ def main(args):
 		n = Z_mat.shape[1]//2
 
 		# Count haplotype cluster alleles
-		K_vec = np.max(Z_mat, axis=1) + 1
-		m = np.sum(K_vec, dtype=int)
+		k_vec = np.max(Z_mat, axis=1) + 1
+		m = np.sum(k_vec, dtype=int)
 
 		# Print information
 		print(f"\rLoaded haplotype cluster assignments:\n" + \
@@ -157,8 +157,8 @@ def main(args):
 		# Populate full matrix and estimate cluster frequencies
 		Z = np.zeros((m, n), dtype=np.uint8)
 		p = np.zeros(m, dtype=np.float32)
-		shared_cy.haplotypeAggregate(Z_mat, Z, p, K_vec)
-		del Z_mat, K_vec
+		shared_cy.haplotypeAggregate(Z_mat, Z, p, k_vec)
+		del Z_mat, k_vec
 		a = np.power(2.0*p*(1-p), args.scaling)
 
 		# Randomized SVD

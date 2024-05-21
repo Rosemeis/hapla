@@ -7,7 +7,7 @@ from cython.parallel import prange, parallel
 ### hapla struct
 # Extract aggregated haplotype cluster counts
 cpdef void haplotypeAggregate(const unsigned char[:,::1] Z_mat, \
-		unsigned char[:,::1] Z, float[::1] p, const unsigned char[::1] K_vec) \
+		unsigned char[:,::1] Z, float[::1] p, const unsigned char[::1] k_vec) \
 		noexcept nogil:
 	cdef:
 		int W = Z_mat.shape[0]
@@ -16,7 +16,7 @@ cpdef void haplotypeAggregate(const unsigned char[:,::1] Z_mat, \
 		int i, k, w
 		float d = 1.0/<float>n
 	for w in range(W):
-		for k in range(K_vec[w]):
+		for k in range(k_vec[w]):
 			for i in range(n):
 				if Z_mat[w,i] == k:
 					Z[j,i//2] += 1
@@ -74,7 +74,7 @@ cpdef void predictCluster(const unsigned char[:,::1] X, const unsigned char[:,::
 ### hapla score
 # Extract aggregated haplotype cluster counts in PRS
 cpdef void scoreAggregate(const unsigned char[:,::1] Z_mat, \
-		unsigned char[:,::1] Z, const unsigned char[::1] K_vec) \
+		unsigned char[:,::1] Z, const unsigned char[::1] k_vec) \
 		noexcept nogil:
 	cdef:
 		int W = Z_mat.shape[0]
@@ -82,7 +82,7 @@ cpdef void scoreAggregate(const unsigned char[:,::1] Z_mat, \
 		int j = 0
 		int i, k, w
 	for w in range(W):
-		for k in range(K_vec[w]):
+		for k in range(k_vec[w]):
 			for i in range(n):
 				if Z_mat[w,i] == k:
 					Z[j,i//2] += 1

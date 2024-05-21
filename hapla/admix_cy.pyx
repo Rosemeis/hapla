@@ -7,7 +7,7 @@ from libc.math cimport log, sqrt
 
 ##### hapla - ancestry estimation #####
 # Create P matrix from array
-cpdef void createP(double[:,:,::1] P, const unsigned char[::1] K_vec) \
+cpdef void createP(double[:,:,::1] P, const unsigned char[::1] k_vec) \
 		noexcept nogil:
 	cdef:
 		int W = P.shape[0]
@@ -19,17 +19,17 @@ cpdef void createP(double[:,:,::1] P, const unsigned char[::1] K_vec) \
 		for k in range(K):
 			sumP = 0.0
 			for c in range(C):
-				if c < K_vec[w]:
+				if c < k_vec[w]:
 					sumP += P[w,k,c]
 				else:
 					P[w,k,c] = 0.0
-			for c in range(K_vec[w]):
+			for c in range(k_vec[w]):
 				P[w,k,c] /= sumP
 
 # Update P and Q temp arrays
 cpdef void updateP(const unsigned char[:,::1] Z, double[:,:,::1] P, \
 		const double[:,::1] Q, double[:,::1] Q_new, \
-		const unsigned char[::1] K_vec, const int t) noexcept nogil:
+		const unsigned char[::1] k_vec, const int t) noexcept nogil:
 	cdef:
 		int W = Z.shape[0]
 		int n = Z.shape[1]
@@ -54,9 +54,9 @@ cpdef void updateP(const unsigned char[:,::1] Z, double[:,:,::1] P, \
 					Q_thr[(i//2)*K+k] = Q_thr[(i//2)*K+k] + a
 			for k in range(K):
 				sumP = 0.0
-				for c in range(K_vec[w]):
+				for c in range(k_vec[w]):
 					sumP = sumP + P_thr[k*C+c]
-				for c in range(K_vec[w]):
+				for c in range(k_vec[w]):
 					P[w,k,c] = P_thr[k*C+c]/sumP
 					P[w,k,c] = min(max(P[w,k,c], 1e-5), 1-(1e-5))
 					P_thr[k*C+c] = 0.0
@@ -70,7 +70,7 @@ cpdef void updateP(const unsigned char[:,::1] Z, double[:,:,::1] P, \
 # Accelerated update P and Q temp arrays
 cpdef void accelP(const unsigned char[:,::1] Z, double[:,:,::1] P, \
 		const double[:,::1] Q, double[:,::1] Q_new, \
-		double[:,:,::1] D, const unsigned char[::1] K_vec, const int t) noexcept nogil:
+		double[:,:,::1] D, const unsigned char[::1] k_vec, const int t) noexcept nogil:
 	cdef:
 		int W = Z.shape[0]
 		int n = Z.shape[1]
@@ -95,9 +95,9 @@ cpdef void accelP(const unsigned char[:,::1] Z, double[:,:,::1] P, \
 					Q_thr[(i//2)*K+k] = Q_thr[(i//2)*K+k] + a
 			for k in range(K):
 				sumP = 0.0
-				for c in range(K_vec[w]):
+				for c in range(k_vec[w]):
 					sumP = sumP + P_thr[k*C+c]
-				for c in range(K_vec[w]):
+				for c in range(k_vec[w]):
 					P0 = P[w,k,c]
 					P[w,k,c] = P_thr[k*C+c]/sumP
 					P[w,k,c] = min(max(P[w,k,c], 1e-5), 1-(1e-5))
@@ -152,7 +152,7 @@ cpdef void accelQ(double[:,::1] Q, double[:,::1] Q_new, double[:,::1] D, \
 # Accelerated jump for P (SQUAREM)
 cpdef void alphaP(double[:,:,::1] P, const double[:,:,::1] P0, \
 		const double[:,:,::1] D1, const double[:,:,::1] D2, double[:,:,::1] D3, \
-		const unsigned char[::1] K_vec, const int t) noexcept nogil:
+		const unsigned char[::1] k_vec, const int t) noexcept nogil:
 	cdef:
 		int W = P.shape[0]
 		int K = P.shape[1]
@@ -162,7 +162,7 @@ cpdef void alphaP(double[:,:,::1] P, const double[:,:,::1] P0, \
 		double alpha, sumP
 	for w in range(W):
 		for k in range(K):
-			for c in range(K_vec[w]):
+			for c in range(k_vec[w]):
 				D3[w,k,c] = D2[w,k,c] - D1[w,k,c]
 				sum1 += D1[w,k,c]*D1[w,k,c]
 				sum2 += D3[w,k,c]*D3[w,k,c]
@@ -170,10 +170,10 @@ cpdef void alphaP(double[:,:,::1] P, const double[:,:,::1] P0, \
 	for w in prange(W, num_threads=t):
 		for k in range(K):
 			sumP = 0.0
-			for c in range(K_vec[w]):
+			for c in range(k_vec[w]):
 				P[w,k,c] = P0[w,k,c] + 2.0*alpha*D1[w,k,c] + alpha*alpha*D3[w,k,c]
 				sumP = sumP + P[w,k,c]
-			for c in range(K_vec[w]):
+			for c in range(k_vec[w]):
 				P[w,k,c] /= sumP
 				P[w,k,c] = min(max(P[w,k,c], 1e-5), 1-(1e-5))
 

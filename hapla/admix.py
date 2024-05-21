@@ -54,9 +54,9 @@ def main(args):
 	n = Z.shape[1]//2
 
 	# Count haplotype cluster alleles
-	K_vec = np.max(Z, axis=1) + 1
-	C = np.max(K_vec)
-	m = np.sum(K_vec, dtype=int)
+	k_vec = np.max(Z, axis=1) + 1
+	C = np.max(k_vec)
+	m = np.sum(k_vec, dtype=int)
 
 	# Print information
 	print(f"\rLoaded haplotype cluster assignments:\n" + \
@@ -68,7 +68,7 @@ def main(args):
 	# Initialize P and Q matrix
 	np.random.seed(args.seed) # Set random seed
 	P = np.random.rand(W, args.K, C)
-	admix_cy.createP(P, K_vec)
+	admix_cy.createP(P, k_vec)
 	Q = np.random.rand(n, args.K)
 	Q /= np.sum(Q, axis=1, keepdims=True)
 	Q_new = np.zeros_like(Q)
@@ -92,7 +92,7 @@ def main(args):
 	print(f"Initial loglike: {round(lkPre,1)}\n")
 
 	# Prime iteration
-	admix_cy.updateP(Z, P, Q, Q_new, K_vec, args.threads)
+	admix_cy.updateP(Z, P, Q, Q_new, k_vec, args.threads)
 	admix_cy.updateQ(Q, Q_new, W)
 
 	# Accelerated EM algorithm
@@ -101,10 +101,10 @@ def main(args):
 	for it in range(args.iter):
 		# SQUAREM full update
 		functions.squarem(Z, P, Q, P0, Q0, Q_new, dP1, dP2, dP3, \
-			dQ1, dQ2, dQ3, K_vec, args.threads)
+			dQ1, dQ2, dQ3, k_vec, args.threads)
 		
 		# Stabilization step
-		admix_cy.updateP(Z, P, Q, Q_new, K_vec, args.threads)
+		admix_cy.updateP(Z, P, Q, Q_new, k_vec, args.threads)
 		admix_cy.updateQ(Q, Q_new, W)
 
 		# Log-likelihood convergence check
