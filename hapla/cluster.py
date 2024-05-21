@@ -168,7 +168,7 @@ def main(args):
 		N_vec[0] = n
 		cluster_cy.marginalMedians(M, C, N_vec, K)
 
-		# Perform DC-DP-Medians
+		# Perform PDC-DP-Medians
 		for it in np.arange(args.max_iterations):
 			cluster_cy.clusterAssignment(X, M, Z, c_vec, N_vec, I_thr, N_thr, C_thr, \
 				K, w, args.threads)

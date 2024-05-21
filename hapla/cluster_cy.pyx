@@ -16,8 +16,7 @@ cpdef void marginalMedians(unsigned char[:,::1] M, float[:,::1] C, \
 		if N_vec[k] > 0:
 			Nk = 1.0/(<float>N_vec[k])
 			for j in range(m):
-				C[k,j] *= Nk
-				M[k,j] = <unsigned char>(C[k,j] > 0.5)
+				M[k,j] = <unsigned char>(C[k,j]*Nk > 0.5)
 
 # Calculate Hamming distance
 cdef int hammingDist(const unsigned char* X, const unsigned char* M, \
@@ -29,6 +28,12 @@ cdef int hammingDist(const unsigned char* X, const unsigned char* M, \
 		dist += <int>(X[j] ^ M[j])
 	return dist
 
+# Add haplotype contribution to frequency vector
+cdef void addHaplo(const unsigned char* X, float* C, const int m) noexcept nogil:
+	cdef int j
+	for j in range(m):
+		C[j] += <float>X[j]
+
 # Compute distances, cluster assignment and prepare for next loop
 cpdef void clusterAssignment(const unsigned char[:,::1] X, \
 		const unsigned char[:,::1] M, unsigned char[:,::1] Z, int[::1] c_vec, \
@@ -37,8 +42,8 @@ cpdef void clusterAssignment(const unsigned char[:,::1] X, \
 	cdef:
 		int n = X.shape[0]
 		int m = X.shape[1]
-		int i, j, k, thr, dist
-	for thr in prange(t, num_threads=t, schedule="static", chunksize=1):
+		int c, d, i, j, k, z, thr
+	for thr in prange(t, num_threads=t):
 		# Reset thread-local arrays
 		for k in range(K):
 			N_thr[thr,k] = 0
@@ -47,21 +52,20 @@ cpdef void clusterAssignment(const unsigned char[:,::1] X, \
 
 		# Cluster haplotypes
 		for i in range(I_thr[thr,0], I_thr[thr,1]):
-			c_vec[i] = m + 1
+			c = m + 1
 			for k in range(K):
 				# Distances
 				if N_vec[k] > 0:
-					dist = hammingDist(&X[i,0], &M[k,0], m)
-
-					# Assignment
-					if dist < c_vec[i]:
-						Z[w,i] = k
-						c_vec[i] = dist
+					d = hammingDist(&X[i,0], &M[k,0], m)
+					if d < c:
+						z = k
+						c = d
+			Z[w,i] = z
+			c_vec[i] = c
 
 			# Add individual contributions to thread local arrays
-			N_thr[thr,Z[w,i]] += 1
-			for j in range(m):
-				C_thr[thr,Z[w,i],j] += X[i,j]
+			N_thr[thr,z] += 1
+			addHaplo(&X[i,0], &C_thr[thr,z,0], m)
 
 # Find non-zero cluster with least assignments
 cpdef int findZero(int[::1] N_vec, const int n, const int mac, const int K) \
