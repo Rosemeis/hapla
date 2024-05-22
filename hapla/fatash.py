@@ -50,12 +50,9 @@ def main(args):
 	P = np.load(args.p_matrix)
 	Q = np.loadtxt(args.q_matrix, dtype=float)
 	assert P.shape[1] == Q.shape[1], "Number of ancestral sources do not match!"
-	n = Q.shape[0]*2
 	K = P.shape[1]
 
 	# Containers
-	if args.optim:
-		a = np.zeros(n) # Individual alpha rates
 	v = np.zeros(K) # Help vector
 	T = np.zeros((K, K)) # Transitions
 
@@ -69,9 +66,21 @@ def main(args):
 		# Load haplotype assignments and log P matrix
 		Z = np.ascontiguousarray(np.load(Z_list[c]).T)
 		P_chr = np.ascontiguousarray(np.swapaxes(P[W_tot:(W_tot + Z.shape[1])], 1, 2))
-		assert Z.shape[0] == n, "Number of individuals do not match!"
-		assert P_chr.shape[1] >= (np.max(Z)+1), "Number of clusters is incorrect!"
 		W = Z.shape[1]
+
+		# Setup parameters and alpha optimization
+		if c == 0:
+			n = Z.shape[0]
+			if Q.shape[0] == n//2:
+				N = 2
+			else:
+				assert Q.shape[0] == n, "Number of individuals do not match!"
+				N = 1
+			if args.optim: # Individual alpha rates
+				a = np.zeros(n)
+		else:
+			assert Z.shape[0] == n, "Number of individuals do not match!"
+		assert P_chr.shape[1] >= (np.max(Z)+1), "Number of clusters do not match!"
 
 		# Containers
 		E = np.zeros((n, W, K)) # Emission probabilities
@@ -91,7 +100,7 @@ def main(args):
 			if args.optim:
 				opt = optim.minimize_scalar(
 					fun=functions.loglikeWrapper,
-					args=(E, Q, T, A, v, i),
+					args=(E, Q, T, A, v, N, i),
 					method="bounded",
 					bounds=tuple(args.alpha_bound)
 				)
@@ -101,8 +110,8 @@ def main(args):
 				alpha = args.alpha
 
 			# Compute probabilities
-			fatash_cy.calcTransition(T, Q, i//2, alpha)
-			fatash_cy.calcFwdBwd(E, L, Q, T, A, B, v, i)
+			fatash_cy.calcTransition(T, Q, i//N, alpha)
+			fatash_cy.calcFwdBwd(E, L, Q, T, A, B, v, N, i)
 		print(".")
 
 		# Save matrices
@@ -127,7 +136,7 @@ def main(args):
 			print(f"Elapsed time: {t_min}m{t_sec}s\n")
 		W_tot += W
 		del E, L, A, B
-	assert P.shape[0] == W_tot, "Number of windows do not match!"
+	assert P.shape[0] == W_tot, "Number of windows did not match!"
 
 	# Print elapsed time for computation
 	t_tot = time()-start

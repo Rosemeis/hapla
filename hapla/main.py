@@ -112,6 +112,8 @@ def main():
 		metavar="FLOAT", help="Tolerance in log-likelihood between iterations (1.0)")
 	parser_admix.add_argument("--check", type=int, default=10,
 		metavar="INT", help="Check for convergence every c-th iteration (10)")
+	parser_admix.add_argument("--haplo", action="store_true",
+		help="Estimate admixture proportions for each haplotype")
 	parser_admix.add_argument("--no-freq", action="store_true",
 		help="Do not save haplotype cluster frequencies")
 

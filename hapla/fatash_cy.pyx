@@ -47,14 +47,14 @@ cdef double logsumexp(const double[::1] vec, const int K) noexcept nogil:
 
 # Calculate log-likehood in HMM
 cpdef double loglikeFatash(double[:,:,::1] E, const double[:,::1] Q, \
-		const double[:,::1] T, double[:,::1] A, double[::1] v, const int i) \
-		noexcept nogil:
+		const double[:,::1] T, double[:,::1] A, double[::1] v, const int N, \
+		const int i) noexcept nogil:
 	cdef:
 		int W = E.shape[1]
 		int K = E.shape[2]
 		int w, k, k1, k2
 	for k in range(K):
-		A[0,k] = E[i,0,k] + log(Q[i//2,k])
+		A[0,k] = E[i,0,k] + log(Q[i//N,k])
 	for w in range(1, W):
 		for k1 in range(K):
 			for k2 in range(K):
@@ -69,7 +69,7 @@ cpdef double loglikeFatash(double[:,:,::1] E, const double[:,::1] Q, \
 # Forward-backward algorithm
 cpdef void calcFwdBwd(const double[:,:,::1] E, double[:,:,::1] L, \
 		const double[:,::1] Q, const double[:,::1] T, double[:,::1] A, \
-		double[:,::1] B, double[::1] v, const int i) noexcept nogil:
+		double[:,::1] B, double[::1] v, const int N, const int i) noexcept nogil:
 	cdef:
 		int W = E.shape[1]
 		int K = E.shape[2]
@@ -78,7 +78,7 @@ cpdef void calcFwdBwd(const double[:,:,::1] E, double[:,:,::1] L, \
 
 	# Forward
 	for k in range(K):
-		A[0,k] = E[i,0,k] + log(Q[i//2,k])
+		A[0,k] = E[i,0,k] + log(Q[i//N,k])
 	for w in range(1, W):
 		for k1 in range(K):
 			for k2 in range(K):

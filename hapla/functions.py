@@ -41,17 +41,18 @@ def randomizedSVD(Z, p, a, K, batch, threads):
 
 ### hapla admix
 # SQUAREM update for admixture estimation
-def squarem(Z, P, Q, P0, Q0, Q_new, dP1, dP2, dP3, dQ1, dQ2, dQ3, k_vec, threads):
+def squarem(Z, P, Q, P0, Q0, Q_new, dP1, dP2, dP3, dQ1, dQ2, dQ3, k_vec, S, N, \
+		threads):
 	np.copyto(P0, P, casting="no")
 	np.copyto(Q0, Q, casting="no")
 
 	# 1st EM step
-	admix_cy.accelP(Z, P, Q, Q_new, dP1, k_vec, threads)
-	admix_cy.accelQ(Q, Q_new, dQ1, Z.shape[0])
+	admix_cy.accelP(Z, P, Q, Q_new, dP1, k_vec, N, threads)
+	admix_cy.accelQ(Q, Q_new, dQ1, S)
 
 	# 2nd EM step
-	admix_cy.accelP(Z, P, Q, Q_new, dP2, k_vec, threads)
-	admix_cy.accelQ(Q, Q_new, dQ2, Z.shape[0])
+	admix_cy.accelP(Z, P, Q, Q_new, dP2, k_vec, N, threads)
+	admix_cy.accelQ(Q, Q_new, dQ2, S)
 
 	# Acceleation update
 	admix_cy.alphaP(P, P0, dP1, dP2, dP3, k_vec, threads)
@@ -62,9 +63,9 @@ def squarem(Z, P, Q, P0, Q0, Q_new, dP1, dP2, dP3, dQ1, dQ2, dQ3, k_vec, threads
 ### hapla fatash
 # Log-likehood wrapper for SciPy optimization
 def loglikeWrapper(param, *args):
-	E, Q, T, A, v, i = args
-	fatash_cy.calcTransition(T, Q, i//2, param)
-	return -fatash_cy.loglikeFatash(E, Q, T, A, v, i)
+	E, Q, T, A, v, N, i = args
+	fatash_cy.calcTransition(T, Q, i//N, param)
+	return -fatash_cy.loglikeFatash(E, Q, T, A, v, N, i)
 
 
 

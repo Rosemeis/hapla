@@ -51,7 +51,15 @@ def main(args):
 	Z = np.concatenate(Z_tmp, axis=0)
 	del Z_tmp
 	W = Z.shape[0]
-	n = Z.shape[1]//2
+	n = Z.shape[1]
+	if args.haplo:
+		N = 1
+		S = float(W)
+		n_str = "haplotypes"
+	else:
+		N = 2
+		S = float(2*W)
+		n_str = "samples"
 
 	# Count haplotype cluster alleles
 	k_vec = np.max(Z, axis=1) + 1
@@ -60,7 +68,7 @@ def main(args):
 
 	# Print information
 	print(f"\rLoaded haplotype cluster assignments:\n" + \
-		f"- {n} samples\n" + \
+		f"- {n//N} {n_str}\n" + \
 		f"- {W} windows\n" + \
 		f"- {m} clusters\n")
 	print(f"Estimating admixture proportions: K={args.K}, seed={args.seed}.")
@@ -68,13 +76,15 @@ def main(args):
 	# Initialize P and Q matrix
 	np.random.seed(args.seed) # Set random seed
 	P = np.random.rand(W, args.K, C)
+	P.clip(min=1e-5, max=1-(1e-5), out=P)
 	admix_cy.createP(P, k_vec)
-	Q = np.random.rand(n, args.K)
+	Q = np.random.rand(n//N, args.K)
+	Q.clip(min=1e-5, max=1-(1e-5), out=Q)
 	Q /= np.sum(Q, axis=1, keepdims=True)
 	Q_new = np.zeros_like(Q)
 	
 	# Setup containers for EM algorithm
-	lkVec = np.zeros(W)
+	l_vec = np.zeros(W)
 	P0 = np.zeros_like(P)
 	Q0 = np.zeros_like(Q)
 	dP1 = np.zeros_like(P)
@@ -86,38 +96,37 @@ def main(args):
 
 	# Estimate initial log-likelihood
 	ts = time()
-	lkVec = np.zeros(W)
-	admix_cy.loglike(Z, P, Q, lkVec, args.threads)
-	lkPre = np.sum(lkVec)
-	print(f"Initial loglike: {round(lkPre,1)}\n")
+	admix_cy.loglike(Z, P, Q, l_vec, N, args.threads)
+	L_pre = np.sum(l_vec)
+	print(f"Initial loglike: {round(L_pre,1)}\n")
 
 	# Prime iteration
-	admix_cy.updateP(Z, P, Q, Q_new, k_vec, args.threads)
-	admix_cy.updateQ(Q, Q_new, W)
+	admix_cy.updateP(Z, P, Q, Q_new, k_vec, N, args.threads)
+	admix_cy.updateQ(Q, Q_new, S)
 
 	# Accelerated EM algorithm
 	ts = time()
 	print(f"Accelerated SQUAREM.")
 	for it in range(args.iter):
 		# SQUAREM full update
-		functions.squarem(Z, P, Q, P0, Q0, Q_new, dP1, dP2, dP3, \
-			dQ1, dQ2, dQ3, k_vec, args.threads)
+		functions.squarem(Z, P, Q, P0, Q0, Q_new, dP1, dP2, dP3, dQ1, dQ2, dQ3, \
+			k_vec, S, N, args.threads)
 		
 		# Stabilization step
-		admix_cy.updateP(Z, P, Q, Q_new, k_vec, args.threads)
-		admix_cy.updateQ(Q, Q_new, W)
+		admix_cy.updateP(Z, P, Q, Q_new, k_vec, N, args.threads)
+		admix_cy.updateQ(Q, Q_new, S)
 
 		# Log-likelihood convergence check
 		if ((it+1) % args.check) == 0:
-			admix_cy.loglike(Z, P, Q, lkVec, args.threads)
-			lkCur = np.sum(lkVec)
-			print(f"({it+1})\tLog-like: {round(lkCur,1)}\t" + \
+			admix_cy.loglike(Z, P, Q, l_vec, N, args.threads)
+			L_cur = np.sum(l_vec)
+			print(f"({it+1})\tLog-like: {round(L_cur,1)}\t" + \
 				f"({round(time()-ts,1)}s)", flush=True)
-			if (abs(lkCur - lkPre) < args.tole):
+			if (abs(L_cur - L_pre) < args.tole):
 				print("Converged!")
-				print(f"Final log-likelihood: {round(lkCur,1)}")
+				print(f"Final log-likelihood: {round(L_cur,1)}")
 				break
-			lkPre = lkCur
+			L_pre = L_cur
 			ts = time()
 
 	# Save output
