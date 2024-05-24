@@ -35,7 +35,7 @@ cpdef void updateP(const unsigned char[:,::1] Z, double[:,:,::1] P, \
 		int n = Z.shape[1]
 		int K = P.shape[1]
 		int C = P.shape[2]
-		int w, i, k, c, z, x, y
+		int w, i, k, l, c, z, x, y
 		double a, h, sumP
 		double* P_thr
 		double* Q_thr
@@ -44,14 +44,16 @@ cpdef void updateP(const unsigned char[:,::1] Z, double[:,:,::1] P, \
 		Q_thr = <double*>PyMem_RawCalloc((n//N)*K, sizeof(double))
 		for w in prange(W):
 			for i in range(n):
+				l = i//N
 				h = 0.0
 				z = <int>Z[w,i]
 				for k in range(K):
-					h = h + P[w,k,z]*Q[i//N,k]
+					h = h + P[w,k,z]*Q[l,k]
+				h = 1.0/h
 				for k in range(K):
-					a = (P[w,k,z]*Q[i//N,k])/h
+					a = (P[w,k,z]*Q[l,k])*h
 					P_thr[k*C+z] = P_thr[k*C+z] + a
-					Q_thr[(i//N)*K+k] = Q_thr[(i//N)*K+k] + a
+					Q_thr[l*K+k] = Q_thr[l*K+k] + a
 			for k in range(K):
 				sumP = 0.0
 				for c in range(k_vec[w]):
@@ -76,7 +78,7 @@ cpdef void accelP(const unsigned char[:,::1] Z, double[:,:,::1] P, \
 		int n = Z.shape[1]
 		int K = P.shape[1]
 		int C = P.shape[2]
-		int w, i, k, c, z, x, y
+		int w, i, k, l, c, z, x, y
 		double a, h, P0, sumP
 		double* P_thr
 		double* Q_thr
@@ -85,14 +87,16 @@ cpdef void accelP(const unsigned char[:,::1] Z, double[:,:,::1] P, \
 		Q_thr = <double*>PyMem_RawCalloc((n//N)*K, sizeof(double))
 		for w in prange(W):
 			for i in range(n):
+				l = i//N
 				h = 0.0
 				z = <int>Z[w,i]
 				for k in range(K):
-					h = h + P[w,k,z]*Q[i//N,k]
+					h = h + P[w,k,z]*Q[l,k]
+				h = 1.0/h
 				for k in range(K):
-					a = (P[w,k,z]*Q[i//N,k])/h
+					a = (P[w,k,z]*Q[l,k])*h
 					P_thr[k*C+z] = P_thr[k*C+z] + a
-					Q_thr[(i//N)*K+k] = Q_thr[(i//N)*K+k] + a
+					Q_thr[l*K+k] = Q_thr[l*K+k] + a
 			for k in range(K):
 				sumP = 0.0
 				for c in range(k_vec[w]):
@@ -139,48 +143,50 @@ cpdef void alphaP(double[:,:,::1] P, const double[:,:,::1] P0, \
 				P[w,k,c] = min(max(P[w,k,c], 1e-5), 1-(1e-5))
 
 # Update Q
-cpdef void updateQ(double[:,::1] Q, double[:,::1] Q_new, const double S) \
-		noexcept nogil:
+cpdef void updateQ(double[:,::1] Q, double[:,::1] Q_new, const double S, \
+		const int t) noexcept nogil:
 	cdef:
 		int n = Q.shape[0]
 		int K = Q.shape[1]
 		int i, k
 		double sumQ
-	for i in range(n):
+	for i in prange(n, num_threads=t):
 		sumQ = 0.0
 		for k in range(K):
 			Q[i,k] = Q_new[i,k]/S
 			Q[i,k] = min(max(Q[i,k], 1e-5), 1-(1e-5))
 			Q_new[i,k] = 0.0
-			sumQ += Q[i,k]
+			sumQ = sumQ + Q[i,k]
 		for k in range(K):
 			Q[i,k] /= sumQ
 
 # Accelerated update Q
 cpdef void accelQ(double[:,::1] Q, double[:,::1] Q_new, double[:,::1] D, \
-		const double S) noexcept nogil:
+		const double S, const int t) noexcept nogil:
 	cdef:
 		int n = Q.shape[0]
 		int K = Q.shape[1]
 		int i, k
 		double sumQ
-		double* Q0 = <double*>PyMem_RawMalloc(sizeof(double)*K)
-	for i in range(n):
-		sumQ = 0.0
-		for k in range(K):
-			Q0[k] = Q[i,k]
-			Q[i,k] = Q_new[i,k]/S
-			Q[i,k] = min(max(Q[i,k], 1e-5), 1-(1e-5))
-			Q_new[i,k] = 0.0
-			sumQ += Q[i,k]
-		for k in range(K):
-			Q[i,k] /= sumQ
-			D[i,k] = Q[i,k] - Q0[k]
-	PyMem_RawFree(Q0)
+		double* q
+	with nogil, parallel(num_threads=t):
+		q = <double*>PyMem_RawMalloc(sizeof(double)*K)
+		for i in prange(n):
+			sumQ = 0.0
+			for k in range(K):
+				q[k] = Q[i,k]
+				Q[i,k] = Q_new[i,k]/S
+				Q[i,k] = min(max(Q[i,k], 1e-5), 1-(1e-5))
+				Q_new[i,k] = 0.0
+				sumQ = sumQ + Q[i,k]
+			for k in range(K):
+				Q[i,k] /= sumQ
+				D[i,k] = Q[i,k] - q[k]
+		PyMem_RawFree(q)
 
 # Accelerated jump for Q (SQUAREM)
 cpdef void alphaQ(double[:,::1] Q, const double[:,::1] Q0, const double[:,::1] D1, \
-		const double[:,::1] D2, double[:,::1] D3) noexcept nogil:
+		const double[:,::1] D2, double[:,::1] D3, const int t) noexcept nogil:
 	cdef:
 		int n = Q.shape[0]
 		int K = Q.shape[1]
@@ -195,12 +201,12 @@ cpdef void alphaQ(double[:,::1] Q, const double[:,::1] Q0, const double[:,::1] D
 			sum1 += D1[i,k]*D1[i,k]
 			sum2 += D3[i,k]*D3[i,k]
 	alpha = max(1.0, sqrt(sum1)/sqrt(sum2))
-	for i in range(n):
+	for i in prange(n, num_threads=t):
 		sumQ = 0.0
 		for k in range(K):
 			Q[i,k] = Q0[i,k] + 2.0*alpha*D1[i,k] + alpha*alpha*D3[i,k]
 			Q[i,k] = min(max(Q[i,k], 1e-5), 1-(1e-5))
-			sumQ += Q[i,k]
+			sumQ = sumQ + Q[i,k]
 		for k in range(K):
 			Q[i,k] /= sumQ
 
@@ -212,12 +218,14 @@ cpdef void loglike(const unsigned char[:,::1] Z, const double[:,:,::1] P, \
 		int W = Z.shape[0]
 		int n = Z.shape[1]
 		int K = P.shape[1]
-		int w, i, k
+		int w, i, k, l, z
 		double h
 	for w in prange(W, num_threads=t):
 		l_vec[w] = 0.0
 		for i in range(n):
+			l = i//N
+			z = <int>Z[w,i]
 			h = 0.0
 			for k in range(K):
-				h = h + P[w,k,Z[w,i]]*Q[i//N,k]
+				h = h + P[w,k,z]*Q[l,k]
 			l_vec[w] += log(h)

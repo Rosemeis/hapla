@@ -54,13 +54,12 @@ cpdef void clusterAssignment(const unsigned char[:,::1] X, \
 		for i in range(I_thr[thr,0], I_thr[thr,1]):
 			c = m + 1
 			for k in range(K):
-				# Distances
 				if n_vec[k] > 0:
 					d = hammingDist(&X[i,0], &M[k,0], m)
 					if d < c:
 						z = k
 						c = d
-			Z[w,i] = z
+			Z[w,i] = <unsigned char>z
 			c_vec[i] = c
 
 			# Add individual contributions to thread local arrays
@@ -111,14 +110,14 @@ cpdef void loglikeHaplo(float[:,::1] L, const unsigned char[:,::1] X, float[:,::
 		int n = X.shape[0]
 		int m = X.shape[1]
 		int i, j, k, z
-		float p
+		float c, p, s
 	for i in range(n):
 		z = Z[w,i]
+		s = 1.0/(<float>n_vec[z])
 		for j in range(m):
-			C[z,j] += (<float>X[i,j])/(<float>n_vec[z])
+			C[z,j] += (<float>X[i,j])*z
 	for i in prange(n, num_threads=t):
 		for k in range(K):
 			L[i,k] = 0.0
 			for j in range(m):
-				p = min(max(C[k,j], 1e-6), 1-(1e-6))
-				L[i,k] += X[i,j]*log(p) + (1.0 - X[i,j])*log(1.0 - p)
+				L[i,k] += X[i,j]*log(C[k,j]) + (1.0 - X[i,j])*log(1.0 - C[k,j])

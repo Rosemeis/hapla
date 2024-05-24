@@ -30,11 +30,14 @@ cpdef void batchZ(const unsigned char[:,::1] Z, float[:,::1] Z_b, const float[::
 	cdef:
 		int m = Z_b.shape[0]
 		int n = Z_b.shape[1]
-		int i, j, j_b
+		int i, j, l
+		float s, u
 	for j in prange(m, num_threads=t):
-		j_b = m_b+j
+		l = m_b + j
+		s = a[l]
+		u = 2*p[l]
 		for i in range(n):
-			Z_b[j,i] = (Z[j_b,i] - 2*p[j_b])*a[j_b]
+			Z_b[j,i] = (Z[l,i] - u)*s
 
 # Standardize full matrix
 cpdef void standardizeZ(const unsigned char[:,::1] Z, float[:,::1] Z_s, \
@@ -43,60 +46,39 @@ cpdef void standardizeZ(const unsigned char[:,::1] Z, float[:,::1] Z_s, \
 		int m = Z.shape[0]
 		int n = Z.shape[1]
 		int i, j
+		float s, u
 	for j in prange(m, num_threads=t):
+		s = a[j]
+		u = 2*p[j]
 		for i in range(n):
-			Z_s[j,i] = (Z[j,i] - 2*p[j])*a[j]
+			Z_s[j,i] = (Z[j,i] - u)*s
 
 
 
 ### hapla predict
+# Calculate Hamming distance
+cdef int hammingPred(const unsigned char* X, const unsigned char* M, \
+		const int m) noexcept nogil:
+	cdef:
+		int dist = 0
+		int j
+	for j in range(m):
+		if X[j] != 9: # Ignore missing
+			dist += <int>(X[j] ^ M[j])
+	return dist
+
 # Haplotype cluster assignment based on pre-estimated medians
 cpdef void predictCluster(const unsigned char[:,::1] X, const unsigned char[:,::1] M, \
 		unsigned char[:,::1] Z, const int K, const int w, const int t) noexcept nogil:
 	cdef:
 		int n = X.shape[0]
 		int m = X.shape[1]
-		int i, j, k, dist, m_val
+		int c, d, i, j, k, z
 	for i in prange(n, num_threads=t):
-		m_val = m 
+		c = m + 1
 		for k in range(K):
-			dist = 0
-			for j in range(m):
-				if X[i,j] != 9: # Ignore missing
-					dist = dist + (X[i,j] ^ M[k,j])
-			# Assignment
-			if dist < m_val:
-				Z[w,i] = k # Cluster assignment
-				m_val = dist
-					
-
-
-### hapla score
-# Extract aggregated haplotype cluster counts in PRS
-cpdef void scoreAggregate(const unsigned char[:,::1] Z_mat, \
-		unsigned char[:,::1] Z, const unsigned char[::1] k_vec) \
-		noexcept nogil:
-	cdef:
-		int W = Z_mat.shape[0]
-		int n = Z_mat.shape[1]
-		int j = 0
-		int i, k, w
-	for w in range(W):
-		for k in range(k_vec[w]):
-			for i in range(n):
-				if Z_mat[w,i] == k:
-					Z[j,i//2] += 1
-			j += 1
-
-# Standardize the batch haplotype cluster assignment matrix in PRS
-cpdef void scoreZ(const unsigned char[:,::1] Z, float[:,::1] Z_b, const float[::1] p, \
-		const float[::1] a, const int m_b, const int M_z, const int t) noexcept nogil:
-	cdef:
-		int m = Z_b.shape[0]
-		int n = Z_b.shape[1]
-		int i, j, j_b, j_z
-	for j in prange(m, num_threads=t):
-		j_b = m_b+j
-		j_z = M_z+j
-		for i in range(n):
-			Z_b[j,i] = (Z[j_b,i] - 2*p[j_z])*a[j_z]
+			d = hammingPred(&X[i,0], &M[k,0], m)
+			if d < c:
+				z = k
+				c = d
+		Z[w,i] = <unsigned char>z

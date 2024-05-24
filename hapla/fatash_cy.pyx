@@ -26,12 +26,13 @@ cpdef void calcTransition(double[:,::1] T, const double[:,::1] Q, const int i, \
 	cdef:
 		int K = T.shape[0]
 		int k1, k2
+		double e = exp(-a)
 	for k1 in range(K):
 		for k2 in range(K):
 			if k1 == k2:
-				T[k1,k2] = log((1.0 - exp(-a))*Q[i,k2] + exp(-a))
+				T[k1,k2] = log((1.0 - e)*Q[i,k2] + e)
 			else:
-				T[k1,k2] = log((1.0 - exp(-a))*Q[i,k2])
+				T[k1,k2] = log((1.0 - e)*Q[i,k2])
 
 # Safe log-sum-exp for array
 cdef double logsumexp(const double[::1] vec, const int K) noexcept nogil:

@@ -102,7 +102,7 @@ def main(args):
 
 	# Prime iteration
 	admix_cy.updateP(Z, P, Q, Q_new, k_vec, N, args.threads)
-	admix_cy.updateQ(Q, Q_new, S)
+	admix_cy.updateQ(Q, Q_new, S, args.threads)
 
 	# Accelerated EM algorithm
 	ts = time()
@@ -114,7 +114,7 @@ def main(args):
 		
 		# Stabilization step
 		admix_cy.updateP(Z, P, Q, Q_new, k_vec, N, args.threads)
-		admix_cy.updateQ(Q, Q_new, S)
+		admix_cy.updateQ(Q, Q_new, S, args.threads)
 
 		# Log-likelihood convergence check
 		if ((it+1) % args.check) == 0:

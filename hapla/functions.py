@@ -48,15 +48,15 @@ def squarem(Z, P, Q, P0, Q0, Q_new, dP1, dP2, dP3, dQ1, dQ2, dQ3, k_vec, S, N, \
 
 	# 1st EM step
 	admix_cy.accelP(Z, P, Q, Q_new, dP1, k_vec, N, threads)
-	admix_cy.accelQ(Q, Q_new, dQ1, S)
+	admix_cy.accelQ(Q, Q_new, dQ1, S, threads)
 
 	# 2nd EM step
 	admix_cy.accelP(Z, P, Q, Q_new, dP2, k_vec, N, threads)
-	admix_cy.accelQ(Q, Q_new, dQ2, S)
+	admix_cy.accelQ(Q, Q_new, dQ2, S, threads)
 
 	# Acceleation update
 	admix_cy.alphaP(P, P0, dP1, dP2, dP3, k_vec, threads)
-	admix_cy.alphaQ(Q, Q0, dQ1, dQ2, dQ3)
+	admix_cy.alphaQ(Q, Q0, dQ1, dQ2, dQ3, threads)
 
 
 
