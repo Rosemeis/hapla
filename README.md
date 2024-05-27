@@ -109,11 +109,11 @@ hapla admix --filelist hapla.filelist --K 3 --seed 1 --threads 16 --out hapla
 Infer local ancestry tracts unsupervised using the admixture estimation in a hidden markov model. Using a modified fastPHASE model for haplotype clusters.
 ```bash
 # Infer local ancestry tracts for a single chromosome
-hapla fatash --clusters hapla.chr1.z.npy --q-matrix hapla.chr1.K3.s1.Q --p-matrix hapla.chr1.K3.s1.P.npy --threads 16 --out hapla.chr1
+hapla fatash --clusters hapla.chr1.z.npy --qfile hapla.chr1.K3.s1.Q --pfile hapla.chr1.K3.s1.P.npy --threads 16 --out hapla.chr1
 # Saves posterior decoding path in text-format ("hapla.chr1.path")
 
 # Infer local ancestry tracts using filelist with all chromosome and optimize alpha rates in transition matrix
-hapla fatash --filelist hapla.filelist --q-matrix hapla.K3.s1.Q --p-matrix hapla.K3.s1.P.npy --threads 16 --out hapla --optim --save-alpha
+hapla fatash --filelist hapla.filelist --qfile hapla.K3.s1.Q --pfile hapla.K3.s1.P.npy --threads 16 --out hapla --optim --save-alpha
 # Saves path and alpha rates in a text-file
 #	- hapla.path
 #	- hapla.alpha

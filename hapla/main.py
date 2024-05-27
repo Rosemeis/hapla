@@ -123,9 +123,9 @@ def main():
 		help="Filelist with paths to haplotype cluster alleles files")
 	parser_fatash.add_argument("-z", "--clusters", metavar="FILE",
 		help="Path to a single haplotype cluster alleles file")
-	parser_fatash.add_argument("-p", "--p-matrix", metavar="FILE",
+	parser_fatash.add_argument("-p", "--pfile", metavar="FILE",
 		help="Path to file with haplotype cluster frequencies")
-	parser_fatash.add_argument("-q", "--q-matrix", metavar="FILE",
+	parser_fatash.add_argument("-q", "--qfile", metavar="FILE",
 		help="Path to file with admixture proportions")
 	parser_fatash.add_argument("-t", "--threads", type=int, default=1,
 		metavar="INT", help="Number of threads (1)")

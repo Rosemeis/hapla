@@ -19,8 +19,8 @@ def main(args):
 	# Check input
 	assert (args.filelist is not None) or (args.clusters is not None), \
 		"No input data (--filelist or --clusters)!"
-	assert args.p_matrix is not None, "No P-matrix provided (--p-matrix)!"
-	assert args.q_matrix is not None, "No Q-matrix provided (--q-matrix)!"
+	assert args.pfile is not None, "No P-matrix provided (--p-matrix)!"
+	assert args.qfile is not None, "No Q-matrix provided (--q-matrix)!"
 	start = time()
 
 	# Control threads of external numerical libraries
@@ -47,8 +47,8 @@ def main(args):
 	print(f"Parsing {n_chr} file(s).")
 
 	# Load P and Q matrices
-	P = np.load(args.p_matrix)
-	Q = np.loadtxt(args.q_matrix, dtype=float)
+	P = np.load(args.pfile)
+	Q = np.loadtxt(args.qfile, dtype=float)
 	assert P.shape[1] == Q.shape[1], "Number of ancestral sources do not match!"
 	K = P.shape[1]
 
