@@ -37,14 +37,14 @@ def main():
 		metavar="INT", help="Maximum number of iterations (500)")
 	parser_cluster.add_argument("--medians", action="store_true",
 		help="Save haplotype cluster medians")
-	parser_cluster.add_argument("--loglike", action="store_true",
-		help="Compute haplotype cluster log-likelihoods")
 	parser_cluster.add_argument("--plink", action="store_true",
 		help="Generate binary PLINK output")
 	parser_cluster.add_argument("--duplicate-fid", action="store_true",
 		help="Use sample list as family ID (PLINK 1.9 compatibility)")
 	parser_cluster.add_argument("--overlap", type=int, default=0,
 		metavar="INT", help="Number of overlapping windows (0)")
+	parser_cluster.add_argument("--memory", action="store_true",
+		help="Store haplotypes in 1-bit matrix")
 	parser_cluster.add_argument("--verbose", action="store_true",
 		help="Verbose output from each iteration")
 
@@ -91,6 +91,8 @@ def main():
 		help="Generate binary PLINK output")
 	parser_predict.add_argument("--duplicate-fid", action="store_true",
 		help="Use sample list as family ID (PLINK 1.9 compatibility)")
+	parser_predict.add_argument("--memory", action="store_true",
+		help="Store haplotypes in 2-bit matrix")
 
 	# hapla admix
 	parser_admix = subparsers.add_parser("admix")

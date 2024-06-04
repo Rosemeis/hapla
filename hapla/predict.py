@@ -13,7 +13,7 @@ from time import time
 ##### hapla predict #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.8)")
+	print("hapla by Jonas Meisner (v0.9)")
 	print(f"hapla predict using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 	
@@ -35,9 +35,11 @@ def main(args):
 	from cyvcf2 import VCF
 	from math import ceil
 	from hapla import reader_cy
+	from hapla import memory_cy
 	from hapla import shared_cy
 
-	# Load data into 2-bit matrix
+	# Extract sample list
+	print("\rLoading VCF/BCF file...", end="")
 	v_file = VCF(args.vcf, threads=args.threads)
 	m = 0
 	n = 2*len(v_file.samples)
@@ -53,14 +55,20 @@ def main(args):
 				chrom = re.findall(r'\d+', variant.CHROM)[-1]
 			v_list.append(variant.POS)
 		m += 1
-	G = np.zeros((m, B), dtype=np.uint8)
+	if args.memory:
+		G = np.zeros((m, B), dtype=np.uint8)
+	else:
+		G = np.zeros((m, n), dtype=np.uint8)
 
 	# Read variants into matrix
 	v_file = VCF(args.vcf, threads=args.threads)
 	j = 0
 	for variant in v_file:
 		V = variant.genotype.array()
-		reader_cy.predVar(G, V, j, n//2)
+		if args.memory:
+			memory_cy.predBit(G, V, j, n//2)
+		else:
+			reader_cy.predVar(G, V, j, n//2)
 		j += 1
 	del V
 	print(f"\rLoaded phased genotype data: {n} haplotypes and {m} SNPs.")
@@ -91,14 +99,17 @@ def main(args):
 		M = M_npz[f"W{w}"]
 		K = M.shape[0] # Number of clusters to evaluate
 		X = np.zeros((n, M.shape[1]), dtype=np.uint8)
-		reader_cy.predictBit(G, X, w_vec[w])
+		if args.memory:
+			memory_cy.predictBit(G, X, w_vec[w])
+		else:
+			reader_cy.predictHap(G, X, w_vec[w])
 		if args.plink:
 			b_vec[w] = M.shape[1]
 		
 		# Cluster assignment
 		shared_cy.predictCluster(X, M, Z, K, w, args.threads)
 		k_vec[w] = K
-	del G, w_vec
+	del G, X, M, M_npz, w_vec
 	print(".\n")
 
 	# Save output
@@ -110,14 +121,13 @@ def main(args):
 		K_tot = np.sum(k_vec, dtype=int)
 		P_mat = np.zeros((K_tot, 3), dtype=np.int32)
 		Z_bin = np.zeros((K_tot, B), dtype=np.uint8)
-		z_vec = np.zeros(n//2, dtype=np.uint8)
-		reader_cy.convertPlink(Z, Z_bin, P_mat, z_vec, k_vec, b_vec)
+		reader_cy.convertPlink(Z, Z_bin, P_mat, k_vec, b_vec)
 		
 		# Save .bed file including magic numbers
 		with open(f"{args.out}.bed", "w") as bfile:
 			np.array([108, 27, 1], dtype=np.uint8).tofile(bfile)
 			Z_bin.tofile(bfile)
-		del b_vec, Z_bin, Z, z_vec
+		del b_vec, Z_bin, Z
 
 		# Save .bim file
 		tmp = np.array([f"{chrom}_W{w}_K{k}_B{l}" for w,k,l in P_mat])

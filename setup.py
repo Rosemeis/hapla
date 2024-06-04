@@ -26,6 +26,14 @@ extensions = [
 		extra_link_args=['-fopenmp'],
 		include_dirs=[numpy.get_include()],
 		define_macros=[('NPY_NO_DEPRECATED_API', 'NPY_1_7_API_VERSION')]
+	),
+	Extension(
+		"hapla.memory_cy",
+		["hapla/memory_cy.pyx"],
+		extra_compile_args=['-fopenmp', '-O3', '-g0', '-Wno-unreachable-code'],
+		extra_link_args=['-fopenmp'],
+		include_dirs=[numpy.get_include()],
+		define_macros=[('NPY_NO_DEPRECATED_API', 'NPY_1_7_API_VERSION')]
 	), 
 	Extension(
 		"hapla.admix_cy",
@@ -47,7 +55,7 @@ extensions = [
 
 setup(
 	name="hapla",
-	version="0.8",
+	version="0.9",
 	description="Framework for haplotype clustering",
 	author="Jonas Meisner",
 	packages=["hapla"],
