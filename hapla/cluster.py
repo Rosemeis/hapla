@@ -186,7 +186,7 @@ def main(args):
 			reader_cy.convertHap(G, C, p_vec, d_vec, a_tmp, b_tmp, d_tmp, e_tmp, w_s)
 			U = reader_cy.uniqueHap(G, X, p_vec, d_vec, u_vec, w_s)
 		T = min(U, args.threads)
-		reader_cy.intervalThr(I_thr, U, ceil(U/T))
+		reader_cy.intervalThr(I_thr, U, U//T)
 
 		# Compute mean and initialize first median
 		K = 1
@@ -196,7 +196,7 @@ def main(args):
 		# Perform PDC-DP-Medians
 		for it in np.arange(args.max_iterations):
 			cluster_cy.clusterAssignment(X, M, z_vec, c_vec, n_vec, u_vec, \
-				C_thr, N_thr, I_thr, K, args.threads)
+				C_thr, N_thr, I_thr, K, T)
 			np.sum(C_thr, axis=0, out=C)
 			np.sum(N_thr, axis=0, out=n_vec)
 
