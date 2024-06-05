@@ -125,12 +125,12 @@ cpdef void resetArrays(float[:,:,::1] C_thr, int[:,::1] N_thr, int[::1] c_vec, \
 		int m = C_thr.shape[2]
 		int n = c_vec.shape[0]
 		int i, j, k, thr
-	for thr in prange(t, num_threads=t):
+	for thr in range(t):
 		for k in range(K):
 			N_thr[thr,k] = 0
 			for j in range(m):
 				C_thr[thr,k,j] = 0.0
-	for i in prange(n, num_threads=t):
+	for i in range(n):
 		c_vec[i] = 0
 		p_vec[i] = i
 		d_vec[i] = 0

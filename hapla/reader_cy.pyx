@@ -34,19 +34,19 @@ cpdef void predVar(unsigned char[:,::1] G, const short[:,::1] V, const int j, \
 # Initialize cluster mean and suffix arrays
 cpdef void convertHap(const unsigned char[:,::1] G, float[:,::1] C, int[::1] p_vec, \
 		int[::1] d_vec, int[::1] a_tmp, int[::1] b_tmp, int[::1] d_tmp, \
-		int[::1] e_tmp, const int w_s) noexcept nogil:
+		int[::1] e_tmp, const int s) noexcept nogil:
 	cdef:
 		int m = C.shape[1]
 		int n = G.shape[1]
-		int f, i, j, k, l, s, u, v, p, q
+		int b, f, i, j, k, l, u, v, p, q
 	for j in range(m):
-		s = w_s + j
+		b = s + j
 		u = v = 0
 		p = q = j + 1
 		C[0,j] = 0.0
 		for i in range(n):
 			# Add to cluster mean
-			C[0,j] += <float>G[s,i]
+			C[0,j] += <float>G[b,i]
 
 			# Suffix array updates
 			f = p_vec[i]
@@ -55,7 +55,7 @@ cpdef void convertHap(const unsigned char[:,::1] G, float[:,::1] C, int[::1] p_v
 				p = l
 			if l > q:
 				q = l
-			if G[s,f] == 0:
+			if G[b,f] == 0:
 				a_tmp[u] = f
 				d_tmp[u] = p
 				u += 1
@@ -74,7 +74,7 @@ cpdef void convertHap(const unsigned char[:,::1] G, float[:,::1] C, int[::1] p_v
 
 # Extract unique haplotypes from suffix arrays
 cpdef int uniqueHap(const unsigned char[:,::1] G, unsigned char[:,::1] X, \
-		const int[::1] p_vec, const int[::1] d_vec, int[::1] u_vec, const int w_s) \
+		const int[::1] p_vec, const int[::1] d_vec, int[::1] u_vec, const int s) \
 		noexcept nogil:
 	cdef:
 		int n = X.shape[0]
@@ -85,7 +85,7 @@ cpdef int uniqueHap(const unsigned char[:,::1] G, unsigned char[:,::1] X, \
 		if d_vec[i] != 0:
 			h = p_vec[i]
 			for j in range(m):
-				X[u,j] = G[w_s+j,h]
+				X[u,j] = G[s+j,h]
 			u += 1
 		u_vec[u-1] += 1
 	return u
@@ -103,14 +103,14 @@ cpdef void intervalThr(int[:,::1] I_thr, const int U, const int B) noexcept nogi
 			
 # Convert transposed window for predicting target clusters
 cpdef void predictHap(const unsigned char[:,::1] G, unsigned char[:,::1] X, \
-		const int w_s) noexcept nogil:
+		const int s) noexcept nogil:
 	cdef:
 		int n = X.shape[0]
 		int m = X.shape[1]
 		int i, j
 	for i in range(n):
 		for j in range(m):
-			X[i,j] = G[w_s+j,i]
+			X[i,j] = G[s+j,i]
 
 # Convert haplotype cluster alleles to 2-bit PLINK format
 cpdef void convertPlink(const unsigned char[:,::1] Z_mat, unsigned char[:,::1] Z_bin, \

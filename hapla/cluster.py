@@ -152,7 +152,7 @@ def main(args):
 
 	# Clustering using PDC-DP-Medians
 	for w in np.arange(W):
-		w_s = w_vec[w]
+		s = w_vec[w]
 		if args.verbose:
 			print(f"Window {w+1}/{W}")
 		else:
@@ -161,8 +161,8 @@ def main(args):
 		# Prepare containers if window indices provided
 		if args.fixed is None:
 			if args.memory:
-				H = np.zeros((w_vec[w+1]-w_s, n), dtype=np.uint8)
-			X = np.zeros((n, w_vec[w+1]-w_s), dtype=np.uint8)
+				H = np.zeros((w_vec[w+1]-s, n), dtype=np.uint8)
+			X = np.zeros((n, w_vec[w+1]-s), dtype=np.uint8)
 			M = np.zeros((args.max_clusters, X.shape[1]), dtype=np.uint8)
 			C = np.zeros((args.max_clusters, X.shape[1]), dtype=np.float32)
 			C_thr = np.zeros((args.threads, args.max_clusters, X.shape[1]), \
@@ -171,8 +171,8 @@ def main(args):
 		# Prepare last window
 		if w == (W-1):
 			if args.memory:
-				H = np.zeros((m-w_s, n), dtype=np.uint8)
-			X = np.zeros((n, m-w_s), dtype=np.uint8)
+				H = np.zeros((m-s, n), dtype=np.uint8)
+			X = np.zeros((n, m-s), dtype=np.uint8)
 			M = np.zeros((args.max_clusters, X.shape[1]), dtype=np.uint8)
 			C = np.zeros((args.max_clusters, X.shape[1]), dtype=np.float32)
 			C_thr = np.zeros((args.threads, args.max_clusters, X.shape[1]), \
@@ -180,11 +180,11 @@ def main(args):
 		
 		# Load haplotype window
 		if args.memory:
-			memory_cy.convertBit(G, H, C, p_vec, d_vec, a_tmp, b_tmp, d_tmp, e_tmp, w_s)
+			memory_cy.convertBit(G, H, C, p_vec, d_vec, a_tmp, b_tmp, d_tmp, e_tmp, s)
 			U = memory_cy.uniqueBit(H, X, p_vec, d_vec, u_vec)
 		else:
-			reader_cy.convertHap(G, C, p_vec, d_vec, a_tmp, b_tmp, d_tmp, e_tmp, w_s)
-			U = reader_cy.uniqueHap(G, X, p_vec, d_vec, u_vec, w_s)
+			reader_cy.convertHap(G, C, p_vec, d_vec, a_tmp, b_tmp, d_tmp, e_tmp, s)
+			U = reader_cy.uniqueHap(G, X, p_vec, d_vec, u_vec, s)
 		T = min(U, args.threads)
 		reader_cy.intervalThr(I_thr, U, U//T)
 
@@ -293,7 +293,7 @@ def main(args):
 			
 		# Reset arrays
 		n_vec.fill(0)
-		cluster_cy.resetArrays(C_thr, N_thr, c_vec, p_vec, d_vec, u_vec, args.threads)
+		cluster_cy.resetArrays(C_thr, N_thr, c_vec, p_vec, d_vec, u_vec, T)
 	
 	# Release memory
 	del G, X, C_thr, N_thr, w_vec, z_vec, c_vec, z_tmp, p_vec, d_vec, n_vec, u_vec, \
