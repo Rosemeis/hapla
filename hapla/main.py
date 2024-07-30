@@ -116,6 +116,8 @@ def main():
 		metavar="INT", help="Check for convergence every c-th iteration (10)")
 	parser_admix.add_argument("--haplo", action="store_true",
 		help="Estimate admixture proportions for each haplotype")
+	parser_admix.add_argument("--supervised", metavar="FILE",
+		help="Path to population assignment file")
 	parser_admix.add_argument("--no-freq", action="store_true",
 		help="Do not save haplotype cluster frequencies")
 

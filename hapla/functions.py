@@ -41,22 +41,24 @@ def randomizedSVD(Z, p, a, K, batch, threads):
 
 ### hapla admix
 # SQUAREM update for admixture estimation
-def squarem(Z, P, Q, P0, Q0, Q_new, dP1, dP2, dP3, dQ1, dQ2, dQ3, k_vec, S, N, \
-		threads):
-	np.copyto(P0, P, casting="no")
-	np.copyto(Q0, Q, casting="no")
-
+def squarem(Z, P0, Q0, Q_tmp, P1, P2, Q1, Q2, k_vec, y, S, N, threads):
 	# 1st EM step
-	admix_cy.accelP(Z, P, Q, Q_new, dP1, k_vec, N, threads)
-	admix_cy.accelQ(Q, Q_new, dQ1, S, threads)
+	admix_cy.accelP(Z, P0, P1, Q0, Q_tmp, k_vec, N, threads)
+	admix_cy.accelQ(Q0, Q1, Q_tmp, S, threads)
+	if y is not None:
+		admix_cy.superQ(Q1, y, N, threads)
 
 	# 2nd EM step
-	admix_cy.accelP(Z, P, Q, Q_new, dP2, k_vec, N, threads)
-	admix_cy.accelQ(Q, Q_new, dQ2, S, threads)
+	admix_cy.accelP(Z, P1, P2, Q1, Q_tmp, k_vec, N, threads)
+	admix_cy.accelQ(Q1, Q2, Q_tmp, S, threads)
+	if y is not None:
+		admix_cy.superQ(Q2, y, N, threads)
 
 	# Acceleation update
-	admix_cy.alphaP(P, P0, dP1, dP2, dP3, k_vec, threads)
-	admix_cy.alphaQ(Q, Q0, dQ1, dQ2, dQ3, threads)
+	admix_cy.alphaP(P0, P1, P2, k_vec, threads)
+	admix_cy.alphaQ(Q0, Q1, Q2, threads)
+	if y is not None:
+		admix_cy.superQ(Q0, y, N, threads)
 
 
 
