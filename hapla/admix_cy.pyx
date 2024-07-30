@@ -78,6 +78,7 @@ cpdef void updateP(const unsigned char[:,::1] Z, double[:,:,::1] P, \
 		int K = P.shape[1]
 		int C = P.shape[2]
 		int w, i, k, l, c, z, x, y
+		double S = 1.0/<double>n
 		double a, h, sumP
 		double* P_thr
 		double* Q_thr
@@ -99,11 +100,12 @@ cpdef void updateP(const unsigned char[:,::1] Z, double[:,:,::1] P, \
 			for k in range(K):
 				sumP = 0.0
 				for c in range(k_vec[w]):
-					sumP = sumP + P_thr[k*C+c]
-				for c in range(k_vec[w]):
-					P[w,k,c] = P_thr[k*C+c]/sumP
+					P[w,k,c] = P_thr[k*C+c]*S
 					P[w,k,c] = min(max(P[w,k,c], 1e-5), 1-(1e-5))
 					P_thr[k*C+c] = 0.0
+					sumP = sumP + P[w,k,c]
+				for c in range(k_vec[w]):
+					P[w,k,c] /= sumP
 		with gil:
 			for x in range(n//N):
 				for y in range(K):
@@ -121,6 +123,7 @@ cpdef void accelP(const unsigned char[:,::1] Z, const double[:,:,::1] P, \
 		int K = P.shape[1]
 		int C = P.shape[2]
 		int w, i, k, l, c, z, x, y
+		double S = 1.0/<double>n
 		double a, h, sumP
 		double* P_thr
 		double* Q_thr
@@ -142,11 +145,12 @@ cpdef void accelP(const unsigned char[:,::1] Z, const double[:,:,::1] P, \
 			for k in range(K):
 				sumP = 0.0
 				for c in range(k_vec[w]):
-					sumP = sumP + P_thr[k*C+c]
-				for c in range(k_vec[w]):
-					P_new[w,k,c] = P_thr[k*C+c]/sumP
+					P_new[w,k,c] = P_thr[k*C+c]*S
 					P_new[w,k,c] = min(max(P_new[w,k,c], 1e-5), 1-(1e-5))
 					P_thr[k*C+c] = 0.0
+					sumP = sumP + P_new[w,k,c]
+				for c in range(k_vec[w]):
+					P_new[w,k,c] /= sumP
 		with gil:
 			for x in range(n//N):
 				for y in range(K):
@@ -180,10 +184,10 @@ cpdef void alphaP(double[:,:,::1] P0, const double[:,:,::1] P1, \
 				x = P1[w,k,c] - P0[w,k,c]
 				y = (P2[w,k,c] - P1[w,k,c]) - x
 				P0[w,k,c] = P0[w,k,c] + 2.0*a*x + a*a*y
+				P0[w,k,c] = min(max(P0[w,k,c], 1e-5), 1-(1e-5))
 				sumP = sumP + P0[w,k,c]
 			for c in range(k_vec[w]):
 				P0[w,k,c] /= sumP
-				P0[w,k,c] = min(max(P0[w,k,c], 1e-5), 1-(1e-5))
 
 # Update Q
 cpdef void updateQ(double[:,::1] Q, double[:,::1] Q_tmp, const double S, \
@@ -196,7 +200,7 @@ cpdef void updateQ(double[:,::1] Q, double[:,::1] Q_tmp, const double S, \
 	for i in prange(n, num_threads=t):
 		sumQ = 0.0
 		for k in range(K):
-			Q[i,k] = Q_tmp[i,k]/S
+			Q[i,k] = Q_tmp[i,k]*S
 			Q[i,k] = min(max(Q[i,k], 1e-5), 1-(1e-5))
 			Q_tmp[i,k] = 0.0
 			sumQ = sumQ + Q[i,k]
@@ -214,7 +218,7 @@ cpdef void accelQ(const double[:,::1] Q, double[:,::1] Q_new, double[:,::1] Q_tm
 	for i in prange(n, num_threads=t):
 		sumQ = 0.0
 		for k in range(K):
-			Q_new[i,k] = Q_tmp[i,k]/S
+			Q_new[i,k] = Q_tmp[i,k]*S
 			Q_new[i,k] = min(max(Q_new[i,k], 1e-5), 1-(1e-5))
 			Q_tmp[i,k] = 0.0
 			sumQ = sumQ + Q_new[i,k]

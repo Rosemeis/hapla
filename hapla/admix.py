@@ -56,11 +56,11 @@ def main(args):
 	n = Z.shape[1]
 	if args.haplo:
 		N = 1
-		S = float(W)
+		S = 1.0/float(W)
 		n_str = "haplotypes"
 	else:
 		N = 2
-		S = float(2*W)
+		S = 1.0/float(2*W)
 		n_str = "samples"
 
 	# Count haplotype cluster alleles

@@ -75,11 +75,11 @@ def main(args):
 				N = 2
 			else:
 				N = 1
-				assert Q.shape[0] == n, "Number of individuals do not match!"
+				assert Q.shape[0] == n, "Number of samples do not match!"
 			if args.optim: # Individual alpha rates
 				a = np.zeros(n)
 		else:
-			assert Z.shape[0] == n, "Number of individuals do not match!"
+			assert Z.shape[0] == n, "Number of samples do not match!"
 		assert P_chr.shape[1] >= (np.max(Z) + 1), "Number of clusters do not match!"
 
 		# Containers

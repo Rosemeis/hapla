@@ -20,7 +20,7 @@ cpdef void calcEmissions(const unsigned char[:,::1] Z, const double[:,:,::1] P_c
 			for k in range(K):
 				E[i,w,k] = log(P_chr[w,z,k])
 
-# Calculate transition probabilities
+# Calculate transition probabilities - P(Z_{w} = k1 | Z_{w-1} = k2)
 cpdef void calcTransition(double[:,::1] T, const double[:,::1] Q, const int i, \
 		const double a) noexcept nogil:
 	cdef:
@@ -30,9 +30,9 @@ cpdef void calcTransition(double[:,::1] T, const double[:,::1] Q, const int i, \
 	for k1 in range(K):
 		for k2 in range(K):
 			if k1 == k2:
-				T[k1,k2] = log((1.0 - e)*Q[i,k2] + e)
+				T[k1,k2] = log((1.0 - e)*Q[i,k1] + e)
 			else:
-				T[k1,k2] = log((1.0 - e)*Q[i,k2])
+				T[k1,k2] = log((1.0 - e)*Q[i,k1])
 
 # Safe log-sum-exp for array
 cdef double logsumexp(const double[::1] vec, const int K) noexcept nogil:
@@ -59,7 +59,7 @@ cpdef double loglikeFatash(double[:,:,::1] E, const double[:,::1] Q, \
 	for w in range(1, W):
 		for k1 in range(K):
 			for k2 in range(K):
-				v[k2] = A[w-1,k2] + T[k2,k1]
+				v[k2] = A[w-1,k2] + T[k1,k2]
 			A[w,k1] = logsumexp(v, K) + E[i,w,k1]
 	
 	# Log-likelihood
@@ -83,7 +83,7 @@ cpdef void calcFwdBwd(const double[:,:,::1] E, double[:,:,::1] L, \
 	for w in range(1, W):
 		for k1 in range(K):
 			for k2 in range(K):
-				v[k2] = A[w-1,k2] + T[k2,k1]
+				v[k2] = A[w-1,k2] + T[k1,k2]
 			A[w,k1] = logsumexp(v, K) + E[i,w,k1]
 
 	# Log-likelihood forward
@@ -97,7 +97,7 @@ cpdef void calcFwdBwd(const double[:,:,::1] E, double[:,:,::1] L, \
 	for w in range(W-2, -1, -1):
 		for k1 in range(K):
 			for k2 in range(K):
-				v[k2] = B[w+1,k2] + E[i,w+1,k2] + T[k1,k2]
+				v[k2] = B[w+1,k2] + E[i,w+1,k2] + T[k2,k1]
 			B[w,k1] = logsumexp(v, K)
 
 	# Update posterior
