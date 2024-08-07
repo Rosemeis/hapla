@@ -12,7 +12,7 @@ from time import time
 ##### hapla admix #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.9)")
+	print("hapla by Jonas Meisner (v0.10)")
 	print(f"hapla admix using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 
@@ -78,8 +78,7 @@ def main(args):
 	# Initialize parameters randomly
 	np.random.seed(args.seed) # Set random seed
 	P = np.random.rand(W, args.K, C)
-	P.clip(min=1e-5, max=1-(1e-5), out=P)
-	admix_cy.createP(P, k_vec)
+	admix_cy.createP(P, k_vec, args.threads)
 	Q = np.random.rand(n//N, args.K)
 	
 	# Supervised setting

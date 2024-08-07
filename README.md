@@ -1,4 +1,4 @@
-# hapla (v0.9)
+# hapla (v0.10)
 ***hapla*** is a framework for performing window-based haplotype clustering in phased genotype data. The inferred haplotype cluster alleles can be used to infer fine-scale population structure, perform polygenic prediction and haplotype cluster based association studies.
 
 ### Citation
@@ -51,7 +51,7 @@ hapla cluster --bcf pop.chr1.bcf --threads 16 --out hapla.chr1 --plink
 ```
 
 ### GRM estimation and population structure inference
-**hapla struct**
+**hapla struct**\
 Estimate genome-wide relationship matrix (GRM) and infer population structure using the haplotype cluster alleles.
 ```bash
 # Construct genome-wide relationship matrix (GRM)
@@ -70,13 +70,13 @@ hapla struct --filelist hapla.filelist --threads 16 --pca 10 --out hapla
 hapla struct --clusters hapla.chr1.z.npy --threads 16 --pca 10 --out hapla.chr1
 # Saves eigenvalues and eigenvectors in text-format ("hapla.chr1.eigenvec" and "hapla.chr1.eigenval")
 
-# A randomized SVD approach can also be utilized for very large datasets
+# A randomized SVD approach can also be utilized for very large datasets (> 5,000 individuals)
 hapla struct --filelist hapla.filelist --threads 16 --pca 10 --randomized --out hapla
 # Saves eigenvalues and eigenvectors in text-format ("hapla.eigenvec" and "hapla.eigenval")
 ```
 
 ### Predict haplotype cluster assignments
-**hapla predict**
+**hapla predict**\
 Predict haplotype cluster assignments using pre-computed cluster medians in new haplotypes. All SNPs must be overlapping.
 ```bash
 # Cluster haplotypes in a chromosome with 'hapla cluster' and save cluster medians
@@ -88,7 +88,7 @@ hapla predict --bcf new.chr1.bcf --threads 16 --out new.chr1 --medians hapla.chr
 ```
 
 ### Admixture estimation
-**hapla admix**
+**hapla admix**\
 Estimate ancestry proportions and ancestral haplotype cluster frequencies with a pre-specified number of sources (K). Using a modified ADMIXTURE model for haplotype clusters.
 ```bash
 # Estimate ancestry proportions assuming K=3 ancestral sources for a single chromosome
@@ -105,16 +105,15 @@ hapla admix --filelist hapla.filelist --K 3 --seed 1 --threads 16 --out hapla
 ```
 
 ### Local ancestry inference
-**hapla fatash**
-Infer local ancestry tracts unsupervised using the admixture estimation in a hidden markov model. Using a modified fastPHASE model for haplotype clusters.
+**hapla fatash**\
+Infer local ancestry tracts using the admixture estimation in a hidden markov model. Using a modified fastPHASE model for haplotype clusters.
 ```bash
-# Infer local ancestry tracts for a single chromosome
+# Infer local ancestry tracts for a single chromosome (posterior decoding)
 hapla fatash --clusters hapla.chr1.z.npy --qfile hapla.chr1.K3.s1.Q --pfile hapla.chr1.K3.s1.P.npy --threads 16 --out hapla.chr1
 # Saves posterior decoding path in text-format ("hapla.chr1.path")
 
-# Infer local ancestry tracts using filelist with all chromosome and optimize alpha rates in transition matrix
-hapla fatash --filelist hapla.filelist --qfile hapla.K3.s1.Q --pfile hapla.K3.s1.P.npy --threads 16 --out hapla --optim --save-alpha
-# Saves path and alpha rates in a text-file
-#	- hapla.path
-#	- hapla.alpha
+# Infer local ancestry tracts using filelist with all chromosomes (Viterbi decoding)
+hapla fatash --filelist hapla.filelist --qfile hapla.K3.s1.Q --pfile hapla.K3.s1.P.npy --threads 16 --out hapla --viterbi
+# Saves Viterbi decoding paths in text-files
+#	- hapla.chr{1..22}.path
 ```

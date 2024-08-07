@@ -13,7 +13,7 @@ from time import time
 ##### hapla cluster #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.9)")
+	print("hapla by Jonas Meisner (v0.10)")
 	print(f"hapla cluster using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 	
@@ -26,7 +26,7 @@ def main(args):
 		assert args.fixed > 0, "Invalid window size!"
 		if args.overlap > 0:
 			if args.fixed == 1:
-				args.overlap = 0 
+				args.overlap = 0
 			assert (args.fixed % (args.overlap + 1) == 0), \
 				"Invalid number of overlapping windows chosen!"
 	else:
@@ -153,10 +153,7 @@ def main(args):
 	# Clustering using PDC-DP-Medians
 	for w in np.arange(W):
 		s = w_vec[w]
-		if args.verbose:
-			print(f"Window {w+1}/{W}")
-		else:
-			print(f"\rWindow {w+1}/{W}", end="")
+		print(f"\rWindow {w+1}/{W}", end="")
 
 		# Prepare containers if window indices provided
 		if args.fixed is None:
@@ -177,6 +174,7 @@ def main(args):
 			C = np.zeros((args.max_clusters, X.shape[1]), dtype=np.float32)
 			C_thr = np.zeros((args.threads, args.max_clusters, X.shape[1]), \
 				dtype=np.float32)
+		c_lim = args.lmbda*X.shape[1]
 		
 		# Load haplotype window
 		if args.memory:
@@ -197,42 +195,18 @@ def main(args):
 		for it in np.arange(args.max_iterations):
 			cluster_cy.clusterAssignment(X, M, z_vec, c_vec, n_vec, u_vec, \
 				C_thr, N_thr, I_thr, K, T)
-			np.sum(C_thr, axis=0, out=C)
-			np.sum(N_thr, axis=0, out=n_vec)
-
-			# Check for extra cluster
-			c_max = np.max(c_vec)
-			if (c_max > args.lmbda*X.shape[1]) & (K < args.max_clusters):
-				c_arg = np.argmax(c_vec) # Extreme point
-				M[K,:] = X[c_arg,:]
-				C[K,:] = X[c_arg,:]*u_vec[c_arg]
-				C[z_vec[c_arg],:] -= C[K,:]
-				n_vec[K] = u_vec[c_arg]
-				n_vec[z_vec[c_arg]] -= u_vec[c_arg]
-				z_vec[c_arg] = K
-				K += 1
+			cluster_cy.updateArrays(C_thr, C, N_thr, n_vec, K, T)
+			K += cluster_cy.checkCluster(X, M, C, z_vec, c_vec, n_vec, u_vec, c_lim, K)
 
 			# Check for convergence
 			if it > 0:
-				if np.array_equal(z_vec, z_tmp):
+				if cluster_cy.countDist(z_vec, z_tmp) == 0:
 					if K > 1:
-						if args.verbose:
-							cost = np.sum(c_vec*u_vec) + args.lmbda*X.shape[1]*K
-							print(f"Converged K={K}: Cost {cost:.1f}")
 						break
 					else: # Make sure two haplotype clusters are generated
 						print(", No diversity (K=1)! Adding extra cluster.")
-						c_arg = np.argmax(c_vec) # Extreme point
-						M[K,:] = X[c_arg,:]
-						C[K,:] = X[c_arg,:]*u_vec[c_arg]
-						C[z_vec[c_arg],:] -= C[K,:]
-						n_vec[K] = u_vec[c_arg]
-						n_vec[z_vec[c_arg]] -= u_vec[c_arg]
-						z_vec[c_arg] = K
+						cluster_cy.genCluster(X, M, C, z_vec, c_vec, n_vec, u_vec, K)
 						K += 1
-			if args.verbose:
-				cost = np.sum(c_vec*u_vec) + args.lmbda*X.shape[1]*K
-				print(f"Epoch {it}: Cost {cost:.1f}")
 			
 			# Count sizes and construct marginal medians
 			cluster_cy.marginalMedians(M, C, n_vec, K)
@@ -247,33 +221,22 @@ def main(args):
 			n_vec[n_vec == 1] = 0
 			cluster_cy.clusterAssignment(X, M, z_vec, c_vec, n_vec, u_vec, \
 				C_thr, N_thr, I_thr, K, T)
-			np.sum(C_thr, axis=0, out=C)
-			np.sum(N_thr, axis=0, out=n_vec)
+			cluster_cy.updateArrays(C_thr, C, N_thr, n_vec, K, T)
 			K_tmp = np.sum(n_vec > 0)
 
 			# Remove small clusters iterativly
-			if args.verbose:
-				N_sur = np.sum(n_vec >= N_mac)
-				print(f"{N_sur}/{K_tmp} clusters reaching threshold.")
 			while K_tmp > 2:
 				# Re-assign haplotypes
 				cluster_cy.marginalMedians(M, C, n_vec, K)
 				cluster_cy.clusterAssignment(X, M, z_vec, c_vec, n_vec, u_vec, \
 					C_thr, N_thr, I_thr, K, T)
-				np.sum(C_thr, axis=0, out=C)
-				np.sum(N_thr, axis=0, out=n_vec)
+				cluster_cy.updateArrays(C_thr, C, N_thr, n_vec, K, T)
 
 				# Find smallest cluster
 				N_min = cluster_cy.findZero(n_vec, n, N_mac, K)
 				if N_min >= N_mac:
 					break
 				K_tmp -= 1
-
-				# Print verbose information
-				if args.verbose:
-					N_sur = np.sum(n_vec >= N_mac)
-					print(f"{N_sur}/{K_tmp} clusters reaching threshold. " + \
-						f"{N_min}/{N_mac}.")
 			
 			# Re-cluster K = 2 non-break case
 			if (K_tmp == 2) and (N_min < N_mac):
@@ -300,8 +263,7 @@ def main(args):
 		a_tmp, b_tmp, d_tmp, e_tmp
 	if args.memory:
 		del H
-	if not args.verbose:
-		print(".\n")
+	print(".\n")
 	
 	# Create window information array
 	win = np.hstack((

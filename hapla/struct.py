@@ -12,7 +12,7 @@ from time import time
 ##### hapla struct #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.9)")
+	print("hapla by Jonas Meisner (v0.10)")
 	print(f"hapla struct using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 

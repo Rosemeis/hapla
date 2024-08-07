@@ -23,8 +23,8 @@ def main():
 		metavar="INT", help="Use fixed window size")
 	parser_cluster.add_argument("-w", "--windows", metavar="FILE",
 		help="Use provided window indices")
-	parser_cluster.add_argument("-l", "--lmbda", type=float, default=0.1,
-		metavar="FLOAT", help="Set lambda hyperparameter (0.1)")
+	parser_cluster.add_argument("-l", "--lmbda", type=float, default=0.05,
+		metavar="FLOAT", help="Set lambda hyperparameter (0.05)")
 	parser_cluster.add_argument("-t", "--threads", type=int, default=1,
 		metavar="INT", help="Number of threads (1)")
 	parser_cluster.add_argument("-o", "--out", default="hapla.cluster",
@@ -45,8 +45,6 @@ def main():
 		metavar="INT", help="Number of overlapping windows (0)")
 	parser_cluster.add_argument("--memory", action="store_true",
 		help="Store haplotypes in 1-bit matrix")
-	parser_cluster.add_argument("--verbose", action="store_true",
-		help="Verbose output from each iteration")
 
 	# hapla struct
 	parser_struct = subparsers.add_parser("struct")
@@ -135,12 +133,12 @@ def main():
 		metavar="INT", help="Number of threads (1)")
 	parser_fatash.add_argument("-o", "--out", default="hapla.fatash",
 		metavar="OUTPUT", help="Output prefix")
-	parser_fatash.add_argument("--alpha", type=float, default=0.0001,
-		metavar="FLOAT", help="Set fixed alpha rate (0.0001)")
-	parser_fatash.add_argument("--alpha-bound", nargs=2, type=float,
-		default=[0.0001, 0.1], help="Bounds on alpha [0.000001, 0.1]")
-	parser_fatash.add_argument("--optim", action="store_true",
-		help="Optimize individual alpha rates using SciPy")
+	parser_fatash.add_argument("--alpha", type=float, default=1e-6,
+		metavar="FLOAT", help="Set fixed alpha rate (1e-6)")
+	parser_fatash.add_argument("--viterbi", action="store_true",
+		help="Perform Viterbi decoding")
+	parser_fatash.add_argument("--save-posterior", action="store_true",
+		help="Save posterior probabilities")
 
 	# Parse arguments
 	args = parser.parse_args()

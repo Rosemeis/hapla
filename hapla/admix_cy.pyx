@@ -1,13 +1,17 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, initializedcheck=False, cdivision=True
 import numpy as np
 cimport numpy as np
-from cpython.mem cimport PyMem_RawCalloc, PyMem_RawMalloc, PyMem_RawFree
 from cython.parallel import parallel, prange
 from libc.math cimport log, sqrt
+from libc.stdlib cimport calloc, free
 
 ##### hapla - ancestry estimation #####
+# Inline function
+cdef inline double project(double s) noexcept nogil:
+	return min(max(s, 1e-5), 1-(1e-5))
+
 # Create P matrix from array
-cpdef void createP(double[:,:,::1] P, const unsigned char[::1] k_vec) \
+cpdef void createP(double[:,:,::1] P, const unsigned char[::1] k_vec, const int t) \
 		noexcept nogil:
 	cdef:
 		int W = P.shape[0]
@@ -15,12 +19,13 @@ cpdef void createP(double[:,:,::1] P, const unsigned char[::1] k_vec) \
 		int C = P.shape[2]
 		int w, k, c
 		double sumP
-	for w in range(W):
+	for w in prange(W, num_threads=t):
 		for k in range(K):
 			sumP = 0.0
 			for c in range(C):
 				if c < k_vec[w]:
-					sumP += P[w,k,c]
+					P[w,k,c] = project(P[w,k,c])
+					sumP = sumP + P[w,k,c]
 				else:
 					P[w,k,c] = 0.0
 			for c in range(k_vec[w]):
@@ -43,7 +48,7 @@ cpdef void initQ(double[:,::1] Q, const unsigned char[::1] y, const int N, \
 					Q[i,k] = 1e-5
 		sumQ = 0.0
 		for k in range(K):
-			Q[i,k] = min(max(Q[i,k], 1e-5), 1-(1e-5))
+			Q[i,k] = project(Q[i,k])
 			sumQ = sumQ + Q[i,k]
 		for k in range(K):
 			Q[i,k] /= sumQ
@@ -83,8 +88,8 @@ cpdef void updateP(const unsigned char[:,::1] Z, double[:,:,::1] P, \
 		double* P_thr
 		double* Q_thr
 	with nogil, parallel(num_threads=t):
-		P_thr = <double*>PyMem_RawCalloc(K*C, sizeof(double))
-		Q_thr = <double*>PyMem_RawCalloc((n//N)*K, sizeof(double))
+		P_thr = <double*>calloc(K*C, sizeof(double))
+		Q_thr = <double*>calloc((n//N)*K, sizeof(double))
 		for w in prange(W):
 			for i in range(n):
 				l = i//N
@@ -101,7 +106,7 @@ cpdef void updateP(const unsigned char[:,::1] Z, double[:,:,::1] P, \
 				sumP = 0.0
 				for c in range(k_vec[w]):
 					P[w,k,c] = P_thr[k*C+c]*S
-					P[w,k,c] = min(max(P[w,k,c], 1e-5), 1-(1e-5))
+					P[w,k,c] = project(P[w,k,c])
 					P_thr[k*C+c] = 0.0
 					sumP = sumP + P[w,k,c]
 				for c in range(k_vec[w]):
@@ -110,8 +115,8 @@ cpdef void updateP(const unsigned char[:,::1] Z, double[:,:,::1] P, \
 			for x in range(n//N):
 				for y in range(K):
 					Q_tmp[x,y] += Q_thr[x*K + y]
-		PyMem_RawFree(P_thr)
-		PyMem_RawFree(Q_thr)
+		free(P_thr)
+		free(Q_thr)
 
 # Accelerated update P and Q temp arrays
 cpdef void accelP(const unsigned char[:,::1] Z, const double[:,:,::1] P, \
@@ -128,8 +133,8 @@ cpdef void accelP(const unsigned char[:,::1] Z, const double[:,:,::1] P, \
 		double* P_thr
 		double* Q_thr
 	with nogil, parallel(num_threads=t):
-		P_thr = <double*>PyMem_RawCalloc(K*C, sizeof(double))
-		Q_thr = <double*>PyMem_RawCalloc((n//N)*K, sizeof(double))
+		P_thr = <double*>calloc(K*C, sizeof(double))
+		Q_thr = <double*>calloc((n//N)*K, sizeof(double))
 		for w in prange(W):
 			for i in range(n):
 				l = i//N
@@ -146,7 +151,7 @@ cpdef void accelP(const unsigned char[:,::1] Z, const double[:,:,::1] P, \
 				sumP = 0.0
 				for c in range(k_vec[w]):
 					P_new[w,k,c] = P_thr[k*C+c]*S
-					P_new[w,k,c] = min(max(P_new[w,k,c], 1e-5), 1-(1e-5))
+					P_new[w,k,c] = project(P_new[w,k,c])
 					P_thr[k*C+c] = 0.0
 					sumP = sumP + P_new[w,k,c]
 				for c in range(k_vec[w]):
@@ -155,8 +160,8 @@ cpdef void accelP(const unsigned char[:,::1] Z, const double[:,:,::1] P, \
 			for x in range(n//N):
 				for y in range(K):
 					Q_tmp[x,y] += Q_thr[x*K + y]
-		PyMem_RawFree(P_thr)
-		PyMem_RawFree(Q_thr)
+		free(P_thr)
+		free(Q_thr)
 
 # Accelerated jump for P (SQUAREM)
 cpdef void alphaP(double[:,:,::1] P0, const double[:,:,::1] P1, \
@@ -184,7 +189,7 @@ cpdef void alphaP(double[:,:,::1] P0, const double[:,:,::1] P1, \
 				x = P1[w,k,c] - P0[w,k,c]
 				y = (P2[w,k,c] - P1[w,k,c]) - x
 				P0[w,k,c] = P0[w,k,c] + 2.0*a*x + a*a*y
-				P0[w,k,c] = min(max(P0[w,k,c], 1e-5), 1-(1e-5))
+				P0[w,k,c] = project(P0[w,k,c])
 				sumP = sumP + P0[w,k,c]
 			for c in range(k_vec[w]):
 				P0[w,k,c] /= sumP
@@ -201,7 +206,7 @@ cpdef void updateQ(double[:,::1] Q, double[:,::1] Q_tmp, const double S, \
 		sumQ = 0.0
 		for k in range(K):
 			Q[i,k] = Q_tmp[i,k]*S
-			Q[i,k] = min(max(Q[i,k], 1e-5), 1-(1e-5))
+			Q[i,k] = project(Q[i,k])
 			Q_tmp[i,k] = 0.0
 			sumQ = sumQ + Q[i,k]
 		for k in range(K):
@@ -219,7 +224,7 @@ cpdef void accelQ(const double[:,::1] Q, double[:,::1] Q_new, double[:,::1] Q_tm
 		sumQ = 0.0
 		for k in range(K):
 			Q_new[i,k] = Q_tmp[i,k]*S
-			Q_new[i,k] = min(max(Q_new[i,k], 1e-5), 1-(1e-5))
+			Q_new[i,k] = project(Q_new[i,k])
 			Q_tmp[i,k] = 0.0
 			sumQ = sumQ + Q_new[i,k]
 		for k in range(K):
@@ -248,7 +253,7 @@ cpdef void alphaQ(double[:,::1] Q0, const double[:,::1] Q1, const double[:,::1] 
 			x = Q1[i,k] - Q0[i,k]
 			y = (Q2[i,k] - Q1[i,k]) - x
 			Q0[i,k] = Q0[i,k] + 2.0*a*x + a*a*y
-			Q0[i,k] = min(max(Q0[i,k], 1e-5), 1-(1e-5))
+			Q0[i,k] = project(Q0[i,k])
 			sumQ = sumQ + Q0[i,k]
 		for k in range(K):
 			Q0[i,k] /= sumQ

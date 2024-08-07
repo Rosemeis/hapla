@@ -12,7 +12,7 @@ from time import time
 ##### hapla fatash #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.9)")
+	print("hapla by Jonas Meisner (v0.10)")
 	print(f"hapla fatash using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 
@@ -31,9 +31,7 @@ def main(args):
 
 	# Import numerical libraries and cython functions
 	import numpy as np
-	import scipy.optimize as optim
 	from hapla import fatash_cy
-	from hapla import functions
 
 	# Load data (and concatentate across windows)
 	if args.filelist is not None:
@@ -52,90 +50,95 @@ def main(args):
 	assert P.shape[1] == Q.shape[1], "Number of ancestral sources do not match!"
 	K = P.shape[1]
 
-	# Containers
-	v = np.zeros(K) # Help vector
+	# General containers
 	T = np.zeros((K, K)) # Transitions
+	v = np.zeros(K) # Help vector
 
 	# Loop over chromosomes
 	W_tot = 0
 	print(f"Inferring local ancestry tracts with {K} ancestral sources.\n")
-	for c in np.arange(n_chr):
-		print(f"Chromsome {c+1}/{n_chr}")
+	for chrom in np.arange(n_chr):
+		print(f"Chromsome {chrom+1}/{n_chr}")
 		s_chr = time()
 
 		# Load haplotype assignments and log P matrix
-		Z = np.ascontiguousarray(np.load(Z_list[c]).T)
-		W = Z.shape[1]
-		P_chr = np.ascontiguousarray(np.swapaxes(P[W_tot:(W_tot + W)], 1, 2))
+		Z_chr = np.ascontiguousarray(np.load(Z_list[chrom]).T)
+		W_chr = Z_chr.shape[1]
+		P_chr = np.ascontiguousarray(np.swapaxes(P[W_tot:(W_tot + W_chr)], 1, 2))
 
-		# Setup parameters and alpha optimization
-		if c == 0:
-			n = Z.shape[0]
+		# Setup parameters
+		if chrom == 0:
+			n = Z_chr.shape[0]
 			if Q.shape[0] == n//2:
 				N = 2
 			else:
 				N = 1
 				assert Q.shape[0] == n, "Number of samples do not match!"
-			if args.optim: # Individual alpha rates
-				a = np.zeros(n)
 		else:
-			assert Z.shape[0] == n, "Number of samples do not match!"
-		assert P_chr.shape[1] >= (np.max(Z) + 1), "Number of clusters do not match!"
+			assert Z_chr.shape[0] == n, "Number of samples do not match!"
+		assert P_chr.shape[1] > np.max(Z_chr), "Number of clusters do not match!"
 
 		# Containers
-		E = np.zeros((n, W, K)) # Emission probabilities
-		L = np.zeros((n, W, K)) # Posterior probabilities
-		A = np.zeros((W, K)) # Forward matrix
-		B = np.zeros((W, K)) # Backward matrix
+		E = np.zeros((n, W_chr, K)) # Emission probabilities
+		A = np.zeros((W_chr, K)) # Forward matrix
+		if args.viterbi:
+			I = np.zeros((W_chr, K), dtype=np.uint8) # Index matrix
+			V = np.zeros((n, W_chr), dtype=np.uint8) # Viterbi path
+		else:
+			c = np.zeros(W_chr) # Help vector
+			B = np.zeros((W_chr, K)) # Backward matrix
+			L = np.zeros((n, W_chr, K)) # Posterior probabilities
 
 		# Compute emission probabilities
-		fatash_cy.calcEmissions(Z, P_chr, E, args.threads)
-		del Z, P_chr
+		fatash_cy.calcEmissions(Z_chr, P_chr, E, args.threads)
+		del Z_chr, P_chr
 
 		# HMM for each haplotype
-		for i in range(n):
+		for i in np.arange(n):
 			print(f"\rHaplotype {i+1}/{n}", end="")
+			fatash_cy.calcTransition(T, Q, i//N, args.alpha)
 
-			# Optimize alpha parameter
-			if args.optim:
-				opt = optim.minimize_scalar(
-					fun=functions.loglikeWrapper,
-					args=(E, Q, T, A, v, N, i),
-					method="bounded",
-					bounds=tuple(args.alpha_bound)
-				)
-				alpha = opt.x
-				a[i] = alpha
-			else:
-				alpha = args.alpha
-
-			# Compute probabilities
-			fatash_cy.calcTransition(T, Q, i//N, alpha)
-			fatash_cy.calcFwdBwd(E, L, Q, T, A, B, v, N, i)
+			# Compute Viterbi and decoding
+			if args.viterbi:
+				fatash_cy.viterbi(E, Q, T, A, I, V, N, i)
+			else: # Compute posterior probabilities
+				fatash_cy.calcFwdBwd(E, L, Q, T, A, B, c, v, N, i)
 		print(".")
 
 		# Save matrices
 		if n_chr == 1:
-			np.savetxt(f"{args.out}.path", L.argmax(axis=2), fmt="%i")
-			print(f"Saved posterior decoding path as {args.out}.path")
-			if args.optim:
-				np.savetxt(f"{args.out}.alpha", a, fmt="%.6f")
-				print(f"Saved individual alpha rates as {args.out}.alpha")
+			if args.viterbi:
+				np.savetxt(f"{args.out}.path", V, fmt="%i")
+				print(f"Saved Viterbi decoding path as {args.out}.path")
+			else:
+				np.savetxt(f"{args.out}.path", L.argmax(axis=2), fmt="%i")
+				print(f"Saved posterior decoding path as {args.out}.path")
+				if args.save_posterior:
+					np.save(f"{args.out}.post", L)
+					print(f"Saved posteriors as {args.out}.post.npy")
 			print("")
 		else:
-			np.savetxt(f"{args.out}.chr{c+1}.path", L.argmax(axis=2), fmt="%i")
-			print(f"Saved posterior decoding path as {args.out}.chr{c+1}.path")
-			if args.optim:
-				np.savetxt(f"{args.out}.chr{c+1}.alpha", a, fmt="%.6f")
-				print(f"Saved individual alpha rates as {args.out}.chr{c+1}.alpha")
-			
+			if args.viterbi:
+				np.savetxt(f"{args.out}.chr{chrom+1}.path", V, fmt="%i")
+				print(f"Saved Viterbi decoding as {args.out}.chr{chrom+1}.path")
+			else:
+				np.savetxt(f"{args.out}.chr{chrom+1}.path", L.argmax(axis=2), fmt="%i")
+				print(f"Saved posterior decoding as {args.out}.chr{chrom+1}.path")
+				if args.save_posterior:
+					np.save(f"{args.out}.chr{chrom+1}.post", L)
+					print(f"Saved posteriors as {args.out}.chr{chrom+1}.post.npy")
+
 			# Print elapsed time of chromosome 
 			t_chr = time()-s_chr
 			t_min = int(t_chr//60)
 			t_sec = int(t_chr - t_min*60)
 			print(f"Elapsed time: {t_min}m{t_sec}s\n")
-		W_tot += W
-		del E, L, A, B
+		W_tot += W_chr
+		del E, A
+		if args.viterbi:
+			del I, V
+		else:
+			del c, B, L
 	assert P.shape[0] == W_tot, "Number of windows did not match!"
 
 	# Print elapsed time for computation

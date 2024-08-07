@@ -3,7 +3,6 @@ import numpy as np
 from math import ceil
 from hapla import shared_cy
 from hapla import admix_cy
-from hapla import fatash_cy
 
 ##### hapla - functions #####
 ### hapla struct
@@ -59,15 +58,6 @@ def squarem(Z, P0, Q0, Q_tmp, P1, P2, Q1, Q2, k_vec, y, S, N, threads):
 	admix_cy.alphaQ(Q0, Q1, Q2, threads)
 	if y is not None:
 		admix_cy.superQ(Q0, y, N, threads)
-
-
-
-### hapla fatash
-# Log-likehood wrapper for SciPy optimization
-def loglikeWrapper(param, *args):
-	E, Q, T, A, v, N, i = args
-	fatash_cy.calcTransition(T, Q, i//N, param)
-	return -fatash_cy.loglikeFatash(E, Q, T, A, v, N, i)
 
 
 

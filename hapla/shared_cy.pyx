@@ -57,7 +57,7 @@ cpdef void standardizeZ(const unsigned char[:,::1] Z, float[:,::1] Z_s, \
 
 ### hapla predict
 # Calculate Hamming distance
-cdef int hammingPred(const unsigned char* X, const unsigned char* M, \
+cdef inline int hammingPred(const unsigned char* X, const unsigned char* M, \
 		const int m) noexcept nogil:
 	cdef:
 		int dist = 0
