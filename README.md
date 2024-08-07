@@ -26,7 +26,7 @@ Coming soon.
 
 
 ### Haplotype clustering
-**hapla cluster**
+***hapla cluster***\
 Window-based haplotype clustering in a phased VCF/BCF.
 ```bash
 # Cluster haplotypes in a chromosome with fixed window size (8 SNPs)
@@ -51,7 +51,7 @@ hapla cluster --bcf pop.chr1.bcf --threads 16 --out hapla.chr1 --plink
 ```
 
 ### GRM estimation and population structure inference
-**hapla struct**\
+***hapla struct***\
 Estimate genome-wide relationship matrix (GRM) and infer population structure using the haplotype cluster alleles.
 ```bash
 # Construct genome-wide relationship matrix (GRM)
@@ -76,7 +76,7 @@ hapla struct --filelist hapla.filelist --threads 16 --pca 10 --randomized --out 
 ```
 
 ### Predict haplotype cluster assignments
-**hapla predict**\
+***hapla predict***\
 Predict haplotype cluster assignments using pre-computed cluster medians in new haplotypes. All SNPs must be overlapping.
 ```bash
 # Cluster haplotypes in a chromosome with 'hapla cluster' and save cluster medians
@@ -88,7 +88,7 @@ hapla predict --bcf new.chr1.bcf --threads 16 --out new.chr1 --medians hapla.chr
 ```
 
 ### Admixture estimation
-**hapla admix**\
+***hapla admix***\
 Estimate ancestry proportions and ancestral haplotype cluster frequencies with a pre-specified number of sources (K). Using a modified ADMIXTURE model for haplotype clusters.
 ```bash
 # Estimate ancestry proportions assuming K=3 ancestral sources for a single chromosome
@@ -105,7 +105,7 @@ hapla admix --filelist hapla.filelist --K 3 --seed 1 --threads 16 --out hapla
 ```
 
 ### Local ancestry inference
-**hapla fatash**\
+***hapla fatash***\
 Infer local ancestry tracts using the admixture estimation in a hidden markov model. Using a modified fastPHASE model for haplotype clusters.
 ```bash
 # Infer local ancestry tracts for a single chromosome (posterior decoding)
