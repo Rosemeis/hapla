@@ -16,6 +16,17 @@ cdef inline int hammingDist(const unsigned char* X, const unsigned char* M, \
 		dist += <int>(X[j] ^ M[j])
 	return dist
 
+# Calculate Hamming distance and change assignments
+cdef inline int hammingCheck(const unsigned char* z_vec, unsigned char* z_pre, \
+		const int n) noexcept nogil:
+	cdef:
+		int dist = 0
+		int i
+	for i in range(n):
+		dist += <int>(z_vec[i] ^ z_pre[i])
+		z_pre[i] = z_vec[i]
+	return dist
+
 # Add haplotype contribution to frequency vector
 cdef inline void addHaplo(const unsigned char* X, float* C, const int u, \
 		const int m) noexcept nogil:
@@ -156,7 +167,7 @@ cpdef void genCluster(const unsigned char[:,::1] X, unsigned char[:,::1] M, \
 cpdef int countDist(const unsigned char[::1] z_vec, const unsigned char[::1] z_tmp) \
 		noexcept nogil:
 	cdef int n = z_vec.shape[0]
-	return hammingDist(&z_vec[0], &z_tmp[0], n)
+	return hammingCheck(&z_vec[0], &z_tmp[0], n)
 
 # Find non-zero cluster with least assignments
 cpdef int findZero(int[::1] n_vec, const int n, const int mac, const int K) \
@@ -214,7 +225,7 @@ cpdef void resetArrays(float[:,:,::1] C_thr, int[:,::1] N_thr, int[::1] c_vec, \
 		int m = C_thr.shape[2]
 		int n = c_vec.shape[0]
 		int i, j, k, thr
-	for thr in prange(t, num_threads=t):
+	for thr in range(t):
 		for k in range(K):
 			N_thr[thr,k] = 0
 			for j in range(m):

@@ -207,10 +207,11 @@ def main(args):
 						print(", No diversity (K=1)! Adding extra cluster.")
 						cluster_cy.genCluster(X, M, C, z_vec, c_vec, n_vec, u_vec, K)
 						K += 1
+			else:
+				np.copyto(z_tmp, z_vec, casting="no")
 			
 			# Count sizes and construct marginal medians
 			cluster_cy.marginalMedians(M, C, n_vec, K)
-			np.copyto(z_tmp, z_vec, casting="no")
 
 		# Iterative re-clustering of haplotypes
 		if K > 2:
