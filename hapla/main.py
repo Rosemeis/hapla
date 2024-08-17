@@ -23,8 +23,8 @@ def main():
 		metavar="INT", help="Use fixed window size")
 	parser_cluster.add_argument("-w", "--windows", metavar="FILE",
 		help="Use provided window indices")
-	parser_cluster.add_argument("-l", "--lmbda", type=float, default=0.05,
-		metavar="FLOAT", help="Set lambda hyperparameter (0.05)")
+	parser_cluster.add_argument("-l", "--lmbda", type=float, default=0.1,
+		metavar="FLOAT", help="Set lambda hyperparameter (0.1)")
 	parser_cluster.add_argument("-t", "--threads", type=int, default=1,
 		metavar="INT", help="Number of threads (1)")
 	parser_cluster.add_argument("-o", "--out", default="hapla.cluster",
