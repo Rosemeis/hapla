@@ -25,6 +25,8 @@ def main():
 		help="Use provided window indices")
 	parser_cluster.add_argument("-l", "--lmbda", type=float, default=0.1,
 		metavar="FLOAT", help="Set lambda hyperparameter (0.1)")
+	parser_cluster.add_argument("-s", "--step", type=int,
+		metavar="INT", help="Step-size for sliding window")
 	parser_cluster.add_argument("-t", "--threads", type=int, default=1,
 		metavar="INT", help="Number of threads (1)")
 	parser_cluster.add_argument("-o", "--out", default="hapla.cluster",
@@ -41,8 +43,6 @@ def main():
 		help="Generate binary PLINK output")
 	parser_cluster.add_argument("--duplicate-fid", action="store_true",
 		help="Use sample list as family ID (PLINK 1.9 compatibility)")
-	parser_cluster.add_argument("--overlap", type=int, default=0,
-		metavar="INT", help="Number of overlapping windows (0)")
 	parser_cluster.add_argument("--memory", action="store_true",
 		help="Store haplotypes in 1-bit matrix")
 

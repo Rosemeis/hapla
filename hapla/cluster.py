@@ -24,14 +24,11 @@ def main(args):
 	assert args.max_clusters <= 256, "Max allowed clusters exceeded!"
 	if args.fixed is not None:
 		assert args.fixed > 0, "Invalid window size!"
-		if args.overlap > 0:
-			if args.fixed == 1:
-				args.overlap = 0
-			assert (args.fixed % (args.overlap + 1) == 0), \
-				"Invalid number of overlapping windows chosen!"
+		if args.step is not None:
+			assert (args.step <= args.fixed) and (args.step > 0), \
+				"Invalid step size for sliding window chosen!"
 	else:
 		assert args.windows is not None, "No window option (--fixed or --windows)!"
-		args.overlap = 0
 	start = time()
 
 	# Control threads of external numerical libraries
@@ -89,12 +86,13 @@ def main(args):
 
 	# Setup windows
 	if args.fixed is not None:
-		W = m//args.fixed
-		if args.overlap > 0:
-			W += (W - 1)*args.overlap
-			w_vec = [w*(args.fixed//(args.overlap + 1)) for w in range(W)]
-			print(f"Clustering {W} overlapping windows of {args.fixed} SNPs.")
+		if args.step is not None:
+			W = ceil((m - args.fixed)/args.step)
+			w_vec = [w*args.step for w in range(W)]
+			print(f"Clustering {W} overlapping windows of {args.fixed} SNPs " + \
+		 			f"(step-size {args.step}).")
 		else:
+			W = m//args.fixed
 			w_vec = [w*args.fixed for w in range(W)]
 			print(f"Clustering {W} non-overlapping windows of {args.fixed} SNPs.")
 		w_vec.append(m)
