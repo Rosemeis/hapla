@@ -1,4 +1,4 @@
-# hapla (v0.10)
+# hapla (v0.11)
 ***hapla*** is a framework for performing window-based haplotype clustering in phased genotype data. The inferred haplotype cluster alleles can be used to infer fine-scale population structure, perform polygenic prediction and haplotype cluster based association studies.
 
 ### Citation
@@ -32,6 +32,9 @@ Window-based haplotype clustering in a phased VCF/BCF.
 # Cluster haplotypes in a chromosome with fixed window size (8 SNPs)
 hapla cluster --bcf pop.chr1.bcf --fixed 8 --threads 16 --out hapla.chr1
 # Saves inferred haplotype cluster assignments in a binary NumPy file ("hapla.chr1.z.npy")
+
+# Cluster haplotypes in a chromosome with fixed size and overlapping windows (step size 4)
+hapla cluster --bcf pop.chr1.bcf --fixed 8 --step 4 --threads 16 --out hapla.chr1
 
 # Cluster haplotypes in all chromosomes and save output path in a filelist
 for c in {1..22}

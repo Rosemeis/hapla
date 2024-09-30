@@ -54,11 +54,11 @@ for p in {afr,eur,all}
 do
 	for w in {1,16,32}
 	do 
-		hapla cluster --bcf data/${p}.bcf --fixed $w --overlap 1 --threads 8 --out clusters/${p}.hapla.w${w}
-		hapla cluster --bcf data/${p}.down.bcf --fixed $w --overlap 1 --threads 8 --out clusters/${p}.down.hapla.w${w}
+		hapla cluster --bcf data/${p}.bcf --fixed $w --step $((($w+2-1)/2)) --threads 8 --out clusters/${p}.w${w}
+		hapla cluster --bcf data/${p}.down.bcf --fixed $w --step $((($w+2-1)/2)) --threads 8 --out clusters/${p}.down.w${w}
 	done
-	hapla cluster --bcf data/${p}.bcf --fixed 8 --overlap 1 --threads 8 --out clusters/${p}.hapla.w8 --plink # For phenotype generation
-	hapla cluster --bcf data/${p}.down.bcf --fixed 8 --overlap 1 --threads 8 --out clusters/${p}.down.hapla.w8
+	hapla cluster --bcf data/${p}.bcf --fixed 8 --step $((($w+2-1)/2)) --threads 8 --out clusters/${p}.w8 --plink # For phenotype generation
+	hapla cluster --bcf data/${p}.down.bcf --fixed 8 --step $((($w+2-1)/2)) --threads 8 --out clusters/${p}.down.w8
 done
 
 # Phenotype generation
@@ -66,7 +66,7 @@ for p in {afr,eur,all}
 do
 	python generatePheno.py --bfile data/${p} --causal 1000 --h2 0.8 --phenos 10 --out pheno/${p}.pheno1
 	python generatePheno.py --bfile data/${p} --causal 1000 --h2 0.2 --phenos 10 --out pheno/${p}.pheno2
-	python generatePheno.py --bfile clusters/${p}.hapla.w8 --causal 1000 --h2 0.8 --phenos 10 --out pheno/${p}.pheno3
+	python generatePheno.py --bfile clusters/${p}.w8 --causal 1000 --h2 0.8 --phenos 10 --out pheno/${p}.pheno3
 done
 
 # GRM estimation
@@ -74,10 +74,10 @@ for p in {afr,eur,all}
 do
 	for w in {1,8,16,32}
 	do 
-		hapla struct --clusters clusters/${p}.hapla.w${w}.z.npy --grm --threads 64 --iid data/${p}.samples --out grm/${p}.hapla.w${w}
-		hapla struct --clusters clusters/${p}.down.hapla.w${w}.z.npy --grm --threads 64 --iid data/${p}.samples --out grm/${p}.down.hapla.w${w}
-		realpath grm/${p}.hapla.w${w} >> grm/${p}.hapla.multi
-		realpath grm/${p}.down.hapla.w${w} >> grm/${p}.down.hapla.multi
+		hapla struct --clusters clusters/${p}.w${w}.z.npy --grm --threads 64 --iid data/${p}.samples --out grm/${p}.w${w}
+		hapla struct --clusters clusters/${p}.down.w${w}.z.npy --grm --threads 64 --iid data/${p}.samples --out grm/${p}.down.w${w}
+		realpath grm/${p}.w${w} >> grm/${p}.multi
+		realpath grm/${p}.down.w${w} >> grm/${p}.down.multi
 	done
 	gcta-1.94.1 --bfile data/${p} --make-grm --threads 64 --out grm/${p}.gcta
 	gcta-1.94.1 --bfile data/${p}.down --make-grm --threads 64 --out grm/${p}.down.gcta
@@ -94,11 +94,11 @@ do
 		do
 			for w in {1,8,16,32}
 			do
-				gcta-1.94.1 --reml --reml-no-lrt --reml-no-constrain --cvblup --grm grm/${p}.hapla.w${w} --threads 64 --pheno pheno/${p}.pheno${y}.pheno --mpheno $s --out reml/pheno${y}/${p}.hapla.w${w}.${s}
-				gcta-1.94.1 --reml --reml-no-lrt --reml-no-constrain --cvblup --grm grm/${p}.down.hapla.w${w} --threads 64 --pheno pheno/${p}.pheno${y}.pheno --mpheno $s --out reml/pheno${y}/${p}.down.hapla.w${w}.${s}
+				gcta-1.94.1 --reml --reml-no-lrt --reml-no-constrain --cvblup --grm grm/${p}.w${w} --threads 64 --pheno pheno/${p}.pheno${y}.pheno --mpheno $s --out reml/pheno${y}/${p}.w${w}.${s}
+				gcta-1.94.1 --reml --reml-no-lrt --reml-no-constrain --cvblup --grm grm/${p}.down.w${w} --threads 64 --pheno pheno/${p}.pheno${y}.pheno --mpheno $s --out reml/pheno${y}/${p}.down.w${w}.${s}
 			done
-			gcta-1.94.1 --reml --reml-no-lrt --reml-no-constrain --cvblup --mgrm grm/${p}.hapla.multi --threads 64 --pheno pheno/${p}.pheno${y}.pheno --mpheno $s --out reml/pheno${y}/${p}.hapla.multi.${s}
-			gcta-1.94.1 --reml --reml-no-lrt --reml-no-constrain --cvblup --mgrm grm/${p}.down.hapla.multi --threads 64 --pheno pheno/${p}.pheno${y}.pheno --mpheno $s --out reml/pheno${y}/${p}.down.hapla.multi.${s}
+			gcta-1.94.1 --reml --reml-no-lrt --reml-no-constrain --cvblup --mgrm grm/${p}.multi --threads 64 --pheno pheno/${p}.pheno${y}.pheno --mpheno $s --out reml/pheno${y}/${p}.multi.${s}
+			gcta-1.94.1 --reml --reml-no-lrt --reml-no-constrain --cvblup --mgrm grm/${p}.down.multi --threads 64 --pheno pheno/${p}.pheno${y}.pheno --mpheno $s --out reml/pheno${y}/${p}.down.multi.${s}
 			gcta-1.94.1 --reml --reml-no-lrt --reml-no-constrain --cvblup --grm grm/${p}.gcta --threads 64 --pheno pheno/${p}.pheno${y}.pheno --mpheno $s --out reml/pheno${y}/${p}.gcta.${s}
 			gcta-1.94.1 --reml --reml-no-lrt --reml-no-constrain --cvblup --grm grm/${p}.down.gcta --threads 64 --pheno pheno/${p}.pheno${y}.pheno --mpheno $s --out reml/pheno${y}/${p}.down.gcta.${s}
 			gcta-1.94.1 --reml --reml-no-lrt --reml-no-constrain --cvblup --grm grm/${p}.pruned --threads 64 --pheno pheno/${p}.pheno${y}.pheno --mpheno $s --out reml/pheno${y}/${p}.pruned.${s}

@@ -13,7 +13,7 @@ from time import time
 ##### hapla cluster #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.10)")
+	print("hapla by Jonas Meisner (v0.11)")
 	print(f"hapla cluster using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 	
@@ -27,6 +27,8 @@ def main(args):
 		if args.step is not None:
 			assert (args.step <= args.fixed) and (args.step > 0), \
 				"Invalid step size for sliding window chosen!"
+			if args.fixed == 1:
+				args.step = None
 	else:
 		assert args.windows is not None, "No window option (--fixed or --windows)!"
 	start = time()
