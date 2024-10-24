@@ -54,7 +54,7 @@ cpdef void convertBit(const unsigned char[:,::1] G, unsigned char[:,::1] H, \
 		int B = G.shape[1]
 		int m = H.shape[0]
 		int n = H.shape[1]
-		int b, f, i, j, k, l, u, v, p, q, s, bit
+		int b, f, i, j, k, l, p, q, s, u, v, bit
 		unsigned char mask = 1
 		unsigned char byte
 	# Populate haplotype matrix and cluster mean

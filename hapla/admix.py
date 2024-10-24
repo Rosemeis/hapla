@@ -12,21 +12,30 @@ from time import time
 ##### hapla admix #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.11)")
+	print("hapla by Jonas Meisner (v0.12)")
 	print(f"hapla admix using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 
 	# Check input
 	assert (args.filelist is not None) or (args.clusters is not None), \
 		"No input data (--filelist or --clusters)!"
-	assert args.K > 1, "Please set K > 1 (--K)!"
+	assert args.K > 1, "Please select K > 1!"
+	assert args.threads > 0, "Please select a valid number of threads!"
+	assert args.seed >= 0, "Please select a valid seed!"
+	assert args.iter > 0, "Please select a valid number of iterations!"
+	assert args.tole >= 0.0, "Please select a valid tolerance!"
+	assert args.check > 0, "Please select a valid value for convergence check!"
 	start = time()
 
 	# Control threads of external numerical libraries
 	os.environ["MKL_NUM_THREADS"] = str(args.threads)
+	os.environ["MKL_MAX_THREADS"] = str(args.threads)
 	os.environ["OMP_NUM_THREADS"] = str(args.threads)
+	os.environ["OMP_MAX_THREADS"] = str(args.threads)
 	os.environ["NUMEXPR_NUM_THREADS"] = str(args.threads)
+	os.environ["NUMEXPR_MAX_THREADS"] = str(args.threads)
 	os.environ["OPENBLAS_NUM_THREADS"] = str(args.threads)
+	os.environ["OPENBLAS_MAX_THREADS"] = str(args.threads)
 
 	# Import numerical libraries and cython functions
 	import numpy as np
@@ -35,26 +44,63 @@ def main(args):
 
 	# Prepare list of data files
 	if args.filelist is not None:
-		Z_list = []
+		W = 0 # Counter for windows
+		Z_list = [] # List of filenames
 		with open(args.filelist) as f:
 			for z_file in f:
-				Z_list.append(z_file.strip("\n"))
-	else:
+				# Check input across files and count windows
+				z = z_file.strip("\n")
+				Z_list.append(z)
+				assert os.path.isfile(f"{z}.bca"), "bca file doesn't exist!"
+				assert os.path.isfile(f"{z}.ids"), "ids file doesn't exist!"
+				assert os.path.isfile(f"{z}.win"), "win file doesn't exist!"
+				if W == 0: # First file
+					z_ids = np.loadtxt(f"{z}.ids", dtype=np.str_)
+					k_vec = np.loadtxt(f"{z}.win", dtype=np.uint8, usecols=[5])
+					n = 2*z_ids.shape[0]
+					W = k_vec.shape[0]
+					w_list = [W]
+				else: # Loop files
+					t_ids = np.loadtxt(f"{z}.ids", dtype=np.str_)
+					assert np.sum(z_ids != t_ids) == 0, \
+						"Samples do not match across files!"
+					k_tmp = np.loadtxt(f"{z}.win", dtype=np.uint8, usecols=[5])
+					k_vec = np.append(k_vec, k_tmp)
+					W += k_tmp.shape[0]
+					w_list.append(k_tmp.shape[0])
+		w_vec = np.array(w_list, dtype=int)
+		del z_ids, t_ids, k_tmp, w_list
+	else: # Single file (chromosome)
 		Z_list = [args.clusters]
+		assert os.path.isfile(f"{Z_list[0]}.bca"), "bca file doesn't exist!"
+		assert os.path.isfile(f"{Z_list[0]}.ids"), "ids file doesn't exist!"
+		assert os.path.isfile(f"{Z_list[0]}.win"), "win file doesn't exist!"
+		k_vec = np.loadtxt(f"{Z_list[0]}.win", dtype=np.uint8, usecols=[5])
+		n = 2*np.loadtxt(f"{Z_list[0]}.ids", dtype=np.str_).shape[0]
+		W = k_vec.shape[0]
+		w_vec = np.array([W], dtype=int)
 	print(f"Parsing {len(Z_list)} file(s).")
 
-	# Load and concatenate haplotype cluster assignments
-	Z_tmp = []
+	# Load haplotype cluster assignments from binary hapla format
+	B = 0
+	Z = np.zeros((W, n), dtype=np.uint8)
 	for z in np.arange(len(Z_list)):
-		Z_tmp.append(np.load(Z_list[z]))
+		with open(f"{Z_list[z]}.bca", "rb") as f:
+			# Check magic numbers
+			m_vec = np.fromfile(f, dtype=np.uint8, count=3)
+			assert np.allclose(m_vec, np.array([7, 9, 13], dtype=np.uint8)), \
+				"Magic number doesn't match file format!"
+			
+			# Add haplotype cluster assignments to container
+			z_tmp = np.fromfile(f, dtype=np.uint8)
+			z_tmp.shape = (w_vec[z], n)
+			Z[B:(B + w_vec[z]),:] = z_tmp
+			B += w_vec[z]
 		print(f"\rParsed file {z+1}/{len(Z_list)}", end="")
-	Z = np.concatenate(Z_tmp, axis=0)
-	del Z_tmp
+	del m_vec, z_tmp
 
 	# Setup parameters
-	W = Z.shape[0]
-	n = Z.shape[1]
-	if args.haplo:
+	if args.haplotype:
 		N = 1
 		S = 1.0/float(W)
 		n_str = "haplotypes"
@@ -64,7 +110,6 @@ def main(args):
 		n_str = "samples"
 
 	# Count haplotype cluster alleles
-	k_vec = np.max(Z, axis=1) + 1
 	C = np.max(k_vec)
 	m = np.sum(k_vec, dtype=int)
 
@@ -109,24 +154,16 @@ def main(args):
 	L_pre = np.sum(l_vec)
 	print(f"Initial loglike: {round(L_pre,1)}\n")
 
-	# Prime iteration
-	admix_cy.updateP(Z, P, Q, Q_tmp, k_vec, N, args.threads)
-	admix_cy.updateQ(Q, Q_tmp, S, args.threads)
-	if y is not None:
-		admix_cy.superQ(Q, y, N, args.threads)
+	# Prime iterations
+	for _ in np.arange(3):
+		functions.step(Z, P, Q, Q_tmp, k_vec, y, S, N, args.threads)
 
 	# Accelerated EM algorithm
 	ts = time()
-	print(f"Accelerated SQUAREM.")
+	print(f"Accelerated EM algorithm.")
 	for it in np.arange(args.iter):
-		# SQUAREM full update
-		functions.squarem(Z, P, Q, Q_tmp, P1, P2, Q1, Q2, k_vec, y, S, N, args.threads)
-		
-		# Stabilization step
-		admix_cy.updateP(Z, P, Q, Q_tmp, k_vec, N, args.threads)
-		admix_cy.updateQ(Q, Q_tmp, S, args.threads)
-		if y is not None:
-			admix_cy.superQ(Q, y, N, args.threads)
+		functions.accel(Z, P, Q, Q_tmp, P1, P2, Q1, Q2, k_vec, y, S, N, args.threads)
+		functions.step(Z, P, Q, Q_tmp, k_vec, y, S, N, args.threads)
 
 		# Log-likelihood convergence check
 		if ((it+1) % args.check) == 0:
@@ -145,14 +182,28 @@ def main(args):
 	np.savetxt(f"{args.out}.K{args.K}.s{args.seed}.Q", Q, fmt="%.6f")
 	print(f"Saved Q matrix as {args.out}.K{args.K}.s{args.seed}.Q")
 	if not args.no_freq:
-		np.save(f"{args.out}.K{args.K}.s{args.seed}.P", P)
-		print(f"Saved P matrix as {args.out}.K{args.K}.s{args.seed}.P.npy")
+		if args.filelist is not None: # Save P file for each file
+			B = 0
+			for p in np.arange(len(Z_list)):
+				c_tmp = np.max(k_vec[B:(B + w_vec[p])])
+				p_tmp = P[B:(B + w_vec[p]),:,:c_tmp] # Only save possible information
+				p_tmp = p_tmp.reshape(-1, args.K*c_tmp)
+				np.savetxt(f"{args.out}.K{args.K}.s{args.seed}.file{p+1}.P", \
+			   		p_tmp, fmt="%.6f")
+				B += w_vec[p]
+			print(f"Saved P matrices as {args.out}.K{args.K}.s{args.seed}." + \
+				f"file{{{1}..{len(Z_list)}}}.P")
+		else: # Single file (chromosome)
+			p_tmp = P.reshape(-1, args.K*C)
+			np.savetxt(f"{args.out}.K{args.K}.s{args.seed}.P", p_tmp, fmt="%.6f")
+			print(f"Saved P matrix as {args.out}.K{args.K}.s{args.seed}.P")
+		del p_tmp
 
 	# Print elapsed time for computation
 	t_tot = time()-start
 	t_min = int(t_tot//60)
 	t_sec = int(t_tot - t_min*60)
-	print(f"Total elapsed time: {t_min}m{t_sec}s")
+	print(f"\nTotal elapsed time: {t_min}m{t_sec}s")
 
 
 

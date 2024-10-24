@@ -125,7 +125,6 @@ cpdef int checkCluster(const unsigned char[:,::1] X, unsigned char[:,::1] M, \
 		int c_arg = 0
 		int c_max = c_vec[0]
 		int i, j, k, u, z
-		unsigned char x
 	for i in range(1, n): # Find extreme point
 		if c_vec[i] > c_max:
 			c_arg = i
@@ -151,7 +150,6 @@ cpdef void genCluster(const unsigned char[:,::1] X, unsigned char[:,::1] M, \
 		int c_arg = 0
 		int c_max = c_vec[0]
 		int i, j, k, u, z
-		unsigned char x
 	for i in range(1, n): # Find extreme point
 		if c_vec[i] > c_max:
 			c_arg = i

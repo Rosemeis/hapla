@@ -9,8 +9,6 @@
 ##### 	- gcta-1.94.1
 #####	- hapla
 
-
-
 # Create directories
 mkdir data
 mkdir clusters

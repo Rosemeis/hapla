@@ -1,7 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, initializedcheck=False, cdivision=True
 import numpy as np
 cimport numpy as np
-from cpython.mem cimport PyMem_RawMalloc, PyMem_RawFree
+from libc.stdlib cimport malloc, free
 
 ##### Cython functions for reading genotype files #####
 # Read variant from VCF/BCF into 8-bit integer format
@@ -38,7 +38,7 @@ cpdef void convertHap(const unsigned char[:,::1] G, float[:,::1] C, int[::1] p_v
 	cdef:
 		int m = C.shape[1]
 		int n = G.shape[1]
-		int b, f, i, j, k, l, u, v, p, q
+		int b, f, i, j, k, l, p, q, u, v
 	for j in range(m):
 		b = s + j
 		u = v = 0
@@ -122,7 +122,7 @@ cpdef void convertPlink(const unsigned char[:,::1] Z_mat, unsigned char[:,::1] Z
 		int B = Z_bin.shape[1]
 		int b, i, k, l, w, bit
 		int j = 0
-		unsigned char* z_vec = <unsigned char*>PyMem_RawMalloc(sizeof(unsigned char)*n)
+		unsigned char* z_vec = <unsigned char*>malloc(sizeof(unsigned char)*n)
 	for w in range(W):
 		for k in range(k_vec[w]):
 			# Create haplotype cluster alleles
@@ -154,7 +154,7 @@ cpdef void convertPlink(const unsigned char[:,::1] Z_mat, unsigned char[:,::1] Z
 			P_mat[j,1] = k + 1
 			P_mat[j,2] = b_vec[w]
 			j += 1
-	PyMem_RawFree(z_vec)
+	free(z_vec)
 
 # Convert 2-bit into standardized genotype array for phenotypes
 cpdef void phenoPlink(const unsigned char[:,::1] G_mat, double[:,::1] G, \
@@ -164,7 +164,7 @@ cpdef void phenoPlink(const unsigned char[:,::1] G_mat, double[:,::1] G, \
 		int n = G.shape[1]
 		int B = G_mat.shape[1]
 		int b, i, j, bytepart
-		unsigned char[4] recode = [0, 9, 1, 2]
+		unsigned char[4] recode = [2, 9, 1, 0]
 		unsigned char mask = 3
 		unsigned char byte
 	for j in range(m):

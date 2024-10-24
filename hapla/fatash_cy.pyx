@@ -18,21 +18,20 @@ cdef inline double logsumexp(const double* vec, const int K) noexcept nogil:
 	return log(sum_v) + max_v
 
 # Calculate emission probabilities
-cpdef void calcEmissions(const unsigned char[:,::1] Z, const double[:,:,::1] P_chr, \
+cpdef void calcEmissions(const unsigned char[:,::1] Z, const double[:,:,::1] P, \
 		double[:,:,::1] E, const int t) noexcept nogil:
 	cdef:
 		int n = E.shape[0]
 		int W = E.shape[1]
-		int K = P_chr.shape[2]
-		int i, w, k
-		unsigned char z
+		int K = P.shape[1]
+		int i, k, w, z
 	for i in prange(n, num_threads=t):
 		for w in range(W):
 			z = Z[i,w]
 			for k in range(K):
-				E[i,w,k] = log(P_chr[w,z,k])
+				E[i,w,k] = log(P[w,k,z])
 
-# Calculate transition probabilities - P(Z_{w} = k1 | Z_{w-1} = k2)
+# Calculate transition probabilities - T[k1, k2] = P(Z_{w} = k1 | Z_{w-1} = k2)
 cpdef void calcTransition(double[:,::1] T, const double[:,::1] Q, const int i, \
 		const double a) noexcept nogil:
 	cdef:
@@ -46,51 +45,21 @@ cpdef void calcTransition(double[:,::1] T, const double[:,::1] Q, const int i, \
 			else:
 				T[k1,k2] = log((1.0 - e)*Q[i,k1])
 
-# Calculate log-likehood in HMM with scaling
-cpdef double loglikeFatash(double[:,:,::1] E, const double[:,::1] Q, \
-		const double[:,::1] T, double[:,::1] A, double[::1] c, double[::1] v, \
-		const int N, const int i) noexcept nogil:
-	cdef:
-		int W = E.shape[1]
-		int K = E.shape[2]
-		int w, k, k1, k2
-		double sumC = 0.0
-	# Basis step
-	for k in range(K):
-		A[0,k] = E[i,0,k] + log(Q[i//N,k])
-	c[0] = logsumexp(&A[0,0], K)
-	for k in range(K):
-		A[0,k] -= c[0]
-	sumC += c[0]
-
-	# Loop through sequence
-	for w in range(1, W):
-		for k1 in range(K):
-			for k2 in range(K):
-				v[k2] = A[w-1,k2] + T[k1,k2]
-			A[w,k1] = logsumexp(&v[0], K) + E[i,w,k1]
-		c[w] = logsumexp(&A[w,0], K)
-		for k1 in range(K):
-			A[w,k1] -= c[w]
-		sumC += c[w]
-	return sumC
-
 # Viterbi algorithm
-cpdef void viterbi(const double[:,:,::1] E, const double[:,::1] Q, \
+cpdef void viterbi(const double[:,:,::1] E, const double[:,::1] Q_log, \
 		const double[:,::1] T, double[:,::1] A, unsigned char[:,::1] I, \
-		unsigned char[:,::1] V, const int N, const int i) \
-		noexcept nogil:
+		unsigned char[:,::1] V, const int i) noexcept nogil:
 	cdef:
 		int W = E.shape[1]
 		int K = E.shape[2]
-		int w, k, k1, k2
+		int k, w, k1, k2
 		double tmp1, tmp2
 	# Basis step
-	A[0,0] = E[i,0,0] + log(Q[i//N,0])
+	A[0,0] = E[i,0,0] + Q_log[i,0]
 	I[0,0] = 0
 	tmp1 = A[0,0]
 	for k in range(1, K):
-		A[0,k] = E[i,0,k] + log(Q[i//N,k])
+		A[0,k] = E[i,0,k] + Q_log[i,k]
 		I[0,k] = 0
 		if A[0,k] > tmp1:
 			tmp1 = A[0,k]
@@ -126,23 +95,20 @@ cpdef void viterbi(const double[:,:,::1] E, const double[:,::1] Q, \
 
 # Forward-backward algorithm with scaling
 cpdef void calcFwdBwd(const double[:,:,::1] E, double[:,:,::1] L, \
-		const double[:,::1] Q, const double[:,::1] T, double[:,::1] A, \
-		double[:,::1] B, double[::1] c, double[::1] v, const int N, const int i) \
+		const double[:,::1] Q_log, const double[:,::1] T, double[:,::1] A, \
+		double[:,::1] B, double[::1] c, double[::1] v, const int i) \
 		noexcept nogil:
 	cdef:
 		int W = E.shape[1]
 		int K = E.shape[2]
-		int w, k, k1, k2
+		int k, w, k1, k2
 		double l, sumP
-	### Forward
-	# Basis step
+	# Forward
 	for k in range(K):
-		A[0,k] = E[i,0,k] + log(Q[i//N,k])
+		A[0,k] = E[i,0,k] + Q_log[i,k]
 	c[0] = logsumexp(&A[0,0], K)
 	for k in range(K):
 		A[0,k] -= c[0]
-
-	# Loop through sequence
 	for w in range(1, W):
 		for k1 in range(K):
 			for k2 in range(K):
@@ -152,12 +118,9 @@ cpdef void calcFwdBwd(const double[:,:,::1] E, double[:,:,::1] L, \
 		for k1 in range(K):
 			A[w,k1] -= c[w]
 
-	### Backward
-	# Basis
+	# Backward
 	for k in range(K):
 		B[W-1,k] = 0.0
-
-	# Loop through sequence
 	for w in range(W-2, -1, -1):
 		for k1 in range(K):
 			for k2 in range(K):
@@ -165,7 +128,7 @@ cpdef void calcFwdBwd(const double[:,:,::1] E, double[:,:,::1] L, \
 			B[w,k1] = logsumexp(&v[0], K)
 			B[w,k1] -= c[w+1]
 
-	### Compute posterior probabilities
+	# Compute posterior probabilities
 	for w in range(W):
 		for k in range(K):
 			L[i,w,k] = exp(A[w,k] + B[w,k])

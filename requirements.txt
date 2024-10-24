@@ -1,4 +1,0 @@
-cython
-cyvcf2
-numpy
-scipy

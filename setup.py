@@ -55,20 +55,29 @@ extensions = [
 
 setup(
 	name="hapla",
-	version="0.11",
-	description="Framework for haplotype clustering",
+	version="0.12",
 	author="Jonas Meisner",
+	author_email="meisnerucph@gmail.com",
+	description="Framework for haplotype clustering in phased genotype data",
+	long_description_content_type="text/markdown",
+	long_description=open("README.md").read(),
+	url="https://github.com/Rosemeis/hapla",
+	classifiers=[
+        "Programming Language :: Python :: 3",
+        "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+        "Operating System :: OS Independent",
+        "Development Status :: 4 - Beta",
+    ],
+	ext_modules=cythonize(extensions, compiler_directives={'language_level':'3'}),
+	python_requires=">=3.10",
+	install_requires=[
+		"cython>3.0.0",
+		"cyvcf2>=0.31.0",
+		"numpy>2.0.0",
+		"scipy>=1.14.0"
+	],
 	packages=["hapla"],
 	entry_points={
 		"console_scripts": ["hapla=hapla.main:main"]
 	},
-	python_requires=">=3.7",
-	install_requires=[
-		"cython",
-		"cyvcf2",
-		"numpy",
-		"scipy"
-	],
-	ext_modules=cythonize(extensions, compiler_directives={'language_level':'3'}),
-	include_dirs=[numpy.get_include()]
 )

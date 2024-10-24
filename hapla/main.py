@@ -33,8 +33,8 @@ def main():
 		metavar="OUTPUT", help="Output prefix")
 	parser_cluster.add_argument("--min-freq", type=float, default=0.01,
 		metavar="INT", help="Minimum haplotype cluster frequency (0.01)")
-	parser_cluster.add_argument("--max-clusters", type=int, default=128,
-		metavar="INT", help="Maximum number of haplotype clusters per window (128)")
+	parser_cluster.add_argument("--max-clusters", type=int, default=256,
+		metavar="INT", help="Maximum number of haplotype clusters per window (256)")
 	parser_cluster.add_argument("--max-iterations", type=int, default=500,
 		metavar="INT", help="Maximum number of iterations (500)")
 	parser_cluster.add_argument("--medians", action="store_true",
@@ -62,25 +62,23 @@ def main():
 		metavar="INT", help="Number of cluster alleles in batches (4096)")
 	parser_struct.add_argument("--no-centering", action="store_true",
 		help="Do not perform Gower and data centering of GRM")
-	parser_struct.add_argument("--iid", metavar="FILE",
-		help="Sample ID list for GCTA format")
-	parser_struct.add_argument("--fid", metavar="FILE",
-		help="Family ID list for GCTA format")
+	parser_struct.add_argument("--duplicate-fid", action="store_true",
+		help="Use sample list as family ID for GCTA format")
 	parser_struct.add_argument("--pca", type=int,
 		metavar="INT", help="Perform PCA and extract eigenvectors")
-	parser_struct.add_argument("--scaling", type=float, default=-0.5,
-		help="Scaling factor to use in PCA (-0.5)")
 	parser_struct.add_argument("--loadings", action="store_true",
 		help="Save loadings of SVD")
 	parser_struct.add_argument("--randomized", action="store_true",
 		help="Use randomized SVD (for very large sample sizes)")
+	parser_struct.add_argument("--raw", action="store_true",
+		help="Raw output without '*.fam' info")
 
 	# hapla predict
 	parser_predict = subparsers.add_parser("predict")
 	parser_predict.add_argument("-g", "--vcf", "--bcf", metavar="FILE",
 		help="Input phased genotype file in VCF/BCF format")
-	parser_predict.add_argument("-m", "--medians", metavar="FILE",
-		help="Input haplotype cluster medians as binary NumPy arrays")
+	parser_predict.add_argument("-r", "--ref", metavar="FILE",
+		help="Input reference prefix of pre-estimated cluster medians")
 	parser_predict.add_argument("-t", "--threads", type=int, default=1,
 		metavar="INT", help="Number of threads (1)")
 	parser_predict.add_argument("-o", "--out", default="hapla.predict",
@@ -112,7 +110,7 @@ def main():
 		metavar="FLOAT", help="Tolerance in log-likelihood between iterations (1.0)")
 	parser_admix.add_argument("--check", type=int, default=10,
 		metavar="INT", help="Check for convergence every c-th iteration (10)")
-	parser_admix.add_argument("--haplo", action="store_true",
+	parser_admix.add_argument("--haplotype", action="store_true",
 		help="Estimate admixture proportions for each haplotype")
 	parser_admix.add_argument("--supervised", metavar="FILE",
 		help="Path to population assignment file")
@@ -125,6 +123,8 @@ def main():
 		help="Filelist with paths to haplotype cluster alleles files")
 	parser_fatash.add_argument("-z", "--clusters", metavar="FILE",
 		help="Path to a single haplotype cluster alleles file")
+	parser_fatash.add_argument("-e", "--pfilelist", metavar="FILE",
+		help="Filelist with paths to haplotype cluster frequencies files")
 	parser_fatash.add_argument("-p", "--pfile", metavar="FILE",
 		help="Path to file with haplotype cluster frequencies")
 	parser_fatash.add_argument("-q", "--qfile", metavar="FILE",
@@ -133,8 +133,8 @@ def main():
 		metavar="INT", help="Number of threads (1)")
 	parser_fatash.add_argument("-o", "--out", default="hapla.fatash",
 		metavar="OUTPUT", help="Output prefix")
-	parser_fatash.add_argument("--alpha", type=float, default=1e-6,
-		metavar="FLOAT", help="Set fixed alpha rate (1e-6)")
+	parser_fatash.add_argument("--alpha", type=float, default=1.0,
+		metavar="FLOAT", help="Set fixed alpha rate (1.0)")
 	parser_fatash.add_argument("--viterbi", action="store_true",
 		help="Perform Viterbi decoding")
 	parser_fatash.add_argument("--save-posterior", action="store_true",

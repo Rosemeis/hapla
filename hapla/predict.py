@@ -13,22 +13,32 @@ from time import time
 ##### hapla predict #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.11)")
+	print("hapla by Jonas Meisner (v0.12)")
 	print(f"hapla predict using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 	
 	# Check input
 	assert args.vcf is not None, \
 		"Please provide phased genotype file (--bcf or --vcf)!"
-	assert args.medians is not None, \
-		"Please provide pre-estimated haplotype cluster medians (--medians)!"
+	assert os.path.isfile(f"{args.vcf}"), "VCF/BCF file doesn't exist!"
+	assert args.ref is not None, \
+		"Please provide pre-estimated reference haplotype cluster medians (--ref)!"
+	assert os.path.isfile(f"{args.ref}.bcm"), "bcm file doesn't exist!"
+	assert os.path.isfile(f"{args.ref}.win"), "win file doesn't exist!"
+	assert os.path.isfile(f"{args.ref}.wix"), "wix file doesn't exist!"
+	assert os.path.isfile(f"{args.ref}.hcc"), "hcc file doesn't exist!"
+	assert args.threads > 0, "Please select a valid number of threads!"
 	start = time()
 
 	# Control threads of external numerical libraries
 	os.environ["MKL_NUM_THREADS"] = str(args.threads)
+	os.environ["MKL_MAX_THREADS"] = str(args.threads)
 	os.environ["OMP_NUM_THREADS"] = str(args.threads)
+	os.environ["OMP_MAX_THREADS"] = str(args.threads)
 	os.environ["NUMEXPR_NUM_THREADS"] = str(args.threads)
+	os.environ["NUMEXPR_MAX_THREADS"] = str(args.threads)
 	os.environ["OPENBLAS_NUM_THREADS"] = str(args.threads)
+	os.environ["OPENBLAS_MAX_THREADS"] = str(args.threads)
 
 	# Import numerical libraries and cython functions
 	import numpy as np
@@ -38,22 +48,20 @@ def main(args):
 	from hapla import memory_cy
 	from hapla import shared_cy
 
-	# Extract sample list
+	# Initiate VCF and extract sample list
 	print("\rLoading VCF/BCF file...", end="")
 	v_file = VCF(args.vcf, threads=args.threads)
+	v_list = []
+	s_list = np.array(v_file.samples).reshape(-1,1)
 	m = 0
 	n = 2*len(v_file.samples)
 	B = ceil(n/4)
-	if args.plink:
-		v_list = []
-		s_list = np.array(v_file.samples).reshape(-1, 1)
 
 	# Check number of sites and allocate memory
 	for variant in v_file:
-		if args.plink:
-			if m == 0:
-				chrom = re.findall(r'\d+', variant.CHROM)[-1]
-			v_list.append(variant.POS)
+		if m == 0:
+			chrom = re.findall(r'\d+', variant.CHROM)[-1]
+		v_list.append(variant.POS)
 		m += 1
 	if args.memory:
 		G = np.zeros((m, B), dtype=np.uint8)
@@ -73,48 +81,71 @@ def main(args):
 	del V
 	print(f"\rLoaded phased genotype data: {n} haplotypes and {m} SNPs.")
 
-	# Haplotype cluster medians
-	M_npz = np.load(args.medians)
-	w_vec = M_npz["W"]
-	assert m == w_vec[-1], "SNP set does not match between files!"
-	W = w_vec.shape[0] - 1
-	print(f"Clustering {W} windows.")
+	# Load window information from reference
+	w_mat = np.loadtxt(f"{args.ref}.win", dtype=np.str_)
+	s_vec = w_mat[:,1].astype(np.int32)
+	b_vec = w_mat[:,4].astype(np.int32)
+	k_vec = w_mat[:,5].astype(np.uint8)
+	W = k_vec.shape[0]
 
-	# Extract window information for PLINK output
-	if args.plink:
-		v_vec = np.array(v_list, dtype=np.int32)
-		s_vec = v_vec[w_vec[:-1]].copy()
-		b_vec = np.zeros(W, dtype=np.int32)
-		del v_list, v_vec
+	# Haplotype cluster medians
+	with open(f"{args.ref}.bcm", "rb") as f:
+		# Check magic numbers
+		m_vec = np.fromfile(f, dtype=np.uint8, count=3)
+		assert np.allclose(m_vec, np.array([7, 9, 13], dtype=np.uint8)), \
+			"Magic number doesn't match file format!"
+		M_arr = np.fromfile(f, dtype=np.uint8)
+		
+	# Load window setup files
+	w_vec = np.loadtxt(f"{args.ref}.wix", dtype=np.int32)
+	N_arr = np.loadtxt(f"{args.ref}.hcc", dtype=np.int32)
+	v_vec = np.array(v_list, dtype=np.int32)
+	assert np.allclose(v_vec[w_vec], s_vec), "SNP set doesn't match!"
+	del v_list, v_vec
 
 	# Containers
-	k_vec = np.zeros(W, dtype=np.uint8) # Number of clusters in windows
 	Z = np.zeros((W, n), dtype=np.uint8) # Haplotype cluster alleles
 
 	# Clustering
+	B = 0
+	K = 0
+	print(f"Clustering {W} windows.")
 	for w in np.arange(W):
 		print(f"\rWindow {w+1}/{W}", end="")
+		b_win = int(b_vec[w])
+		k_win = int(k_vec[w])
 
 		# Load haplotype window
-		M = M_npz[f"W{w}"]
-		K = M.shape[0] # Number of clusters to evaluate
-		X = np.zeros((n, M.shape[1]), dtype=np.uint8)
+		M_mat = M_arr[B:(B + k_win*b_win)]
+		M_mat.shape = (k_win, b_win)
+		n_vec = N_arr[K:(K + k_win)]
+		X = np.zeros((n, M_mat.shape[1]), dtype=np.uint8)
 		if args.memory:
 			memory_cy.predictBit(G, X, w_vec[w])
 		else:
 			reader_cy.predictHap(G, X, w_vec[w])
-		if args.plink:
-			b_vec[w] = M.shape[1]
 		
 		# Cluster assignment
-		shared_cy.predictCluster(X, M, Z, K, w, args.threads)
-		k_vec[w] = K
-	del G, X, M, M_npz, w_vec
+		shared_cy.predictCluster(X, M_mat, Z, n_vec, k_vec[w], w, args.threads)
+
+		# Update counter
+		B += k_win*b_win
+		K += k_win
+	del G, X, M_mat, M_arr, N_arr, n_vec, w_vec
 	print(".\n")
 
-	# Save output
-	np.save(f"{args.out}.z", Z)
-	print(f"Saved predicted haplotype cluster alleles as {args.out}.z.npy")
+	# Save hapla output
+	with open(f"{args.out}.bca", "wb") as f:
+		np.array([7, 9, 13], dtype=np.uint8).tofile(f) # Add magic numbers
+		Z.tofile(f) # Save haplotype cluster assignments to binary file
+	np.savetxt(f"{args.out}.ids", s_list, fmt="%s")
+	np.savetxt(f"{args.out}.win", w_mat, delimiter="\t", fmt="%s")
+	print("\rSaved haplotype clusters in binary hapla format:\n" + \
+		f"- {args.out}.bca\n" + \
+		f"- {args.out}.ids\n" + \
+		f"- {args.out}.win\n")
+
+	# Save haplotype cluster assignments in binary PLINK format
 	if args.plink:
 		print("\rGenerating binary PLINK output.", end="")
 		B = ceil(n/8)
@@ -132,10 +163,11 @@ def main(args):
 		# Save .bim file
 		tmp = np.array([f"{chrom}_W{w}_K{k}_B{l}" for w,k,l in P_mat])
 		bim = np.hstack((
-			np.array([chrom]).repeat(K_tot).reshape(-1, 1), \
-			tmp.reshape(-1, 1), np.zeros((K_tot, 1), dtype=np.int32), \
-			s_vec.repeat(k_vec).reshape(-1, 1), \
-			np.array(["K"]).repeat(K_tot).reshape(-1, 1), \
+			np.array([chrom]).repeat(K_tot).reshape(-1,1), \
+			tmp.reshape(-1,1), \
+			np.zeros((K_tot, 1), dtype=np.int32), \
+			s_vec.repeat(k_vec).reshape(-1,1), \
+			np.array(["K"]).repeat(K_tot).reshape(-1,1), \
 			np.zeros((K_tot, 1), dtype=np.int32)
 		))
 		np.savetxt(f"{args.out}.bim", bim, delimiter="\t", fmt="%s")
@@ -146,13 +178,16 @@ def main(args):
 			s_list = s_list.repeat(2, axis=1)
 		else:
 			s_list = np.hstack((np.zeros((n//2, 1), dtype=np.uint8), s_list))
-		fam = np.hstack((s_list, np.zeros((n//2, 3), dtype=np.uint8), \
-			np.full((n//2, 1), -9, dtype=np.int8)))
+		fam = np.hstack((
+			s_list, \
+			np.zeros((n//2, 3), dtype=np.uint8), \
+			np.full((n//2, 1), -9, dtype=np.int8)
+		))
 		np.savetxt(f"{args.out}.fam", fam, delimiter="\t", fmt="%s")
 		print("\rSaved haplotype cluster alleles in binary PLINK format:\n" + \
 			f"- {args.out}.bed\n" + \
 			f"- {args.out}.bim\n" + \
-			f"- {args.out}.fam")
+			f"- {args.out}.fam\n")
 		del fam, s_list
 
 	# Print elapsed time for computation

@@ -43,14 +43,15 @@ print("\rLoading PLINK file...", end="")
 assert os.path.isfile(f"{args.bfile}.bed"), "bed file doesn't exist!"
 assert os.path.isfile(f"{args.bfile}.bim"), "bim file doesn't exist!"
 assert os.path.isfile(f"{args.bfile}.fam"), "fam file doesn't exist!"
-n = functions.extract_length(f"{args.bfile}.fam")
-m = functions.extract_length(f"{args.bfile}.bim")
 fam = np.loadtxt(f"{args.bfile}.fam", usecols=[0,1], dtype=np.str_)
+n = fam.shape[0]
 
 # Read .bed file
 with open(f"{args.bfile}.bed", "rb") as bed:
 	G_mat = np.fromfile(bed, dtype=np.uint8, offset=3)
 B = ceil(n/4)
+assert (G_mat.shape[0] % B) == 0, "bim file doesn't match!"
+m = G_mat.shape[0]//B
 G_mat.shape = (m, B)
 print(f"\rLoaded genotype data: {n} samples and {m} SNPs.")
 
