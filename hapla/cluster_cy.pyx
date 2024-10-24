@@ -162,7 +162,7 @@ cpdef void genCluster(const unsigned char[:,::1] X, unsigned char[:,::1] M, \
 	z_vec[c_arg] = K
 	
 # Convergence check through hamming distance
-cpdef int countDist(const unsigned char[::1] z_vec, const unsigned char[::1] z_tmp) \
+cpdef int countDist(const unsigned char[::1] z_vec, unsigned char[::1] z_tmp) \
 		noexcept nogil:
 	cdef int n = z_vec.shape[0]
 	return hammingCheck(&z_vec[0], &z_tmp[0], n)
