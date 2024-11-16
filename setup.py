@@ -55,7 +55,7 @@ extensions = [
 
 setup(
 	name="hapla",
-	version="0.12",
+	version="0.13",
 	author="Jonas Meisner",
 	author_email="meisnerucph@gmail.com",
 	description="Framework for haplotype clustering in phased genotype data",
@@ -73,8 +73,7 @@ setup(
 	install_requires=[
 		"cython>3.0.0",
 		"cyvcf2>=0.31.0",
-		"numpy>2.0.0",
-		"scipy>=1.14.0"
+		"numpy>2.0.0"
 	],
 	packages=["hapla"],
 	entry_points={

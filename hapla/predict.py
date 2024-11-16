@@ -13,7 +13,7 @@ from time import time
 ##### hapla predict #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.12)")
+	print("hapla by Jonas Meisner (v0.13)")
 	print(f"hapla predict using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 	
@@ -52,7 +52,7 @@ def main(args):
 	print("\rLoading VCF/BCF file...", end="")
 	v_file = VCF(args.vcf, threads=args.threads)
 	v_list = []
-	s_list = np.array(v_file.samples).reshape(-1,1)
+	s_list = np.array(v_file.samples).reshape(-1, 1)
 	m = 0
 	n = 2*len(v_file.samples)
 	B = ceil(n/4)
@@ -82,7 +82,7 @@ def main(args):
 	print(f"\rLoaded phased genotype data: {n} haplotypes and {m} SNPs.")
 
 	# Load window information from reference
-	w_mat = np.loadtxt(f"{args.ref}.win", dtype=np.str_)
+	w_mat = np.loadtxt(f"{args.ref}.win", dtype=np.str_, skiprows=1)
 	s_vec = w_mat[:,1].astype(np.int32)
 	b_vec = w_mat[:,4].astype(np.int32)
 	k_vec = w_mat[:,5].astype(np.uint8)
@@ -135,11 +135,13 @@ def main(args):
 	print(".\n")
 
 	# Save hapla output
+	h_win = ["#CHROM", "START", "END", "LENGTH", "SIZE", "K"]
 	with open(f"{args.out}.bca", "wb") as f:
 		np.array([7, 9, 13], dtype=np.uint8).tofile(f) # Add magic numbers
 		Z.tofile(f) # Save haplotype cluster assignments to binary file
 	np.savetxt(f"{args.out}.ids", s_list, fmt="%s")
-	np.savetxt(f"{args.out}.win", w_mat, delimiter="\t", fmt="%s")
+	np.savetxt(f"{args.out}.win", w_mat, fmt="%s", delimiter="\t", \
+		comments="", header="\t".join(h_win))
 	print("\rSaved haplotype clusters in binary hapla format:\n" + \
 		f"- {args.out}.bca\n" + \
 		f"- {args.out}.ids\n" + \
@@ -163,14 +165,14 @@ def main(args):
 		# Save .bim file
 		tmp = np.array([f"{chrom}_W{w}_K{k}_B{l}" for w,k,l in P_mat])
 		bim = np.hstack((
-			np.array([chrom]).repeat(K_tot).reshape(-1,1), \
-			tmp.reshape(-1,1), \
+			np.array([chrom]).repeat(K_tot).reshape(-1, 1), \
+			tmp.reshape(-1, 1), \
 			np.zeros((K_tot, 1), dtype=np.int32), \
-			s_vec.repeat(k_vec).reshape(-1,1), \
-			np.array(["K"]).repeat(K_tot).reshape(-1,1), \
+			s_vec.repeat(k_vec).reshape(-1, 1), \
+			np.array(["K"]).repeat(K_tot).reshape(-1, 1), \
 			np.zeros((K_tot, 1), dtype=np.int32)
 		))
-		np.savetxt(f"{args.out}.bim", bim, delimiter="\t", fmt="%s")
+		np.savetxt(f"{args.out}.bim", bim, fmt="%s", delimiter="\t")
 		del k_vec, s_vec, bim, tmp, P_mat
 		
 		# Save .fam file
@@ -183,7 +185,7 @@ def main(args):
 			np.zeros((n//2, 3), dtype=np.uint8), \
 			np.full((n//2, 1), -9, dtype=np.int8)
 		))
-		np.savetxt(f"{args.out}.fam", fam, delimiter="\t", fmt="%s")
+		np.savetxt(f"{args.out}.fam", fam, fmt="%s", delimiter="\t")
 		print("\rSaved haplotype cluster alleles in binary PLINK format:\n" + \
 			f"- {args.out}.bed\n" + \
 			f"- {args.out}.bim\n" + \

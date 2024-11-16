@@ -13,7 +13,7 @@ from time import time
 ##### hapla cluster #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.12)")
+	print("hapla by Jonas Meisner (v0.13)")
 	print(f"hapla cluster using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 	
@@ -28,15 +28,15 @@ def main(args):
 		"Please select a valid lambda value!"
 	assert (args.max_clusters > 1) and (args.max_clusters <= 256), \
 		"Max allowed clusters exceeded!"
-	if args.fixed is not None:
-		assert args.fixed > 0, "Invalid window size!"
+	if args.size is not None:
+		assert args.size > 0, "Invalid window size!"
 		if args.step is not None:
-			assert (args.step <= args.fixed) and (args.step > 0), \
+			assert (args.step <= args.size) and (args.step > 0), \
 				"Invalid step size for sliding window chosen!"
-			if args.fixed == 1:
+			if args.size == 1:
 				args.step = None
 	else:
-		assert args.windows is not None, "No window option (--fixed or --windows)!"
+		assert args.windows is not None, "No window option (--size or --windows)!"
 	start = time()
 
 	# Control threads of external numerical libraries
@@ -61,7 +61,7 @@ def main(args):
 	print("\rLoading VCF/BCF file...", end="")
 	v_file = VCF(args.vcf, threads=args.threads)
 	v_list = []
-	s_list = np.array(v_file.samples).reshape(-1,1)
+	s_list = np.array(v_file.samples).reshape(-1, 1)
 	m = 0
 	n = 2*len(v_file.samples)
 	B = ceil(n/8)
@@ -96,16 +96,16 @@ def main(args):
 	assert N_mac > 2, "Frequency threshold too low for sample size (--min-freq)!"
 
 	# Setup windows
-	if args.fixed is not None:
+	if args.size is not None:
 		if args.step is not None:
-			W = ceil((m - args.fixed)/args.step)
+			W = ceil((m - args.size)/args.step)
 			w_vec = [w*args.step for w in range(W)]
-			print(f"Clustering {W} overlapping windows of {args.fixed} SNPs " + \
+			print(f"Clustering {W} overlapping windows of {args.size} SNPs " + \
 		 			f"(step-size {args.step}).")
 		else:
-			W = m//args.fixed
-			w_vec = [w*args.fixed for w in range(W)]
-			print(f"Clustering {W} non-overlapping windows of {args.fixed} SNPs.")
+			W = m//args.size
+			w_vec = [w*args.size for w in range(W)]
+			print(f"Clustering {W} non-overlapping windows of {args.size} SNPs.")
 		w_vec.append(m)
 		w_vec = np.array(w_vec, dtype=np.int32)
 	else:
@@ -118,10 +118,10 @@ def main(args):
 	# Extract window information
 	v_vec = np.array(v_list, dtype=np.int32)
 	s_vec = v_vec[w_vec[:-1]].copy()
-	if args.fixed is not None:
-		e_vec = v_vec[w_vec[:-1]+args.fixed-1].copy()
+	if args.size is not None:
+		e_vec = v_vec[w_vec[:-1]+args.size-1].copy()
 		e_vec[-1] = v_vec[-1]
-		b_vec = np.full(W, args.fixed, dtype=np.int32)
+		b_vec = np.full(W, args.size, dtype=np.int32)
 		b_vec[-1] = w_vec[-1] - w_vec[-2]
 	else:
 		e_vec = v_vec[w_vec[1:]-1]
@@ -142,18 +142,18 @@ def main(args):
 	d_tmp = np.zeros_like(d_vec) # Help vector (suffix array)
 	e_tmp = np.zeros_like(d_vec) # Help vector (suffix array)
 	Z = np.zeros((W, n), dtype=np.uint8) # Chromosome-based cluster assignments
-	if args.fixed is not None: # Window length-based
+	if args.size is not None: # Window length-based
 		if args.memory:
-			H = np.zeros((args.fixed, n), dtype=np.uint8) # Haplotypes transposed
-		X = np.zeros((n, args.fixed), dtype=np.uint8) # Haplotypes
-		M = np.zeros((args.max_clusters, args.fixed), dtype=np.uint8) # Medians
-		C = np.zeros((args.max_clusters, args.fixed), dtype=np.float32) # Means
+			H = np.zeros((args.size, n), dtype=np.uint8) # Haplotypes transposed
+		X = np.zeros((n, args.size), dtype=np.uint8) # Haplotypes
+		M = np.zeros((args.max_clusters, args.size), dtype=np.uint8) # Medians
+		C = np.zeros((args.max_clusters, args.size), dtype=np.float32) # Means
 
 	# Thread-local containers
 	I_thr = np.zeros((args.threads, 2), dtype=np.int32)
 	N_thr = np.zeros((args.threads, args.max_clusters), dtype=np.int32)
-	if args.fixed is not None:
-		C_thr = np.zeros((args.threads, args.max_clusters, args.fixed), \
+	if args.size is not None:
+		C_thr = np.zeros((args.threads, args.max_clusters, args.size), \
 			dtype=np.float32)
 
 	# Optional containers
@@ -169,7 +169,7 @@ def main(args):
 		print(f"\rWindow {w+1}/{W}", end="")
 
 		# Prepare containers if window indices provided
-		if args.fixed is None:
+		if args.size is None:
 			if args.memory:
 				H = np.zeros((w_vec[w+1]-s, n), dtype=np.uint8)
 			X = np.zeros((n, w_vec[w+1]-s), dtype=np.uint8)
@@ -253,7 +253,7 @@ def main(args):
 						break
 				else:
 					K_tmp -= 1
-				memoryview(z_tmp)[:] = z_vec # memcpy
+					memoryview(z_tmp)[:] = z_vec # memcpy
 
 			# Re-cluster K = 2 non-break case
 			if (K_tmp == 2) and (N_min < N_mac):
@@ -286,18 +286,20 @@ def main(args):
 	
 	# Create window information array
 	w_mat = np.hstack((
-		np.array([chrom]).repeat(W).reshape(-1,1), \
-		s_vec.reshape(-1,1), e_vec.reshape(-1,1), (e_vec - s_vec).reshape(-1,1), \
-		b_vec.reshape(-1,1), k_vec.reshape(-1,1)
+		np.array([chrom]).repeat(W).reshape(-1, 1), \
+		s_vec.reshape(-1, 1), e_vec.reshape(-1, 1), (e_vec - s_vec).reshape(-1, 1), \
+		b_vec.reshape(-1, 1), k_vec.reshape(-1, 1)
 	))
 
 	# Save hapla output
+	h_win = ["#CHROM", "START", "END", "LENGTH", "SIZE", "K"]
 	with open(f"{args.out}.bca", "wb") as f:
 		np.array([7, 9, 13], dtype=np.uint8).tofile(f) # Add magic numbers
 		Z.tofile(f) # Save haplotype cluster assignments to binary file format
 	np.savetxt(f"{args.out}.ids", s_list, fmt="%s")
-	np.savetxt(f"{args.out}.win", w_mat, delimiter="\t", fmt="%s")
-	print("\rSaved haplotype clusters in binary hapla format:\n" + \
+	np.savetxt(f"{args.out}.win", w_mat, fmt="%s", delimiter="\t", \
+		comments="", header="\t".join(h_win))
+	print("\rSaved haplotype clusters in binary format:\n" + \
 		f"- {args.out}.bca\n" + \
 		f"- {args.out}.ids\n" + \
 		f"- {args.out}.win\n")
@@ -327,14 +329,14 @@ def main(args):
 		# Save .bim file
 		tmp = np.array([f"{chrom}_W{w}_K{k}_B{l}" for w,k,l in P_mat])
 		bim = np.hstack((
-			np.array([chrom]).repeat(K_tot).reshape(-1,1), \
-			tmp.reshape(-1,1), \
+			np.array([chrom]).repeat(K_tot).reshape(-1, 1), \
+			tmp.reshape(-1, 1), \
 			np.zeros((K_tot, 1), dtype=np.int32), \
-			s_vec.repeat(k_vec).reshape(-1,1), \
-			np.array(["K"]).repeat(K_tot).reshape(-1,1), \
+			s_vec.repeat(k_vec).reshape(-1, 1), \
+			np.array(["K"]).repeat(K_tot).reshape(-1, 1), \
 			np.zeros((K_tot, 1), dtype=np.int32)
 		))
-		np.savetxt(f"{args.out}.bim", bim, delimiter="\t", fmt="%s")
+		np.savetxt(f"{args.out}.bim", bim, fmt="%s", delimiter="\t")
 		del k_vec, s_vec, bim, tmp, P_mat
 		
 		# Save .fam file
@@ -347,7 +349,7 @@ def main(args):
 			np.zeros((n//2, 3), dtype=np.uint8), \
 			np.full((n//2, 1), -9, dtype=np.int8)
 		))
-		np.savetxt(f"{args.out}.fam", fam, delimiter="\t", fmt="%s")
+		np.savetxt(f"{args.out}.fam", fam, fmt="%s", delimiter="\t")
 		print("\rSaved haplotype clusters in binary PLINK format:\n" + \
 			f"- {args.out}.bed\n" + \
 			f"- {args.out}.bim\n" + \

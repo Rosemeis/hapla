@@ -12,7 +12,7 @@ from time import time
 ##### hapla admix #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.12)")
+	print("hapla by Jonas Meisner (v0.13)")
 	print(f"hapla admix using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 
@@ -79,6 +79,7 @@ def main(args):
 		n = 2*np.loadtxt(f"{Z_list[0]}.ids", dtype=np.str_).shape[0]
 		W = k_vec.shape[0]
 		w_vec = np.array([W], dtype=int)
+	S = 1.0/float(2*W)
 	print(f"Parsing {len(Z_list)} file(s).")
 
 	# Load haplotype cluster assignments from binary hapla format
@@ -99,23 +100,13 @@ def main(args):
 		print(f"\rParsed file {z+1}/{len(Z_list)}", end="")
 	del m_vec, z_tmp
 
-	# Setup parameters
-	if args.haplotype:
-		N = 1
-		S = 1.0/float(W)
-		n_str = "haplotypes"
-	else:
-		N = 2
-		S = 1.0/float(2*W)
-		n_str = "samples"
-
 	# Count haplotype cluster alleles
 	C = np.max(k_vec)
 	m = np.sum(k_vec, dtype=int)
 
 	# Print information
 	print(f"\rLoaded haplotype cluster assignments:\n" + \
-		f"- {n//N} {n_str}\n" + \
+		f"- {n//2} samples\n" + \
 		f"- {W} windows\n" + \
 		f"- {m} clusters\n")
 	print(f"Estimating admixture proportions: K={args.K}, seed={args.seed}.")
@@ -124,17 +115,17 @@ def main(args):
 	np.random.seed(args.seed) # Set random seed
 	P = np.random.rand(W, args.K, C)
 	admix_cy.createP(P, k_vec, args.threads)
-	Q = np.random.rand(n//N, args.K)
+	Q = np.random.rand(n//2, args.K)
 	
 	# Supervised setting
 	if args.supervised is not None:
 		print("Ancestry estimation in supervised mode!")
 		y = np.loadtxt(args.supervised, dtype=np.uint8).reshape(-1)
-		assert y.shape[0] == (n//N), f"Number of {n_str} differ between files!"
+		assert y.shape[0] == (n//2), f"Number of samples differ between files!"
 		assert np.max(y) <= args.K, "Wrong number of ancestral sources!"
 		assert np.min(y) >= 0, "Wrong format in population assignments!"
-		print(f"{np.sum(y > 0)}/{n//N} {n_str} with fixed ancestry.")
-		admix_cy.initQ(Q, y, N, args.threads)
+		print(f"{np.sum(y > 0)}/{n//2} samples with fixed ancestry.")
+		admix_cy.initQ(Q, y, args.threads)
 	else:
 		Q.clip(min=1e-5, max=1-(1e-5), out=Q)
 		Q /= np.sum(Q, axis=1, keepdims=True)
@@ -150,24 +141,24 @@ def main(args):
 	# Estimate initial log-likelihood
 	ts = time()
 	l_vec = np.zeros(W)
-	admix_cy.loglike(Z, P, Q, l_vec, N, args.threads)
+	admix_cy.loglike(Z, P, Q, l_vec, args.threads)
 	L_pre = np.sum(l_vec)
 	print(f"Initial loglike: {round(L_pre,1)}\n")
 
 	# Prime iterations
 	for _ in np.arange(3):
-		functions.step(Z, P, Q, Q_tmp, k_vec, y, S, N, args.threads)
+		functions.step(Z, P, Q, Q_tmp, k_vec, y, S, args.threads)
 
 	# Accelerated EM algorithm
 	ts = time()
 	print(f"Accelerated EM algorithm.")
 	for it in np.arange(args.iter):
-		functions.accel(Z, P, Q, Q_tmp, P1, P2, Q1, Q2, k_vec, y, S, N, args.threads)
-		functions.step(Z, P, Q, Q_tmp, k_vec, y, S, N, args.threads)
+		functions.accel(Z, P, Q, Q_tmp, P1, P2, Q1, Q2, k_vec, y, S, args.threads)
+		functions.step(Z, P, Q, Q_tmp, k_vec, y, S, args.threads)
 
 		# Log-likelihood convergence check
 		if ((it+1) % args.check) == 0:
-			admix_cy.loglike(Z, P, Q, l_vec, N, args.threads)
+			admix_cy.loglike(Z, P, Q, l_vec, args.threads)
 			L_cur = np.sum(l_vec)
 			L_str = f"({it+1})\tLog-like: {round(L_cur,1)}\t({round(time()-ts,1)}s)"
 			print(L_str, flush=True)

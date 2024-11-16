@@ -52,11 +52,11 @@ for p in {afr,eur,all}
 do
 	for w in {1,16,32}
 	do 
-		hapla cluster --bcf data/${p}.bcf --fixed $w --step $((($w+2-1)/2)) --threads 8 --out clusters/${p}.w${w}
-		hapla cluster --bcf data/${p}.down.bcf --fixed $w --step $((($w+2-1)/2)) --threads 8 --out clusters/${p}.down.w${w}
+		hapla cluster --bcf data/${p}.bcf --size $w --step $((($w+2-1)/2)) --threads 8 --out clusters/${p}.w${w}
+		hapla cluster --bcf data/${p}.down.bcf --size $w --step $((($w+2-1)/2)) --threads 8 --out clusters/${p}.down.w${w}
 	done
-	hapla cluster --bcf data/${p}.bcf --fixed 8 --step $((($w+2-1)/2)) --threads 8 --out clusters/${p}.w8 --plink # For phenotype generation
-	hapla cluster --bcf data/${p}.down.bcf --fixed 8 --step $((($w+2-1)/2)) --threads 8 --out clusters/${p}.down.w8
+	hapla cluster --bcf data/${p}.bcf --size 8 --step $((($w+2-1)/2)) --threads 8 --out clusters/${p}.w8 --plink # For phenotype generation
+	hapla cluster --bcf data/${p}.down.bcf --size 8 --step $((($w+2-1)/2)) --threads 8 --out clusters/${p}.down.w8
 done
 
 # Phenotype generation

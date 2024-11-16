@@ -12,7 +12,7 @@ from time import time
 ##### hapla struct #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.12)")
+	print("hapla by Jonas Meisner (v0.13)")
 	print(f"hapla struct using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 
@@ -40,7 +40,6 @@ def main(args):
 	# Import numerical libraries and cython functions
 	import numpy as np
 	from math import ceil
-	from scipy.sparse.linalg import svds
 	from hapla import functions
 	from hapla import shared_cy
 
@@ -157,7 +156,7 @@ def main(args):
 		G = G[np.tril_indices(n)]
 		G.tofile(f"{args.out}.grm.bin")
 		np.full(n*(n+1)//2, M, dtype=np.float32).tofile(f"{args.out}.grm.N.bin")
-		z_ids = z_ids.reshape(-1,1)
+		z_ids = z_ids.reshape(-1, 1)
 		if args.duplicate_fid:
 			fam = z_ids.repeat(2, axis=1)
 		else:
@@ -206,65 +205,30 @@ def main(args):
 		a_vec = np.sqrt(2.0*p_vec*(1-p_vec))
 
 		# Randomized SVD
-		if args.randomized:
-			print(f"Computing randomized SVD, extracting {args.pca} eigenvectors.")
+		print(f"Computing randomized SVD, extracting {args.pca} eigenvectors.")
+		U, S, V = functions.randomizedSVD(Z_agg, p_vec, a_vec, args.pca, \
+			args.batch, args.threads)
 
-			# Randomized SVD in batches
-			U, S, V = functions.randomizedSVD(Z_agg, p_vec, a_vec, args.pca, \
-				args.batch, args.threads)
-
-			# Save matrices
-			if args.raw: # Only eigenvectors
-				np.savetxt(f"{args.out}.eigenvecs", V, fmt="%.7f")
-			else: # Include FID and IID fields
-				z_ids = z_ids.reshape(-1,1)
-				if args.duplicate_fid:
-					fam = z_ids.repeat(2, axis=1)
-				else:
-					fam = np.hstack((np.zeros((n, 1), dtype=np.uint8), z_ids))
-				V = np.hstack((fam, np.round(V, 7)))
-				h = ["#FID", "IID"] + [f"PC{k}" for k in range(1, args.pca+1)]
-				np.savetxt(f"{args.out}.eigenvecs", V, fmt="%s", delimiter="\t", \
-					header="\t".join(h), comments="")
-			np.savetxt(f"{args.out}.eigenvals", (S*S)/float(m), fmt="%.7f")
-			if args.loadings:
-				np.savetxt(f"{args.out}.loadings", U, fmt="%.7f")
-				print(f"Saved loadings as {args.out}.loadings")
-			del z_ids, Z_agg, p_vec, a_vec, U, S, V, h, fam
-		else: # Truncated SVD
-			print(f"Computing truncated SVD, extracting {args.pca} eigenvectors.")
-
-			# Standardize
-			Z_std = np.zeros((m, n), dtype=np.float32)
-			shared_cy.standardizeZ(Z_agg, Z_std, p_vec, a_vec, args.threads)
-			del Z_agg
-
-			# Truncated SVD (Arnoldi)
-			U, S, Vt = svds(Z_std, k=args.pca)
-			S = S[::-1]
-			V = Vt[::-1,:].T
-			del Z_std, Vt
-
-			# Save matrices
-			if args.raw: # Only eigenvectors
-				np.savetxt(f"{args.out}.eigenvecs", V, fmt="%.7f")
-			else: # Include FID and IID fields
-				z_ids = z_ids.reshape(-1,1)
-				if args.duplicate_fid:
-					fam = z_ids.repeat(2, axis=1)
-				else:
-					fam = np.hstack((np.zeros((n, 1), dtype=np.uint8), z_ids))
-				V = np.hstack((fam, np.round(V, 7)))
-				h = ["#FID", "IID"] + [f"PC{k}" for k in range(1, args.pca+1)]
-				np.savetxt(f"{args.out}.eigenvecs", V, fmt="%s", delimiter="\t", \
-					header="\t".join(h), comments="")
-			np.savetxt(f"{args.out}.eigenvals", (S*S)/float(m), fmt="%.7f")
-			if args.loadings:
-				np.savetxt(f"{args.out}.loadings", U, fmt="%.7f")
-				print(f"Saved loadings as {args.out}.loadings")
-			del z_ids, p_vec, a_vec, U, S, V, h, fam
-		print(f"Saved eigenvectors as {args.out}.eigenvecs")
+		# Save matrices
+		if args.raw: # Only eigenvectors
+			np.savetxt(f"{args.out}.eigenvecs", V, fmt="%.7f")
+		else: # Include FID and IID fields
+			z_ids = z_ids.reshape(-1, 1)
+			if args.duplicate_fid:
+				fam = z_ids.repeat(2, axis=1)
+			else:
+				fam = np.hstack((np.zeros((n, 1), dtype=np.uint8), z_ids))
+			V = np.hstack((fam, np.round(V, 7)))
+			h = ["#FID", "IID"] + [f"PC{k}" for k in range(1, args.pca+1)]
+			np.savetxt(f"{args.out}.eigenvecs", V, fmt="%s", delimiter="\t", \
+				comments="", header="\t".join(h))
+			print(f"Saved eigenvectors as {args.out}.eigenvecs")
+		np.savetxt(f"{args.out}.eigenvals", (S*S)/float(m), fmt="%.7f")
 		print(f"Saved eigenvalues as {args.out}.eigenvals\n")
+		if args.loadings:
+			np.savetxt(f"{args.out}.loadings", U, fmt="%.7f")
+			print(f"Saved loadings as {args.out}.loadings")
+		del z_ids, Z_agg, p_vec, a_vec, U, S, V, h, fam
 
 	# Print elapsed time for computation
 	t_tot = time()-start

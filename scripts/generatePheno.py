@@ -23,17 +23,11 @@ parser.add_argument("-p", "--phenos", type=int, default=1,
 	help="Number of phenotypes to simulate (1)")
 parser.add_argument("-o", "--out", default="pheno.generate",
 	help="Prefix for output files")
-parser.add_argument("--binary", action="store_true",
-	help="Binary phenotypes from liability threshold model")
-parser.add_argument("--prevalence", type=float, default=0.1,
-	help="Prevalence of trait (0.1)")
 args = parser.parse_args()
 
 # Import numerical libraries
 import numpy as np
 from math import ceil, sqrt
-from scipy.stats import norm
-from hapla import functions
 from hapla import reader_cy
 
 ### Load data
@@ -87,10 +81,6 @@ for p in range(args.phenos):
 	# Generate phenotype
 	Y[:,p] = X + E
 	Z[:,p] = X
-
-	# Use liability threshold model
-	if args.binary:
-		Y[:,p] = Y[:,p] > norm.ppf(1 - args.prevalence)
 
 # Save phenotypes and breeding values
 Y = np.hstack((fam, np.round(Y, 7)))

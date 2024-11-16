@@ -19,7 +19,7 @@ def main():
 	parser_cluster = subparsers.add_parser("cluster")
 	parser_cluster.add_argument("-g", "--vcf", "--bcf", metavar="FILE",
 		help="Input phased genotype file in VCF/BCF format")
-	parser_cluster.add_argument("-f", "--fixed", type=int,
+	parser_cluster.add_argument("-f", "--size", type=int,
 		metavar="INT", help="Use fixed window size")
 	parser_cluster.add_argument("-w", "--windows", metavar="FILE",
 		help="Use provided window indices")
@@ -68,8 +68,6 @@ def main():
 		metavar="INT", help="Perform PCA and extract eigenvectors")
 	parser_struct.add_argument("--loadings", action="store_true",
 		help="Save loadings of SVD")
-	parser_struct.add_argument("--randomized", action="store_true",
-		help="Use randomized SVD (for very large sample sizes)")
 	parser_struct.add_argument("--raw", action="store_true",
 		help="Raw output without '*.fam' info")
 
@@ -110,8 +108,6 @@ def main():
 		metavar="FLOAT", help="Tolerance in log-likelihood between iterations (1.0)")
 	parser_admix.add_argument("--check", type=int, default=10,
 		metavar="INT", help="Check for convergence every c-th iteration (10)")
-	parser_admix.add_argument("--haplotype", action="store_true",
-		help="Estimate admixture proportions for each haplotype")
 	parser_admix.add_argument("--supervised", metavar="FILE",
 		help="Path to population assignment file")
 	parser_admix.add_argument("--no-freq", action="store_true",

@@ -1,4 +1,4 @@
-# hapla (v0.12)
+# hapla (v0.13)
 ***hapla*** is a framework for performing window-based haplotype clustering in phased genotype data. The inferred haplotype cluster alleles can be used to infer fine-scale population structure, perform polygenic prediction and haplotype cluster based association studies.
 
 ### Citation
@@ -6,29 +6,28 @@
 
 ## Installation
 ```bash
-# Build and install via PyPI
+# Option 1: Build and install via PyPI
 pip install hapla
 
-# or download source and install via pip
+# Option 2: Download source and install via pip
 git clone https://github.com/Rosemeis/hapla.git
 cd hapla
 pip install .
 
-# or download source and install in new Conda environment
+# Option 3: Download source and install in a new Conda environment
 git clone https://github.com/Rosemeis/hapla.git
-conda env create -f environment.yml
+conda env create -f hapla/environment.yml
 conda activate hapla
-
-# The "hapla" main caller will now be available
 ```
+You can now run the `hapla` software and the subcommands. 
 
 ## Quick start
 ***hapla*** contains the following subcommands at this moment:
-- cluster
-- struct
-- predict
-- admix
-- fatash
+- `hapla cluster`
+- `hapla struct`
+- `hapla predict`
+- `hapla admix`
+- `hapla fatash`
 
 
 ### Haplotype clustering
@@ -36,7 +35,7 @@ conda activate hapla
 Window-based haplotype clustering in a phased VCF/BCF.
 ```bash
 # Cluster haplotypes in a chromosome with fixed window size (8 SNPs)
-hapla cluster --bcf data.chr1.bcf --fixed 8 --threads 16 --out hapla.chr1
+hapla cluster --bcf data.chr1.bcf --size 8 --threads 16 --out hapla.chr1
 # Saves inferred haplotype cluster assignments in binary hapla format
 #	- hapla.chr1.bca
 #	- hapla.chr1.ids
@@ -46,12 +45,12 @@ hapla cluster --bcf data.chr1.bcf --fixed 8 --threads 16 --out hapla.chr1
 
 ```bash
 # Cluster haplotypes in a chromosome with fixed size and overlapping windows (step size 4)
-hapla cluster --bcf data.chr1.bcf --fixed 8 --step 4 --threads 16 --out hapla.chr1
+hapla cluster --bcf data.chr1.bcf --size 8 --step 4 --threads 16 --out hapla.chr1
 
 # Cluster haplotypes in all chromosomes and save output path in a filelist
 for c in {1..22}
 do
-	hapla cluster --bcf data.chr${c}.bcf --fixed 8 --threads 16 --out hapla.chr${c}
+	hapla cluster --bcf data.chr${c}.bcf --size 8 --threads 16 --out hapla.chr${c}
 	realpath hapla.chr${c} >> hapla.filelist
 done
 ```
@@ -94,10 +93,10 @@ hapla struct --filelist hapla.filelist --threads 16 --pca 20 --randomized --out 
 
 ### Predict haplotype cluster assignments
 ***hapla predict***\
-Predict haplotype cluster assignments using pre-computed cluster medians in new haplotypes. All SNPs must be overlapping.
+Predict haplotype cluster assignments using pre-computed cluster medians in a new set of haplotypes. SNP sets must be overlapping.
 ```bash
 # Cluster haplotypes in a chromosome with 'hapla cluster' and save cluster medians (--medians)
-hapla cluster --bcf ref.chr1.bcf --fixed 8 --threads 16 --out ref.chr1 --medians
+hapla cluster --bcf ref.chr1.bcf --size 8 --threads 16 --out ref.chr1 --medians
 # Saves haplotype cluster medians (besides standard binary hapla format)
 #	- ref.chr1.bcm
 #	- ref.chr1.wix
