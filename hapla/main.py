@@ -58,14 +58,16 @@ def main():
 		metavar="OUTPUT", help="Output prefix")
 	parser_struct.add_argument("--grm", action="store_true",
 		help="Estimate genome-wide relationship matrix (GRM)")
-	parser_struct.add_argument("--batch", type=int, default=4096,
-		metavar="INT", help="Number of cluster alleles in batches (4096)")
+	parser_struct.add_argument("--batch", type=int, default=8192,
+		metavar="INT", help="Number of cluster alleles in batches (8192)")
 	parser_struct.add_argument("--no-centering", action="store_true",
 		help="Do not perform Gower and data centering of GRM")
 	parser_struct.add_argument("--duplicate-fid", action="store_true",
 		help="Use sample list as family ID for GCTA format")
 	parser_struct.add_argument("--pca", type=int,
 		metavar="INT", help="Perform PCA and extract eigenvectors")
+	parser_struct.add_argument("--seed", type=int, default=42,
+		metavar="INT", help="Random seed (42)")
 	parser_struct.add_argument("--loadings", action="store_true",
 		help="Save loadings of SVD")
 	parser_struct.add_argument("--raw", action="store_true",
@@ -129,8 +131,8 @@ def main():
 		metavar="INT", help="Number of threads (1)")
 	parser_fatash.add_argument("-o", "--out", default="hapla.fatash",
 		metavar="OUTPUT", help="Output prefix")
-	parser_fatash.add_argument("--alpha", type=float, default=1.0,
-		metavar="FLOAT", help="Set fixed alpha rate (1.0)")
+	parser_fatash.add_argument("--alpha", type=float, default=1e-8,
+		metavar="FLOAT", help="Set fixed alpha rate (1e-8)")
 	parser_fatash.add_argument("--viterbi", action="store_true",
 		help="Perform Viterbi decoding")
 	parser_fatash.add_argument("--save-posterior", action="store_true",

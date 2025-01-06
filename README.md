@@ -1,8 +1,10 @@
-# hapla (v0.13)
+# hapla (v0.14.0)
 ***hapla*** is a framework for performing window-based haplotype clustering in phased genotype data. The inferred haplotype cluster alleles can be used to infer fine-scale population structure, perform polygenic prediction and haplotype cluster based association studies.
 
 ### Citation
-[medRxiv preprint](https://doi.org/10.1101/2024.04.30.24306654)
+Please cite our paper in [*Nature Communications*](https://doi.org/10.1038/s41467-024-55477-3)
+
+Preprint also available on [medRxiv](https://doi.org/10.1101/2024.04.30.24306654)
 
 ## Installation
 ```bash
@@ -103,7 +105,7 @@ hapla cluster --bcf ref.chr1.bcf --size 8 --threads 16 --out ref.chr1 --medians
 #	- ref.chr1.hcc
 
 # Predict assignments in a set of new haplotypes using haplotype cluster medians
-hapla predict --bcf new.chr1.bcf --threads 16 --out new.chr1 --ref ref.chr1
+hapla predict --bcf new.chr1.bcf  --ref ref.chr1 --threads 16 --out new.chr1
 # Saves predicted haplotype cluster assignments in binary hapla format
 #	- new.chr1.bca
 #	- new.chr1.ids
@@ -117,15 +119,15 @@ Estimate ancestry proportions and ancestral haplotype cluster frequencies with a
 ```bash
 # Estimate ancestry proportions assuming K=3 ancestral sources for a single chromosome
 hapla admix --clusters hapla.chr1 --K 3 --seed 1 --threads 16 --out hapla.chr1
-# Saves Q matrix and P matrix in a text-file format
+# Saves Q matrix in text-format and P matrix as a binary file
 #	- hapla.chr1.K3.s1.Q
-#	- hapla.chr1.K3.s1.P
+#	- hapla.chr1.K3.s1.P.bin
 
 # Estimate ancestry proportions assuming K=3 ancestral sources using filelist with all chromosomes
 hapla admix --filelist hapla.filelist --K 3 --seed 1 --threads 16 --out hapla
-# Saves Q matrix in a text-file and separate text-files of P matrices for each file
+# Saves Q matrix in text-format and separate binary files of P matrices
 #	- hapla.K3.s1.Q
-#	- hapla.K3.s1.file{1..22}.P
+#	- hapla.K3.s1.file{1..22}.P.bin
 ```
 
 ### Local ancestry inference
@@ -133,12 +135,12 @@ hapla admix --filelist hapla.filelist --K 3 --seed 1 --threads 16 --out hapla
 Infer local ancestry tracts using the admixture estimation in a hidden markov model. Using a modified fastPHASE model for haplotype clusters.
 ```bash
 # Infer local ancestry tracts for a single chromosome (posterior decoding)
-hapla fatash --clusters hapla.chr1 --qfile hapla.chr1.K3.s1.Q --pfile hapla.chr1.K3.s1.P --threads 16 --out hapla.chr1
+hapla fatash --clusters hapla.chr1 --qfile hapla.chr1.K3.s1.Q --pfile hapla.chr1.K3.s1.P.bin --threads 16 --out hapla.chr1
 # Saves posterior decoding path in text-format
 #	- hapla.chr1.path
 
 # Infer local ancestry tracts using filelist with all chromosomes (Viterbi decoding)
-for c in {1..22}; do realpath hapla.chr1.K3.s1.file${c}.P >> hapla.K3.s1.pfilelist; done
+for c in {1..22}; do realpath hapla.chr1.K3.s1.file${c}.P.bin >> hapla.K3.s1.pfilelist; done
 hapla fatash --filelist hapla.filelist --qfile hapla.K3.s1.Q --pfilelist hapla.K3.s1.pfilelist --threads 16 --out hapla --viterbi
 # Saves Viterbi decoding paths in text-files
 #	- hapla.file{1..22}.path

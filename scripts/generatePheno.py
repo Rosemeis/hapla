@@ -38,28 +38,28 @@ assert os.path.isfile(f"{args.bfile}.bed"), "bed file doesn't exist!"
 assert os.path.isfile(f"{args.bfile}.bim"), "bim file doesn't exist!"
 assert os.path.isfile(f"{args.bfile}.fam"), "fam file doesn't exist!"
 fam = np.loadtxt(f"{args.bfile}.fam", usecols=[0,1], dtype=np.str_)
-n = fam.shape[0]
+N = fam.shape[0]
 
 # Read .bed file
 with open(f"{args.bfile}.bed", "rb") as bed:
 	G_mat = np.fromfile(bed, dtype=np.uint8, offset=3)
-B = ceil(n/4)
+B = ceil(N/4)
 assert (G_mat.shape[0] % B) == 0, "bim file doesn't match!"
-m = G_mat.shape[0]//B
-G_mat.shape = (m, B)
-print(f"\rLoaded genotype data: {n} samples and {m} SNPs.")
+M = G_mat.shape[0]//B
+G_mat.shape = (M, B)
+print(f"\rLoaded genotype data: {N} samples and {M} SNPs.")
 
 ### Simulate phenotypes
-Y = np.zeros((n, args.phenos), dtype=float) # Phenotype matrix
-Z = np.zeros((n, args.phenos), dtype=float) # Breeding values matrix
+Y = np.zeros((N, args.phenos), dtype=float) # Phenotype matrix
+Z = np.zeros((N, args.phenos), dtype=float) # Breeding values matrix
 
 # Extract causals
-G = np.zeros((args.causal, n), dtype=float) # Genotypes or haplotype clusters
+G = np.zeros((args.causal, N), dtype=float) # Genotypes or haplotype clusters
 
 # Sample causal SNPs
 for p in range(args.phenos):
 	# Sample causal loci
-	c = np.sort(np.random.permutation(m)[:G.shape[0]]).astype(int)
+	c = np.sort(np.random.permutation(M)[:G.shape[0]]).astype(np.uint32)
 	reader_cy.phenoPlink(G_mat, G, c)
 
 	# Sample causal effects and estimate true PGS:
@@ -68,15 +68,13 @@ for p in range(args.phenos):
 
 	# Genetic contribution
 	X = np.dot(G.T, b)
-	X_scale = sqrt(args.h2)/np.std(X, ddof=0)
-	X *= X_scale
 	X -= np.mean(X)
+	X *= sqrt(args.h2)/np.std(X, ddof=0)
 
 	# Environmental contribution
-	E = np.random.normal(loc=0.0, scale=sqrt(1 - args.h2), size=n)
-	E_scale = sqrt(1 - args.h2)/np.std(E, ddof=0)
-	E *= E_scale
+	E = np.random.normal(loc=0.0, scale=sqrt(1 - args.h2), size=N)
 	E -= np.mean(E)
+	E *= sqrt(1 - args.h2)/np.std(E, ddof=0)
 
 	# Generate phenotype
 	Y[:,p] = X + E

@@ -12,7 +12,7 @@ from time import time
 ##### hapla fatash #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.13)")
+	print("hapla by Jonas Meisner (v0.14.0)")
 	print(f"hapla fatash using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 
@@ -58,7 +58,7 @@ def main(args):
 				if len(Z_list) == 1: # First file
 					z_ids = np.loadtxt(f"{z}.ids", dtype=np.str_)
 					k_vec = np.loadtxt(f"{z}.win", dtype=np.uint8, usecols=[5])
-					n = 2*z_ids.shape[0]
+					N = 2*z_ids.shape[0]
 					w_list = [k_vec.shape[0]]
 				else: # Loop files
 					t_ids = np.loadtxt(f"{z}.ids", dtype=np.str_)
@@ -76,20 +76,21 @@ def main(args):
 		assert os.path.isfile(f"{Z_list[0]}.win"), "win file doesn't exist!"
 		k_vec = np.loadtxt(f"{Z_list[0]}.win", dtype=np.uint8, usecols=[5])
 		w_vec = np.array([k_vec.shape[0]], dtype=int)
-		n = 2*np.loadtxt(f"{Z_list[0]}.ids", dtype=np.str_).shape[0]
+		N = 2*np.loadtxt(f"{Z_list[0]}.ids", dtype=np.str_).shape[0]
 	print(f"Parsing {len(Z_list)} file(s).")
 
 	# Load Q matrix
 	Q = np.loadtxt(args.qfile, dtype=float)
-	if Q.shape[0] == n//2:
+	if Q.shape[0] == N//2:
 		Q = np.repeat(Q, 2, axis=0)
 	else:
-		assert Q.shape[0] == n, "Number of samples doesn't match!"
+		assert Q.shape[0] == N, "Number of samples doesn't match!"
 	Q_log = np.log(Q)
 	K = Q.shape[1]
 
 	# Prepare list of P files
 	if args.pfilelist is not None:
+		w_cnt = 0
 		P_list = []
 		with open(args.pfilelist) as f:
 			for p_file in f:
@@ -108,12 +109,16 @@ def main(args):
 
 		# Load P matrix file
 		if len(Z_list) > 1:
-			P_tmp = np.loadtxt(P_list[z], dtype=float)
+			P_tmp = np.fromfile(P_list[z], dtype=float)
+			k_tmp = k_vec[w_cnt:(w_cnt + w_vec[z])]
+			w_cnt += w_vec[z]
 		else:
-			P_tmp = np.loadtxt(args.pfile, dtype=float)
-		assert P_tmp.shape[0] == w_vec[z], "Number of windows doesn't match!"
-		assert (P_tmp.shape[1] % K) == 0, "Parameters don't match!"
-		P_tmp = P_tmp.reshape(w_vec[z], K, P_tmp.shape[1]//K)
+			P_tmp = np.fromfile(args.pfile, dtype=float)
+			k_tmp = k_vec
+		c_tmp = np.insert(np.cumsum(k_tmp[:-1]*K, dtype=np.uint32), 0, 0)
+		p_num = np.sum(k_tmp, dtype=int)*K
+		assert P_tmp.shape[0] == p_num, "Number of clusters doesn't match!"
+		assert (P_tmp.shape[0] % K) == 0, "Parameters don't match!"
 
 		# Load haplotype cluster assignment file
 		with open(f"{Z_list[z]}.bca", "rb") as f:
@@ -124,34 +129,32 @@ def main(args):
 			
 			# Add haplotype cluster assignments to container
 			Z_tmp = np.fromfile(f, dtype=np.uint8)
-			Z_tmp.shape = (w_vec[z], n)
+			Z_tmp.shape = (w_vec[z], N)
 		Z_tmp = np.ascontiguousarray(Z_tmp.T) # Transpose for easier computations
-		assert P_tmp.shape[2] == (np.max(Z_tmp) + 1), "Number of clusters don't match!"
-		del m_vec
+		assert np.max(k_tmp) == (np.max(Z_tmp) + 1), "Number of clusters doesn't match!"
 
 		# Containers
-		E = np.zeros((n, w_vec[z], K)) # Emission probabilities
+		E = np.zeros((N, w_vec[z], K)) # Emission probabilities
 		A = np.zeros((w_vec[z], K)) # Forward matrix
 		if args.viterbi:
 			I = np.zeros((w_vec[z], K), dtype=np.uint8) # Index matrix
-			V = np.zeros((n, w_vec[z]), dtype=np.uint8) # Viterbi path
+			V = np.zeros((N, w_vec[z]), dtype=np.uint8) # Viterbi path
 		else:
-			c = np.zeros(w_vec[z]) # Help vector
 			B = np.zeros((w_vec[z], K)) # Backward matrix
-			L = np.zeros((n, w_vec[z], K)) # Posterior probabilities
+			L = np.zeros((N, w_vec[z], K)) # Posterior probabilities
 
 		# Compute emission probabilities
-		fatash_cy.calcEmissions(Z_tmp, P_tmp, E, args.threads)
-		del Z_tmp, P_tmp
+		fatash_cy.calcEmissions(E, Z_tmp, P_tmp, k_tmp, c_tmp)
+		del Z_tmp, P_tmp, k_tmp, c_tmp
 
 		# HMM for each haplotype
-		for i in np.arange(n):
-			print(f"\rHaplotype {i+1}/{n}", end="")
-			fatash_cy.calcTransition(T, Q, i, args.alpha)
+		for i in np.arange(N):
+			print(f"\rHaplotype {i+1}/{N}", end="")
+			fatash_cy.calcTransition(T, Q[i,:], args.alpha)
 			if args.viterbi: # Compute Viterbi and decoding
-				fatash_cy.viterbi(E, Q_log, T, A, I, V, i)
+				fatash_cy.viterbi(E[i,:,:], Q_log[i,:], T, A, I, V[i,:])
 			else: # Compute posterior probabilities
-				fatash_cy.calcFwdBwd(E, L, Q_log, T, A, B, c, v, i)
+				fatash_cy.calcFwdBwd(E[i,:,:], L[i,:,:], Q_log[i,:], T, A, B, v)
 		print(".")
 
 		# Save matrices
@@ -174,8 +177,8 @@ def main(args):
 				np.savetxt(f"{args.out}.file{z+1}.path", L.argmax(axis=2), fmt="%i")
 				print(f"Saved posterior decoding as {args.out}.file{z+1}.path")
 				if args.save_posterior:
-					np.save(f"{args.out}.file{z+1}.post", L)
-					print(f"Saved posteriors as {args.out}.file{z+1}.post.npy")
+					L.tofile(f"{args.out}.file{z+1}.post.bin")
+					print(f"Saved posteriors (binary) as {args.out}.file{z+1}.post.bin")
 
 			# Print elapsed time of chromosome 
 			t_tmp = time()-s_tmp
@@ -186,7 +189,7 @@ def main(args):
 		if args.viterbi:
 			del I, V
 		else:
-			del c, B, L
+			del B, L
 
 	# Print elapsed time for computation
 	t_tot = time()-start

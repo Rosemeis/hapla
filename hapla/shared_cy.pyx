@@ -6,80 +6,95 @@ from cython.parallel import prange
 ##### hapla - analyses on haplotype cluster assignments #####
 ### hapla struct
 # Extract aggregated haplotype cluster counts
-cpdef void haplotypeAggregate(const unsigned char[:,::1] Z, \
-		unsigned char[:,::1] Z_agg, float[::1] p, const unsigned char[::1] k_vec) \
+cpdef void haplotypeAggregate(const unsigned char[:,::1] Z, unsigned char[:,::1] Z_agg, \
+		double[::1] p, const unsigned char[::1] k_vec, const unsigned int[::1] c_vec) \
 		noexcept nogil:
 	cdef:
-		int W = Z.shape[0]
-		int n = Z.shape[1]
-		int j = 0
-		int i, k, w
-		float d = 1.0/<float>n
-	for w in range(W):
-		for k in range(k_vec[w]):
-			for i in range(n):
-				if Z[w,i] == k:
-					Z_agg[j,i//2] += 1
-					p[j] += 1.0
-			p[j] *= d
-			j += 1
+		size_t W = Z.shape[0]
+		size_t N = Z.shape[1]
+		size_t c, i, l, s, w
+		double d = 1.0/<double>N
+	for w in prange(W):
+		s = <size_t>c_vec[w]
+		for c in range(k_vec[w]):
+			l = s + c
+			for i in range(N):
+				if Z[w,i] == c:
+					Z_agg[l,i//2] += 1
+					p[l] += 1.0
+			p[l] *= d
 
-# Standardize the batch haplotype cluster assignment matrix
-cpdef void batchZ(const unsigned char[:,::1] Z_agg, float[:,::1] Z_bat, \
-		const float[::1] p, const float[::1] a, const int m_b, const int t) \
-		noexcept nogil:
+# Center batch haplotype cluster assignment matrix
+cpdef void centerZ(const unsigned char[:,::1] Z_agg, float[:,::1] Z_bat, \
+		const double[::1] p, const size_t M_b) noexcept nogil:
 	cdef:
-		int m = Z_bat.shape[0]
-		int n = Z_bat.shape[1]
-		int i, j, l
-		float s, u
-	for j in prange(m, num_threads=t):
-		l = m_b + j
-		s = a[l]
-		u = 2*p[l]
-		for i in range(n):
-			Z_bat[j,i] = (Z_agg[l,i] - u)*s
+		size_t M = Z_bat.shape[0]
+		size_t N = Z_bat.shape[1]
+		size_t i, j, l
+		float u
+	for j in prange(M):
+		l = M_b + j
+		u = <float>(2.0*p[l])
+		for i in range(N):
+			Z_bat[j,i] = Z_agg[l,i] - u
 
-# Standardize full matrix
-cpdef void standardizeZ(const unsigned char[:,::1] Z_agg, float[:,::1] Z_std, \
-		const float[::1] p, const float[::1] a, const int t) noexcept nogil:
+# Standardize permuted batch haplotype cluster assignment matrix
+cpdef void blockZ(const unsigned char[:,::1] Z_agg, double[:,::1] Z_bat, \
+		const double[::1] p, const double[::1] a, const unsigned int[::1] s, \
+		const size_t M_b) noexcept nogil:
 	cdef:
-		int m = Z_agg.shape[0]
-		int n = Z_agg.shape[1]
-		int i, j
-		float s, u
-	for j in prange(m, num_threads=t):
-		s = a[j]
-		u = 2*p[j]
-		for i in range(n):
-			Z_std[j,i] = (Z_agg[j,i] - u)*s
+		size_t M = Z_bat.shape[0]
+		size_t N = Z_bat.shape[1]
+		size_t i, j, l
+		double d, u
+	for j in prange(M):
+		l = <size_t>s[M_b + j]
+		d = a[l]
+		u = 2.0*p[l]
+		for i in range(N):
+			Z_bat[j,i] = (Z_agg[l,i] - u)*d
+
+# Standardize batch haplotype cluster assignment matrix
+cpdef void batchZ(const unsigned char[:,::1] Z_agg, double[:,::1] Z_bat, \
+		const double[::1] p, const double[::1] a, const size_t M_b) noexcept nogil:
+	cdef:
+		size_t M = Z_bat.shape[0]
+		size_t N = Z_bat.shape[1]
+		size_t i, j, l
+		double d, u
+	for j in prange(M):
+		l = M_b + j
+		d = a[l]
+		u = 2.0*p[l]
+		for i in range(N):
+			Z_bat[j,i] = (Z_agg[l,i] - u)*d
 
 
 
 ### hapla predict
 # Calculate Hamming distance
-cdef inline int hammingPred(const unsigned char* X, const unsigned char* M, \
-		const int m) noexcept nogil:
+cdef inline unsigned int hammingPred(const unsigned char* X, const unsigned char* R, \
+		const size_t M) noexcept nogil:
 	cdef:
-		int dist = 0
-		int j
-	for j in range(m):
+		size_t j
+		unsigned int dist = 0
+	for j in range(M):
 		if X[j] != 9: # Ignore missing
-			dist += <int>(X[j] ^ M[j])
+			dist += X[j]^R[j]
 	return dist
 
 # Haplotype cluster assignment based on pre-estimated medians
-cpdef void predictCluster(const unsigned char[:,::1] X, const unsigned char[:,::1] M, \
-		unsigned char[:,::1] Z, const int[::1] n_vec, const int K, const int w, \
-		const int t) noexcept nogil:
+cpdef void predictCluster(const unsigned char[:,::1] X, const unsigned char[:,::1] R, \
+		unsigned char[:,::1] Z, const unsigned int[::1] n_vec, const size_t K, \
+		const size_t w) noexcept nogil:
 	cdef:
-		int n = X.shape[0]
-		int m = X.shape[1]
-		int c, d, i, j, k, z
-	for i in prange(n, num_threads=t):
-		c = m + 1
+		size_t N = X.shape[0]
+		size_t M = X.shape[1]
+		size_t c, d, i, j, k, z
+	for i in prange(N):
+		c = M + 1
 		for k in range(K):
-			d = hammingPred(&X[i,0], &M[k,0], m)
+			d = hammingPred(&X[i,0], &R[k,0], M)
 			if d < c:
 				z = k
 				c = d

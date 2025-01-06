@@ -12,7 +12,7 @@ from time import time
 ##### hapla admix #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.13)")
+	print("hapla by Jonas Meisner (v0.14.0)")
 	print(f"hapla admix using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 
@@ -39,8 +39,8 @@ def main(args):
 
 	# Import numerical libraries and cython functions
 	import numpy as np
-	from hapla import admix_cy
 	from hapla import functions
+	from hapla import admix_cy
 
 	# Prepare list of data files
 	if args.filelist is not None:
@@ -48,7 +48,7 @@ def main(args):
 		Z_list = [] # List of filenames
 		with open(args.filelist) as f:
 			for z_file in f:
-				# Check input across files and count windows
+				# Check input across files (chromosomes) and count windows
 				z = z_file.strip("\n")
 				Z_list.append(z)
 				assert os.path.isfile(f"{z}.bca"), "bca file doesn't exist!"
@@ -57,18 +57,18 @@ def main(args):
 				if W == 0: # First file
 					z_ids = np.loadtxt(f"{z}.ids", dtype=np.str_)
 					k_vec = np.loadtxt(f"{z}.win", dtype=np.uint8, usecols=[5])
-					n = 2*z_ids.shape[0]
+					N = z_ids.shape[0]
 					W = k_vec.shape[0]
 					w_list = [W]
 				else: # Loop files
 					t_ids = np.loadtxt(f"{z}.ids", dtype=np.str_)
 					assert np.sum(z_ids != t_ids) == 0, \
-						"Samples do not match across files!"
+						"Samples don't match across files!"
 					k_tmp = np.loadtxt(f"{z}.win", dtype=np.uint8, usecols=[5])
 					k_vec = np.append(k_vec, k_tmp)
 					W += k_tmp.shape[0]
 					w_list.append(k_tmp.shape[0])
-		w_vec = np.array(w_list, dtype=int)
+		w_vec = np.array(w_list, dtype=np.uint32)
 		del z_ids, t_ids, k_tmp, w_list
 	else: # Single file (chromosome)
 		Z_list = [args.clusters]
@@ -76,15 +76,17 @@ def main(args):
 		assert os.path.isfile(f"{Z_list[0]}.ids"), "ids file doesn't exist!"
 		assert os.path.isfile(f"{Z_list[0]}.win"), "win file doesn't exist!"
 		k_vec = np.loadtxt(f"{Z_list[0]}.win", dtype=np.uint8, usecols=[5])
-		n = 2*np.loadtxt(f"{Z_list[0]}.ids", dtype=np.str_).shape[0]
+		N = np.loadtxt(f"{Z_list[0]}.ids", dtype=np.str_).shape[0]
 		W = k_vec.shape[0]
-		w_vec = np.array([W], dtype=int)
+		w_vec = np.array([W], dtype=np.uint32)
 	S = 1.0/float(2*W)
+	C = int(np.max(k_vec))*args.K
+	c_vec = np.insert(np.cumsum(k_vec[:-1]*args.K, dtype=np.uint32), 0, 0)
 	print(f"Parsing {len(Z_list)} file(s).")
 
 	# Load haplotype cluster assignments from binary hapla format
 	B = 0
-	Z = np.zeros((W, n), dtype=np.uint8)
+	Z = np.zeros((W, 2*N), dtype=np.uint8)
 	for z in np.arange(len(Z_list)):
 		with open(f"{Z_list[z]}.bca", "rb") as f:
 			# Check magic numbers
@@ -94,41 +96,39 @@ def main(args):
 			
 			# Add haplotype cluster assignments to container
 			z_tmp = np.fromfile(f, dtype=np.uint8)
-			z_tmp.shape = (w_vec[z], n)
+			z_tmp.shape = (w_vec[z], 2*N)
 			Z[B:(B + w_vec[z]),:] = z_tmp
 			B += w_vec[z]
 		print(f"\rParsed file {z+1}/{len(Z_list)}", end="")
 	del m_vec, z_tmp
 
 	# Count haplotype cluster alleles
-	C = np.max(k_vec)
-	m = np.sum(k_vec, dtype=int)
+	M = np.sum(k_vec, dtype=np.uint32)
 
 	# Print information
 	print(f"\rLoaded haplotype cluster assignments:\n" + \
-		f"- {n//2} samples\n" + \
+		f"- {N} samples\n" + \
 		f"- {W} windows\n" + \
-		f"- {m} clusters\n")
+		f"- {M} clusters\n")
 	print(f"Estimating admixture proportions: K={args.K}, seed={args.seed}.")
 	
 	# Initialize parameters randomly
-	np.random.seed(args.seed) # Set random seed
-	P = np.random.rand(W, args.K, C)
-	admix_cy.createP(P, k_vec, args.threads)
-	Q = np.random.rand(n//2, args.K)
-	
+	rng = np.random.default_rng(args.seed)
+	P = rng.random(size=(M*args.K)).clip(min=1e-5, max=1-(1e-5))
+	Q = rng.random(size=(N, args.K)).clip(min=1e-5, max=1-(1e-5))
+	Q /= np.sum(Q, axis=1, keepdims=True)
+	admix_cy.createP(P, k_vec, c_vec, args.K)
+
 	# Supervised setting
 	if args.supervised is not None:
 		print("Ancestry estimation in supervised mode!")
 		y = np.loadtxt(args.supervised, dtype=np.uint8).reshape(-1)
-		assert y.shape[0] == (n//2), f"Number of samples differ between files!"
+		assert y.shape[0] == N, f"Number of samples differ between files!"
 		assert np.max(y) <= args.K, "Wrong number of ancestral sources!"
 		assert np.min(y) >= 0, "Wrong format in population assignments!"
-		print(f"{np.sum(y > 0)}/{n//2} samples with fixed ancestry.")
-		admix_cy.initQ(Q, y, args.threads)
+		print(f"{np.sum(y > 0)}/{N} samples with fixed ancestry.")
+		admix_cy.superQ(Q, y)
 	else:
-		Q.clip(min=1e-5, max=1-(1e-5), out=Q)
-		Q /= np.sum(Q, axis=1, keepdims=True)
 		y = None
 	
 	# Setup containers for EM algorithm
@@ -140,31 +140,27 @@ def main(args):
 
 	# Estimate initial log-likelihood
 	ts = time()
-	l_vec = np.zeros(W)
-	admix_cy.loglike(Z, P, Q, l_vec, args.threads)
-	L_pre = np.sum(l_vec)
-	print(f"Initial loglike: {round(L_pre,1)}\n")
+	L_pre = admix_cy.loglike(Z, P, Q, k_vec, c_vec)
+	print(f"Initial loglike: {L_pre:.1f}\n")
 
 	# Prime iterations
 	for _ in np.arange(3):
-		functions.step(Z, P, Q, Q_tmp, k_vec, y, S, args.threads)
+		functions.steps(Z, P, Q, Q_tmp, k_vec, c_vec, y, S, C)
 
 	# Accelerated EM algorithm
 	ts = time()
 	print(f"Accelerated EM algorithm.")
 	for it in np.arange(args.iter):
-		functions.accel(Z, P, Q, Q_tmp, P1, P2, Q1, Q2, k_vec, y, S, args.threads)
-		functions.step(Z, P, Q, Q_tmp, k_vec, y, S, args.threads)
+		functions.quasi(Z, P, Q, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, y, S, C)
+		functions.steps(Z, P, Q, Q_tmp, k_vec, c_vec, y, S, C)
 
 		# Log-likelihood convergence check
 		if ((it+1) % args.check) == 0:
-			admix_cy.loglike(Z, P, Q, l_vec, args.threads)
-			L_cur = np.sum(l_vec)
-			L_str = f"({it+1})\tLog-like: {round(L_cur,1)}\t({round(time()-ts,1)}s)"
-			print(L_str, flush=True)
+			L_cur = admix_cy.loglike(Z, P, Q, k_vec, c_vec)
+			print(f"({it+1})\tLog-like: {L_cur:.1f}\t({time()-ts:.1f}s)", flush=True)
 			if (abs(L_cur - L_pre) < args.tole):
 				print("Converged!")
-				print(f"Final log-likelihood: {round(L_cur,1)}")
+				print(f"Final log-likelihood: {L_cur:.1f}")
 				break
 			L_pre = L_cur
 			ts = time()
@@ -173,22 +169,20 @@ def main(args):
 	np.savetxt(f"{args.out}.K{args.K}.s{args.seed}.Q", Q, fmt="%.6f")
 	print(f"Saved Q matrix as {args.out}.K{args.K}.s{args.seed}.Q")
 	if not args.no_freq:
-		if args.filelist is not None: # Save P file for each file
-			B = 0
-			for p in np.arange(len(Z_list)):
-				c_tmp = np.max(k_vec[B:(B + w_vec[p])])
-				p_tmp = P[B:(B + w_vec[p]),:,:c_tmp] # Only save possible information
-				p_tmp = p_tmp.reshape(-1, args.K*c_tmp)
-				np.savetxt(f"{args.out}.K{args.K}.s{args.seed}.file{p+1}.P", \
-			   		p_tmp, fmt="%.6f")
-				B += w_vec[p]
-			print(f"Saved P matrices as {args.out}.K{args.K}.s{args.seed}." + \
-				f"file{{{1}..{len(Z_list)}}}.P")
+		if args.filelist is not None: # Save P file for each file (chromosome)
+			w_cnt = c_cnt = 0
+			for z in np.arange(len(Z_list)):
+				p_num = np.sum(k_vec[w_cnt:(w_cnt + w_vec[z])], dtype=np.uint32)*args.K
+				P[c_cnt:(c_cnt + p_num)].tofile(
+					f"{args.out}.K{args.K}.s{args.seed}.file{z+1}.P.bin"
+				)
+				w_cnt += w_vec[z]
+				c_cnt += p_num
+			print("Saved P matrices (binary) as " + \
+		 		f"{args.out}.K{args.K}.s{args.seed}.file{{1..{len(Z_list)}}}.P.bin")
 		else: # Single file (chromosome)
-			p_tmp = P.reshape(-1, args.K*C)
-			np.savetxt(f"{args.out}.K{args.K}.s{args.seed}.P", p_tmp, fmt="%.6f")
-			print(f"Saved P matrix as {args.out}.K{args.K}.s{args.seed}.P")
-		del p_tmp
+			P.tofile(f"{args.out}.K{args.K}.s{args.seed}.P.bin")
+			print(f"Saved P matrix (binary) as {args.out}.K{args.K}.s{args.seed}.P")
 
 	# Print elapsed time for computation
 	t_tot = time()-start
