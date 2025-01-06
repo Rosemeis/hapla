@@ -88,9 +88,6 @@ hapla struct --clusters hapla.chr1 --threads 16 --pca 20 --out hapla.chr1
 # Saves eigenvalues and eigenvectors in text-format
 #	- hapla.chr1.eigenvecs
 #	- hapla.chr1.eigenvals
-
-# A faster randomized SVD approach can also be utilized for large datasets (>5,000 individuals)
-hapla struct --filelist hapla.filelist --threads 16 --pca 20 --randomized --out hapla
 ```
 
 ### Predict haplotype cluster assignments
