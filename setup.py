@@ -55,7 +55,7 @@ extensions = [
 
 setup(
 	name="hapla",
-	version="0.14.0",
+	version="0.14.1",
 	author="Jonas Meisner",
 	author_email="meisnerucph@gmail.com",
 	description="Framework for haplotype clustering in phased genotype data",

@@ -60,6 +60,8 @@ def main():
 		help="Estimate genome-wide relationship matrix (GRM)")
 	parser_struct.add_argument("--batch", type=int, default=8192,
 		metavar="INT", help="Number of cluster alleles in batches (8192)")
+	parser_struct.add_argument("--power", type=int, default=10,
+		metavar="INT", help="Number of power iterations to perform (10)")
 	parser_struct.add_argument("--no-centering", action="store_true",
 		help="Do not perform Gower and data centering of GRM")
 	parser_struct.add_argument("--duplicate-fid", action="store_true",

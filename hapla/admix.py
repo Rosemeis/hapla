@@ -12,7 +12,7 @@ from time import time
 ##### hapla admix #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.14.0)")
+	print("hapla by Jonas Meisner (v0.14.1)")
 	print(f"hapla admix using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 

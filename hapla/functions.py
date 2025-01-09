@@ -5,60 +5,61 @@ from hapla import admix_cy
 
 ##### hapla - functions #####
 ### hapla struct
-# Randomized PCA (PCAone Halko algorithm)
-def randomizedSVD(Z_agg, p_vec, a_vec, K, batch, rng):
-	M = Z_agg.shape[0]
-	N = Z_agg.shape[1]
-	L = K + 10
-	B = 64
-	S = np.arange(M, dtype=np.uint32)
-	H = np.zeros((N, L))
-	O = rng.standard_normal(size=(N, L))
+# SVD through eigendecomposition
+def eigSVD(C):
+	D, V = np.linalg.eigh(np.dot(C.T, C))
+	S = np.sqrt(D)
+	U = np.dot(C, V*(1.0/S))
+	return np.ascontiguousarray(U[:,::-1]), np.ascontiguousarray(S[::-1]), \
+		np.ascontiguousarray(V[:,::-1])
 
-	# PCAone block power iterations
-	for e in np.arange(6):
-		print(f"\rEpoch {e+1}/7", end="")
-		rng.shuffle(S)
-		A = np.zeros((ceil(M/B), L))
-		for b in np.arange(B):
-			s = S[(b*A.shape[0]):min((b+1)*A.shape[0], M)]
-			W = ceil(s.shape[0]/batch)
-			X = np.zeros((batch, N))
-			if b == (B-1):
-				A = np.zeros((s.shape[0], L))
-			if ((e == 0) and (b > 0)) or (e > 0):
-				O, _ = np.linalg.qr(H, mode="reduced")
-				H.fill(0.0)
-			for w in np.arange(W):
-				M_w = w*batch
-				if w == (W-1): # Last batch
-					X = np.zeros((s.shape[0] - M_w, N))
-				shared_cy.blockZ(Z_agg, X, p_vec, a_vec, s, M_w)
-				A[M_w:(M_w + X.shape[0])] = np.dot(X, O)
-				H += np.dot(X.T, A[M_w:(M_w + X.shape[0])])
-		B = B//2
-	
-	# Standard power iteration
-	print("\rEpoch 7/7", end="")
+# Randomized PCA with dynamic shift
+def randomizedSVD(Z_agg, p_vec, a_vec, K, batch, power, rng):
+	M, N = Z_agg.shape
 	W = ceil(M/batch)
+	a = 0.0
+	L = K + 10
 	A = np.zeros((M, L))
+	H = np.zeros((N, L))
 	X = np.zeros((batch, N))
-	O, _ = np.linalg.qr(H, mode="reduced")
-	H.fill(0.0)
+	O = rng.standard_normal(size=(M, L))
+
+	# Prime iteration
 	for w in np.arange(W):
 		M_w = w*batch
 		if w == (W-1): # Last batch
 			X = np.zeros((M - M_w, N))
 		shared_cy.batchZ(Z_agg, X, p_vec, a_vec, M_w)
-		A[M_w:(M_w + X.shape[0])] = np.dot(X, O)
-		H += np.dot(X.T, A[M_w:(M_w + X.shape[0])])
-	Q, R1 = np.linalg.qr(A, mode="reduced")
-	Q, R2 = np.linalg.qr(Q, mode="reduced")
-	R = np.dot(R1, R2)
-	C = np.linalg.solve(R.T, H.T)
-	U_hat, S, V = np.linalg.svd(C, full_matrices=False)
-	U = np.dot(Q, U_hat)
-	return np.ascontiguousarray(U[:,:K]), S[:K], np.ascontiguousarray(V[:K,:].T)
+		H += np.dot(X.T, O[M_w:(M_w + X.shape[0])])
+	Q, _, _ = eigSVD(H)
+	H.fill(0.0)
+
+	# Power iterations
+	for p in np.arange(power):
+		print(f"\rPower iteration {p+1}/{power}", end="")
+		X = np.zeros((batch, N))
+		for w in np.arange(W):
+			M_w = w*batch
+			if w == (W-1): # Last batch
+				X = np.zeros((M - M_w, N))
+			shared_cy.batchZ(Z_agg, X, p_vec, a_vec, M_w)
+			A[M_w:(M_w + X.shape[0])] = np.dot(X, Q)
+			H += np.dot(X.T, A[M_w:(M_w + X.shape[0])])
+		Q, S, _ = eigSVD(H - a*Q)
+		H.fill(0.0)
+		if S[-1] > a:
+			a = 0.5*(S[-1] + a)
+
+	# Extract singular vectors
+	X = np.zeros((batch, N))
+	for w in np.arange(W):
+		M_w = w*batch
+		if w == (W-1): # Last batch
+			X = np.zeros((M - M_w, N))
+		shared_cy.batchZ(Z_agg, X, p_vec, a_vec, M_w)
+		A[M_w:(M_w + X.shape[0])] = np.dot(X, Q)
+	U, S, V = np.linalg.svd(A, full_matrices=False)
+	return U[:,:K], S[:K], np.dot(Q, V)[:,:K]
 
 
 

@@ -12,7 +12,7 @@ from time import time
 ##### hapla struct #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.14.0)")
+	print("hapla by Jonas Meisner (v0.14.1)")
 	print(f"hapla struct using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 
@@ -25,6 +25,7 @@ def main(args):
 		assert args.pca > 0, "Please select a valid number of eigenvectors!"
 	assert args.threads > 0, "Please select a valid number of threads!"
 	assert args.batch > 0, "Please select a valid batch size!"
+	assert args.power > 0, "Please select a valid number of power iterations!"
 	assert args.seed >= 0, "Please select a valid seed!"
 	start = time()
 
@@ -209,7 +210,8 @@ def main(args):
 		# Randomized SVD
 		print(f"Computing randomized SVD, extracting {args.pca} eigenvectors.")
 		rng = np.random.default_rng(args.seed)
-		U, S, V = functions.randomizedSVD(Z_agg, p_vec, a_vec, args.pca, args.batch, rng)
+		U, S, V = functions.randomizedSVD(Z_agg, p_vec, a_vec, args.pca, args.batch, \
+			args.power, rng)
 		print(".\n")
 
 		# Save matrices
