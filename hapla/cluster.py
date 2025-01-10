@@ -221,7 +221,7 @@ def main(args):
 						cluster_cy.genCluster(X, R, C, z_vec, c_vec, n_vec, u_vec, K)
 						K += 1
 			else:
-				memoryview(z_tmp)[:] = z_vec
+				memoryview(z_tmp)[:] = memoryview(z_vec)
 			
 			# Count sizes and construct marginal medians
 			cluster_cy.marginalMedians(R, C, n_vec, K)
@@ -253,7 +253,7 @@ def main(args):
 						break
 				else:
 					K_tmp -= 1
-					memoryview(z_tmp)[:] = z_vec
+					memoryview(z_tmp)[:] = memoryview(z_vec)
 
 			# Re-cluster K = 2 non-break case
 			if (K_tmp == 2) and (N_min < N_mac):
