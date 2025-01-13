@@ -6,10 +6,10 @@ from hapla import admix_cy
 ##### hapla - functions #####
 ### hapla struct
 # SVD through eigendecomposition
-def eigSVD(C):
-	D, V = np.linalg.eigh(np.dot(C.T, C))
+def eigSVD(H):
+	D, V = np.linalg.eigh(np.dot(H.T, H))
 	S = np.sqrt(D)
-	U = np.dot(C, V*(1.0/S))
+	U = np.dot(H, V*(1.0/S))
 	return np.ascontiguousarray(U[:,::-1]), np.ascontiguousarray(S[::-1]), \
 		np.ascontiguousarray(V[:,::-1])
 
@@ -19,10 +19,9 @@ def randomizedSVD(Z_agg, p_vec, a_vec, K, batch, power, rng):
 	W = ceil(M/batch)
 	a = 0.0
 	L = K + 10
-	A = np.zeros((M, L))
 	H = np.zeros((N, L))
 	X = np.zeros((batch, N))
-	O = rng.standard_normal(size=(M, L))
+	A = rng.standard_normal(size=(M, L))
 
 	# Prime iteration
 	for w in np.arange(W):
@@ -30,7 +29,7 @@ def randomizedSVD(Z_agg, p_vec, a_vec, K, batch, power, rng):
 		if w == (W-1): # Last batch
 			X = np.zeros((M - M_w, N))
 		shared_cy.batchZ(Z_agg, X, p_vec, a_vec, M_w)
-		H += np.dot(X.T, O[M_w:(M_w + X.shape[0])])
+		H += np.dot(X.T, A[M_w:(M_w + X.shape[0])])
 	Q, _, _ = eigSVD(H)
 	H.fill(0.0)
 
@@ -45,7 +44,8 @@ def randomizedSVD(Z_agg, p_vec, a_vec, K, batch, power, rng):
 			shared_cy.batchZ(Z_agg, X, p_vec, a_vec, M_w)
 			A[M_w:(M_w + X.shape[0])] = np.dot(X, Q)
 			H += np.dot(X.T, A[M_w:(M_w + X.shape[0])])
-		Q, S, _ = eigSVD(H - a*Q)
+		H -= a*Q
+		Q, S, _ = eigSVD(H)
 		H.fill(0.0)
 		if S[-1] > a:
 			a = 0.5*(S[-1] + a)
@@ -58,7 +58,7 @@ def randomizedSVD(Z_agg, p_vec, a_vec, K, batch, power, rng):
 			X = np.zeros((M - M_w, N))
 		shared_cy.batchZ(Z_agg, X, p_vec, a_vec, M_w)
 		A[M_w:(M_w + X.shape[0])] = np.dot(X, Q)
-	U, S, V = np.linalg.svd(A, full_matrices=False)
+	U, S, V = eigSVD(A)
 	return U[:,:K], S[:K], np.dot(Q, V)[:,:K]
 
 
