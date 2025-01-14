@@ -2,7 +2,7 @@
 import numpy as np
 cimport numpy as np
 from cython.parallel import parallel, prange
-from libc.math cimport log, sqrt
+from libc.math cimport log
 from libc.stdlib cimport calloc, free
 
 ##### hapla - ancestry estimation #####
@@ -19,46 +19,46 @@ cdef inline double computeH(const double* p, const double* q, const size_t z, \
 		h += p[k*B + z]*q[k]
 	return 1.0/h
 
-cdef inline void innerJ(const double* p, const double* q, double* p_thr, \
+cdef inline double computeL(const double* p, const double* q, const size_t z, \
+		const size_t K, const size_t B) noexcept nogil:
+	cdef:
+		size_t k
+		double h = 0.0
+	for k in range(K):
+		h += p[k*B + z]*q[k]
+	return log(h)
+
+cdef inline void innerJ(const double* p, const double* q, double* p_tmp, \
 		double* q_thr, const double h, const size_t z, const size_t K, const size_t B) \
 		noexcept nogil:
 	cdef:
 		size_t k
+		double a
 	for k in range(K):
-		p_thr[k*B + z] += q[k]*h
-		q_thr[k] += p[k*B + z]*h
+		a = p[k*B + z]*q[k]*h
+		p_tmp[k*B + z] += a
+		q_thr[k] += a
 
-cdef inline void outerP(double* p, double* p_thr, const size_t K, const size_t B) \
+cdef inline void outerP(double* p, double* p_tmp, const size_t K, const size_t B) \
 		noexcept nogil:
 	cdef:
 		size_t c, k, s
-		double sumP
+		double sumA, sumB
 	for k in range(K):
-		s = B*k
-		sumP = 0.0
+		s = k*B
+		sumA = 0.0
+		sumB = 0.0
 		for c in range(B):
-			p_thr[s+c] *= p[s+c]
-			sumP += p_thr[s+c]
-		sumP = 1.0/sumP
+			p[s+c] = p_tmp[s+c]
+			p_tmp[s+c] = 0.0
+			sumA += p[s+c]
+		sumA = 1.0/sumA
 		for c in range(B):
-			p[s+c] = project(p_thr[s+c]*sumP)
-			p_thr[s+c] = 0.0
-
-cdef inline void outerAccelP(const double* p, double* p_new, double* p_thr, \
-		const size_t K, const size_t B) noexcept nogil:
-	cdef:
-		size_t c, k, s
-		double sumP
-	for k in range(K):
-		s = B*k
-		sumP = 0.0
+			p[s+c] = project(p[s+c]*sumA)
+			sumB += p[s+c]
+		sumB = 1.0/sumB
 		for c in range(B):
-			p_thr[s+c] *= p[s+c]
-			sumP += p_thr[s+c]
-		sumP = 1.0/sumP
-		for c in range(B):
-			p_new[s+c] = project(p_thr[s+c]*sumP)
-			p_thr[s+c] = 0.0
+			p[s+c] *= sumB
 
 cdef inline void outerQ(double* q, double* q_tmp, const double S, const size_t K) \
 		noexcept nogil:
@@ -66,25 +66,12 @@ cdef inline void outerQ(double* q, double* q_tmp, const double S, const size_t K
 		size_t k
 		double sumQ = 0.0
 	for k in range(K):
-		q[k] = project(q[k]*q_tmp[k]*S)
+		q[k] = project(q_tmp[k]*S)
 		q_tmp[k] = 0.0
 		sumQ += q[k]
 	sumQ = 1.0/sumQ
 	for k in range(K):
 		q[k] *= sumQ
-
-cdef inline void outerAccelQ(const double* q, double* q_new, double* q_tmp, \
-		const double S, const size_t K) noexcept nogil:
-	cdef:
-		size_t k
-		double sumQ = 0.0
-	for k in range(K):
-		q_new[k] = project(q[k]*q_tmp[k]*S)
-		q_tmp[k] = 0.0
-		sumQ += q_new[k]
-	sumQ = 1.0/sumQ
-	for k in range(K):
-		q_new[k] *= sumQ
 
 cdef inline double factorAccel(const double* v0, const double* v1, const double* v2, \
 		const size_t I) noexcept nogil:
@@ -109,15 +96,15 @@ cpdef void createP(double[::1] P, const unsigned char[::1] k_vec, \
 		double sumP
 	for w in prange(W):
 		B = k_vec[w]
-		s = c_vec[w]
+		l = c_vec[w]
 		for k in range(K):
-			l = s + B*k
+			s = l + k*B
 			sumP = 0.0
 			for c in range(B):
-				sumP = sumP + P[l+c]
+				sumP = sumP + P[s+c]
 			sumP = 1.0/sumP
 			for c in range(B):
-				P[l+c] *= sumP
+				P[s+c] *= sumP
 
 # Update Q in supervised mode
 cpdef void superQ(double[:,::1] Q, const unsigned char[::1] y) noexcept nogil:
@@ -141,65 +128,59 @@ cpdef void superQ(double[:,::1] Q, const unsigned char[::1] y) noexcept nogil:
 
 # Update P and Q temp arrays
 cpdef void updateP(const unsigned char[:,::1] Z, double[::1] P, const double[:,::1] Q, \
-		double[:,::1] Q_tmp, const unsigned char[::1] k_vec, const unsigned int[::1] c_vec, \
-		const size_t C) noexcept nogil:
+		double[::1] P_tmp, double[:,::1] Q_tmp, const unsigned char[::1] k_vec, \
+		const unsigned int[::1] c_vec) noexcept nogil:
 	cdef:
 		size_t W = Z.shape[0]
 		size_t N = Z.shape[1]
 		size_t K = Q.shape[1]
-		size_t c, i, k, l, w, z, x, y, B
+		size_t i, l, n, w, z, x, y, B
 		double h
-		double* P_thr
 		double* Q_thr
 	with nogil, parallel():
-		P_thr = <double*>calloc(C, sizeof(double))
 		Q_thr = <double*>calloc((N//2)*K, sizeof(double))
 		for w in prange(W):
 			B = k_vec[w]
-			c = c_vec[w]
+			l = c_vec[w]
 			for i in range(N):
-				l = i//2
+				n = i//2
 				z = <size_t>Z[w,i]
-				h = computeH(&P[c], &Q[l,0], z, K, B)
-				innerJ(&P[c], &Q[l,0], &P_thr[0], &Q_thr[l*K], h, z, K, B)
-			outerP(&P[c], &P_thr[0], K, B)
+				h = computeH(&P[l], &Q[n,0], z, K, B)
+				innerJ(&P[l], &Q[n,0], &P_tmp[l], &Q_thr[n*K], h, z, K, B)
+			outerP(&P[l], &P_tmp[l], K, B)
 		with gil:
 			for x in range(N//2):
 				for y in range(K):
 					Q_tmp[x,y] += Q_thr[x*K + y]
-		free(P_thr)
 		free(Q_thr)
 
 # Accelerated update P and Q temp arrays
 cpdef void accelP(const unsigned char[:,::1] Z, const double[::1] P, \
-		double[::1] P_new, const double[:,::1] Q, double[:,::1] Q_tmp, \
-		const unsigned char[::1] k_vec, const unsigned int[::1] c_vec, const size_t C) \
-		noexcept nogil:
+		double[::1] P_new, const double[:,::1] Q, double[::1] P_tmp, \
+		double[:,::1] Q_tmp, const unsigned char[::1] k_vec, \
+		const unsigned int[::1] c_vec) noexcept nogil:
 	cdef:
 		size_t W = Z.shape[0]
 		size_t N = Z.shape[1]
 		size_t K = Q.shape[1]
-		size_t c, i, k, l, w, z, x, y, B
+		size_t i, l, n, w, z, x, y, B
 		double h
-		double* P_thr
 		double* Q_thr
 	with nogil, parallel():
-		P_thr = <double*>calloc(C, sizeof(double))
 		Q_thr = <double*>calloc((N//2)*K, sizeof(double))
 		for w in prange(W):
 			B = k_vec[w]
-			c = c_vec[w]
+			l = c_vec[w]
 			for i in range(N):
-				l = i//2
+				n = i//2
 				z = <size_t>Z[w,i]
-				h = computeH(&P[c], &Q[l,0], z, K, B)
-				innerJ(&P[c], &Q[l,0], &P_thr[0], &Q_thr[l*K], h, z, K, B)
-			outerAccelP(&P[c], &P_new[c], &P_thr[0], K, B)
+				h = computeH(&P[l], &Q[n,0], z, K, B)
+				innerJ(&P[l], &Q[n,0], &P_tmp[l], &Q_thr[n*K], h, z, K, B)
+			outerP(&P_new[l], &P_tmp[l], K, B)
 		with gil:
 			for x in range(N//2):
 				for y in range(K):
 					Q_tmp[x,y] += Q_thr[x*K + y]
-		free(P_thr)
 		free(Q_thr)
 
 # Accelerated jump for P (QN)
@@ -217,35 +198,26 @@ cpdef void alphaP(double[::1] P0, const double[::1] P1, const double[::1] P2, \
 	c2 = 1.0 - c1
 	for w in prange(W):
 		B = k_vec[w]
-		s = c_vec[w]
+		l = c_vec[w]
 		for k in range(K):
-			l = s + B*k
+			s = l + k*B
 			sumP = 0.0
 			for c in range(B):
-				P0[l+c] = c2*P1[l+c] + c1*P2[l+c]
-				sumP = sumP + P0[l+c]
+				P0[s+c] = project(c2*P1[s+c] + c1*P2[s+c])
+				sumP = sumP + P0[s+c]
 			sumP = 1.0/sumP
 			for c in range(B):
-				P0[l+c] = project(P0[l+c]*sumP)
+				P0[s+c] *= sumP
 
 # Update Q
-cpdef void updateQ(double[:,::1] Q, double[:,::1] Q_tmp, const double S) noexcept nogil:
+cpdef void updateQ(double[:,::1] Q, double[:,::1] Q_tmp, const size_t W) noexcept nogil:
 	cdef:
 		size_t N = Q.shape[0]
 		size_t K = Q.shape[1]
 		size_t i, k
+		double S = 1.0/<double>(2*W)
 	for i in prange(N):
 		outerQ(&Q[i,0], &Q_tmp[i,0], S, K)
-
-# Accelerated update Q
-cpdef void accelQ(const double[:,::1] Q, double[:,::1] Q_new, double[:,::1] Q_tmp, \
-		const double S) noexcept nogil:
-	cdef:
-		size_t N = Q.shape[0]
-		size_t K = Q.shape[1]
-		size_t i, k
-	for i in prange(N):
-		outerAccelQ(&Q[i,0], &Q_new[i,0], &Q_tmp[i,0], S, K)
 
 # Accelerated jump for Q (QN)
 cpdef void alphaQ(double[:,::1] Q0, const double[:,::1] Q1, const double[:,::1] Q2) \
@@ -274,17 +246,14 @@ cpdef double loglike(const unsigned char[:,::1] Z, const double[::1] P, \
 		size_t W = Z.shape[0]
 		size_t N = Z.shape[1]
 		size_t K = Q.shape[1]
-		size_t i, k, l, s, w, z, B
+		size_t i, k, l, n, w, z, B
 		double res = 0.0
 		double h
 	for w in prange(W):
 		B = k_vec[w]
-		s = c_vec[w]
+		l = c_vec[w]
 		for i in range(N):
-			l = i//2
+			n = i//2
 			z = <size_t>Z[w,i]
-			h = 0.0
-			for k in range(K):
-				h = h + P[s + B*k + z]*Q[l,k]
-			res += log(h)
+			res += computeL(&P[l], &Q[n,0], z, K, B)
 	return res

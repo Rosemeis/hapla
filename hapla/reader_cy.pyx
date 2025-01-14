@@ -1,6 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, initializedcheck=False, cdivision=True
 import numpy as np
 cimport numpy as np
+from cython.parallel import parallel, prange
 from libc.stdlib cimport malloc, free
 
 ##### Cython functions for reading genotype files #####
@@ -117,46 +118,48 @@ cpdef void predictHap(const unsigned char[:,::1] G, unsigned char[:,::1] X, \
 # Convert haplotype cluster alleles to 2-bit PLINK format
 cpdef void convertPlink(const unsigned char[:,::1] Z, unsigned char[:,::1] Z_bin, \
 		unsigned int[:,::1] P_mat, const unsigned char[::1] k_vec, \
-		const unsigned int[::1] b_vec) noexcept nogil:
+		const unsigned int[::1] c_vec, const unsigned int[::1] b_vec) noexcept nogil:
 	cdef:
 		size_t W = Z.shape[0]
 		size_t N = Z.shape[1]//2
 		size_t B = Z_bin.shape[1]
-		size_t b, i, k, l, w, bit
-		size_t j = 0
-		unsigned char* z_vec = <unsigned char*>malloc(sizeof(unsigned char)*N)
-	for w in range(W):
-		for k in range(k_vec[w]):
-			# Create haplotype cluster alleles
-			for i in range(0, 2*N, 2):
-				l = i//2
-				z_vec[l] = 0
-				if Z[w,i] == k:
-					z_vec[l] += 1
-				if Z[w,i+1] == k:
-					z_vec[l] += 1
+		size_t b, i, c, l, n, s, w, bit
+		unsigned char* z_vec
+	with nogil, parallel():
+		z_vec = <unsigned char*>malloc(sizeof(unsigned char)*N)
+		for w in prange(W):
+			s = <size_t>c_vec[w]
+			for c in range(k_vec[w]):
+				# Create haplotype cluster alleles
+				l = s + c
+				for i in range(0, 2*N, 2):
+					n = i//2
+					z_vec[n] = 0
+					if Z[w,i] == c:
+						z_vec[n] += 1
+					if Z[w,i+1] == c:
+						z_vec[n] += 1
 
-			# Save in 2-bit form with bit-wise operations
-			i = 0
-			for b in range(B):
-				for bit in range(0, 8, 2):
-					if z_vec[i] == 0:
-						Z_bin[j,b] |= (1<<bit)
-						Z_bin[j,b] |= (1<<(bit+1))
-					if z_vec[i] == 1:
-						Z_bin[j,b] |= (1<<(bit+1))
+				# Save in 2-bit form with bit-wise operations
+				i = 0
+				for b in range(B):
+					for bit in range(0, 8, 2):
+						if z_vec[i] == 0:
+							Z_bin[l,b] |= (1<<bit)
+							Z_bin[l,b] |= (1<<(bit+1))
+						if z_vec[i] == 1:
+							Z_bin[l,b] |= (1<<(bit+1))
 
-					# Increase counter and check for break
-					i += 1
-					if i == N:
-						break
-			
-			# Save window and cluster information
-			P_mat[j,0] = w + 1
-			P_mat[j,1] = k + 1
-			P_mat[j,2] = b_vec[w]
-			j += 1
-	free(z_vec)
+						# Increase counter and check for break
+						i = i + 1
+						if i == N:
+							break
+				
+				# Save window and cluster information
+				P_mat[l,0] = w + 1
+				P_mat[l,1] = c + 1
+				P_mat[l,2] = b_vec[w]
+		free(z_vec)
 
 # Convert 2-bit into standardized genotype array for phenotypes
 cpdef void phenoPlink(const unsigned char[:,::1] G_mat, double[:,::1] G, \

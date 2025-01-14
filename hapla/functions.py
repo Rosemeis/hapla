@@ -65,23 +65,23 @@ def randomizedSVD(Z_agg, p_vec, a_vec, K, batch, power, rng):
 
 ### hapla admix
 # Update for admixture estimation
-def steps(Z, P, Q, Q_tmp, k_vec, c_vec, y, S, C):
-	admix_cy.updateP(Z, P, Q, Q_tmp, k_vec, c_vec, C)
-	admix_cy.updateQ(Q, Q_tmp, S)
+def steps(Z, P, Q, P_tmp, Q_tmp, k_vec, c_vec, y):
+	admix_cy.updateP(Z, P, Q, P_tmp, Q_tmp, k_vec, c_vec)
+	admix_cy.updateQ(Q, Q_tmp, Z.shape[0])
 	if y is not None:
 		admix_cy.superQ(Q, y)
 
 # Accelerated update for admixture estimation
-def quasi(Z, P0, Q0, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, y, S, C):
+def quasi(Z, P0, Q0, P_tmp, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, y):
 	# 1st EM step
-	admix_cy.accelP(Z, P0, P1, Q0, Q_tmp, k_vec, c_vec, C)
-	admix_cy.accelQ(Q0, Q1, Q_tmp, S)
+	admix_cy.accelP(Z, P0, P1, Q0, P_tmp, Q_tmp, k_vec, c_vec)
+	admix_cy.updateQ(Q1, Q_tmp, Z.shape[0])
 	if y is not None:
 		admix_cy.superQ(Q1, y)
 
 	# 2nd EM step
-	admix_cy.accelP(Z, P1, P2, Q1, Q_tmp, k_vec, c_vec, C)
-	admix_cy.accelQ(Q1, Q2, Q_tmp, S)
+	admix_cy.accelP(Z, P1, P2, Q1, P_tmp, Q_tmp, k_vec, c_vec)
+	admix_cy.updateQ(Q2, Q_tmp, Z.shape[0])
 	if y is not None:
 		admix_cy.superQ(Q2, y)
 

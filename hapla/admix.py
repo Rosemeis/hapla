@@ -12,7 +12,7 @@ from time import time
 ##### hapla admix #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.14.1)")
+	print("hapla by Jonas Meisner (v0.14.2)")
 	print(f"hapla admix using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 
@@ -79,8 +79,6 @@ def main(args):
 		N = np.loadtxt(f"{Z_list[0]}.ids", dtype=np.str_).shape[0]
 		W = k_vec.shape[0]
 		w_vec = np.array([W], dtype=np.uint32)
-	S = 1.0/float(2*W)
-	C = int(np.max(k_vec))*args.K
 	c_vec = np.insert(np.cumsum(k_vec[:-1]*args.K, dtype=np.uint32), 0, 0)
 	print(f"Parsing {len(Z_list)} file(s).")
 
@@ -136,6 +134,7 @@ def main(args):
 	P2 = np.zeros_like(P)
 	Q1 = np.zeros_like(Q)
 	Q2 = np.zeros_like(Q)
+	P_tmp = np.zeros_like(P)
 	Q_tmp = np.zeros_like(Q)
 
 	# Estimate initial log-likelihood
@@ -145,14 +144,14 @@ def main(args):
 
 	# Prime iterations
 	for _ in np.arange(3):
-		functions.steps(Z, P, Q, Q_tmp, k_vec, c_vec, y, S, C)
+		functions.steps(Z, P, Q, P_tmp, Q_tmp, k_vec, c_vec, y)
 
 	# Accelerated EM algorithm
 	ts = time()
 	print(f"Accelerated EM algorithm.")
 	for it in np.arange(args.iter):
-		functions.quasi(Z, P, Q, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, y, S, C)
-		functions.steps(Z, P, Q, Q_tmp, k_vec, c_vec, y, S, C)
+		functions.quasi(Z, P, Q, P_tmp, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, y)
+		functions.steps(Z, P, Q, P_tmp, Q_tmp, k_vec, c_vec, y)
 
 		# Log-likelihood convergence check
 		if ((it+1) % args.check) == 0:
@@ -182,7 +181,7 @@ def main(args):
 		 		f"{args.out}.K{args.K}.s{args.seed}.file{{1..{len(Z_list)}}}.P.bin")
 		else: # Single file (chromosome)
 			P.tofile(f"{args.out}.K{args.K}.s{args.seed}.P.bin")
-			print(f"Saved P matrix (binary) as {args.out}.K{args.K}.s{args.seed}.P")
+			print(f"Saved P matrix (binary) as {args.out}.K{args.K}.s{args.seed}.P.bin")
 
 	# Print elapsed time for computation
 	t_tot = time()-start

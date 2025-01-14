@@ -1,7 +1,6 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, initializedcheck=False, cdivision=True
 import numpy as np
 cimport numpy as np
-from cython.parallel import prange
 
 ##### Cython memory efficient functions #####
 # Read variant from VCF/BCF into 1-bit integer format

@@ -33,8 +33,8 @@ def main():
 		metavar="OUTPUT", help="Output prefix")
 	parser_cluster.add_argument("--min-freq", type=float, default=0.01,
 		metavar="INT", help="Minimum haplotype cluster frequency (0.01)")
-	parser_cluster.add_argument("--max-clusters", type=int, default=256,
-		metavar="INT", help="Maximum number of haplotype clusters per window (256)")
+	parser_cluster.add_argument("--max-clusters", type=int, default=100,
+		metavar="INT", help="Maximum number of haplotype clusters per window (100)")
 	parser_cluster.add_argument("--max-iterations", type=int, default=500,
 		metavar="INT", help="Maximum number of iterations (500)")
 	parser_cluster.add_argument("--medians", action="store_true",

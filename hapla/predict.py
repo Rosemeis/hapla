@@ -13,7 +13,7 @@ from time import time
 ##### hapla predict #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.14.1)")
+	print("hapla by Jonas Meisner (v0.14.2)")
 	print(f"hapla predict using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 	
@@ -50,7 +50,7 @@ def main(args):
 
 	# Initiate VCF and extract sample list
 	print("\rLoading VCF/BCF file...", end="")
-	v_file = VCF(args.vcf, threads=args.threads)
+	v_file = VCF(args.vcf, threads=min(args.threads, 4))
 	v_list = []
 	s_list = np.array(v_file.samples).reshape(-1, 1)
 	M = 0
@@ -154,13 +154,14 @@ def main(args):
 		K_tot = np.sum(k_vec, dtype=int)
 		P_mat = np.zeros((K_tot, 3), dtype=np.uint32)
 		Z_bin = np.zeros((K_tot, B), dtype=np.uint8)
-		reader_cy.convertPlink(Z, Z_bin, P_mat, k_vec, b_vec)
+		c_vec = np.insert(np.cumsum(k_vec[:-1], dtype=np.uint32), 0, 0)
+		reader_cy.convertPlink(Z, Z_bin, P_mat, k_vec, c_vec, b_vec)
 		
 		# Save .bed file including magic numbers
 		with open(f"{args.out}.bed", "w") as bfile:
 			np.array([108, 27, 1], dtype=np.uint8).tofile(bfile)
 			Z_bin.tofile(bfile)
-		del b_vec, Z_bin, Z
+		del c_vec, b_vec, Z_bin, Z
 
 		# Save .bim file
 		tmp = np.array([f"{chrom}_W{w}_K{k}_B{l}" for w,k,l in P_mat])
