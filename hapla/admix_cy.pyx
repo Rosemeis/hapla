@@ -159,10 +159,9 @@ cpdef void updateP(const unsigned char[:,::1] Z, double[::1] P, const double[:,:
 		free(Q_thr)
 
 # Accelerated update P and Q temp arrays
-cpdef void accelP(const unsigned char[:,::1] Z, const double[::1] P, \
-		double[::1] P_new, const double[:,::1] Q, double[::1] P_tmp, \
-		double[:,::1] Q_tmp, const unsigned char[::1] k_vec, \
-		const unsigned int[::1] c_vec) noexcept nogil:
+cpdef void accelP(const unsigned char[:,::1] Z, double[::1] P, double[::1] P_new, \
+		const double[:,::1] Q, double[::1] P_tmp, double[:,::1] Q_tmp, \
+		const unsigned char[::1] k_vec, const unsigned int[::1] c_vec) noexcept nogil:
 	cdef:
 		size_t W = Z.shape[0]
 		size_t N = Z.shape[1]
@@ -247,9 +246,9 @@ cpdef void alphaQ(double[:,::1] Q0, const double[:,::1] Q1, const double[:,::1] 
 			Q0[i,k] *= sumQ	
 
 # Log-likelihood
-cpdef double loglike(const unsigned char[:,::1] Z, const double[::1] P, \
-		const double[:,::1] Q, const unsigned char[::1] k_vec, const unsigned int[::1] c_vec) \
-		noexcept nogil:
+cpdef double loglike(const unsigned char[:,::1] Z, double[::1] P, \
+		const double[:,::1] Q, const unsigned char[::1] k_vec, \
+		const unsigned int[::1] c_vec) noexcept nogil:
 	cdef:
 		size_t W = Z.shape[0]
 		size_t N = Z.shape[1]
