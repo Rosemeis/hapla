@@ -37,7 +37,7 @@ You can now run the `hapla` software and the subcommands.
 Window-based haplotype clustering in a phased VCF/BCF.
 ```bash
 # Cluster haplotypes in a chromosome with fixed window size (8 SNPs)
-hapla cluster --bcf data.chr1.bcf --size 8 --threads 16 --out hapla.chr1
+hapla cluster --bcf data.chr1.bcf --size 8 --threads 8 --out hapla.chr1
 # Saves inferred haplotype cluster assignments in binary hapla format
 #	- hapla.chr1.bca
 #	- hapla.chr1.ids
@@ -47,19 +47,19 @@ hapla cluster --bcf data.chr1.bcf --size 8 --threads 16 --out hapla.chr1
 
 ```bash
 # Cluster haplotypes in a chromosome with fixed size and overlapping windows (step size 4)
-hapla cluster --bcf data.chr1.bcf --size 8 --step 4 --threads 16 --out hapla.chr1
+hapla cluster --bcf data.chr1.bcf --size 8 --step 4 --threads 8 --out hapla.chr1
 
 # Cluster haplotypes in all chromosomes and save output path in a filelist
 for c in {1..22}
 do
-	hapla cluster --bcf data.chr${c}.bcf --size 8 --threads 16 --out hapla.chr${c}
+	hapla cluster --bcf data.chr${c}.bcf --size 8 --threads 8 --out hapla.chr${c}
 	realpath hapla.chr${c} >> hapla.filelist
 done
 ```
 
 Optionally, the haplotype cluster alleles can be saved in binary PLINK format (**.bed**, **.bim**, **.fam**) for ease of use with other software. Note that window information needs to be inferred from **.bim**-file for downstream analyses in this case.
 ```bash
-hapla cluster --bcf data.chr1.bcf --threads 16 --out hapla.chr1 --plink
+hapla cluster --bcf data.chr1.bcf --threads 8 --out hapla.chr1 --plink
 # Saves inferred haplotype cluster alleles in a binary PLINK format
 #	- hapla.chr1.bed
 #	- hapla.chr1.bim
@@ -71,20 +71,20 @@ hapla cluster --bcf data.chr1.bcf --threads 16 --out hapla.chr1 --plink
 Estimate genome-wide relationship matrix (GRM) and infer population structure using the haplotype cluster alleles.
 ```bash
 # Construct genome-wide relationship matrix (GRM)
-hapla struct --filelist hapla.filelist --threads 16 --grm --out hapla
+hapla struct --filelist hapla.filelist --threads 64 --grm --out hapla
 # Saves the GRM in binary GCTA format (float)
 #	- hapla.grm.bin
 #	- hapla.grm.N.bin
 #	- hapla.grm.id
 
 # Perform PCA on all chromosomes (genome-wide) using filelist and extract top 20 eigenvectors
-hapla struct --filelist hapla.filelist --threads 16 --pca 20 --out hapla
+hapla struct --filelist hapla.filelist --threads 64 --pca 20 --out hapla
 # Saves eigenvalues and eigenvectors in text-format
 #	- hapla.eigenvecs
 #	- hapla.eigenvals
 
 # Or perform PCA on a single chromosome and extract top 20 eigenvectors
-hapla struct --clusters hapla.chr1 --threads 16 --pca 20 --out hapla.chr1
+hapla struct --clusters hapla.chr1 --threads 64 --pca 20 --out hapla.chr1
 # Saves eigenvalues and eigenvectors in text-format
 #	- hapla.chr1.eigenvecs
 #	- hapla.chr1.eigenvals
@@ -95,14 +95,14 @@ hapla struct --clusters hapla.chr1 --threads 16 --pca 20 --out hapla.chr1
 Predict haplotype cluster assignments using pre-computed cluster medians in a new set of haplotypes. SNP sets must be overlapping.
 ```bash
 # Cluster haplotypes in a chromosome with 'hapla cluster' and save cluster medians (--medians)
-hapla cluster --bcf ref.chr1.bcf --size 8 --threads 16 --out ref.chr1 --medians
+hapla cluster --bcf ref.chr1.bcf --size 8 --threads 64 --out ref.chr1 --medians
 # Saves haplotype cluster medians (besides standard binary hapla format)
 #	- ref.chr1.bcm
 #	- ref.chr1.wix
 #	- ref.chr1.hcc
 
 # Predict assignments in a set of new haplotypes using haplotype cluster medians
-hapla predict --bcf new.chr1.bcf  --ref ref.chr1 --threads 16 --out new.chr1
+hapla predict --bcf new.chr1.bcf  --ref ref.chr1 --threads 64 --out new.chr1
 # Saves predicted haplotype cluster assignments in binary hapla format
 #	- new.chr1.bca
 #	- new.chr1.ids
@@ -115,13 +115,13 @@ Using `--medians` in `hapla cluster` outputs three extra files. A **.bcm**-file 
 Estimate ancestry proportions and ancestral haplotype cluster frequencies with a pre-specified number of sources (K). Using a modified ADMIXTURE model for haplotype clusters.
 ```bash
 # Estimate ancestry proportions assuming K=3 ancestral sources for a single chromosome
-hapla admix --clusters hapla.chr1 --K 3 --seed 1 --threads 16 --out hapla.chr1
+hapla admix --clusters hapla.chr1 --K 3 --seed 1 --threads 64 --out hapla.chr1
 # Saves Q matrix in text-format and P matrix as a binary file
 #	- hapla.chr1.K3.s1.Q
 #	- hapla.chr1.K3.s1.P.bin
 
 # Estimate ancestry proportions assuming K=3 ancestral sources using filelist with all chromosomes
-hapla admix --filelist hapla.filelist --K 3 --seed 1 --threads 16 --out hapla
+hapla admix --filelist hapla.filelist --K 3 --seed 1 --threads 64 --out hapla
 # Saves Q matrix in text-format and separate binary files of P matrices
 #	- hapla.K3.s1.Q
 #	- hapla.K3.s1.file{1..22}.P.bin
