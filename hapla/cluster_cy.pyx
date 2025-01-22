@@ -1,8 +1,8 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, initializedcheck=False, cdivision=True
 import numpy as np
 cimport numpy as np
-from cython.parallel import prange
-from libc.math cimport log, log1p
+from cython.parallel import parallel, prange
+from libc.stdlib cimport calloc, free
 
 ##### hapla - haplotype clustering #####
 ### Inline functions
@@ -46,6 +46,7 @@ cdef inline void updateClust(const unsigned char* X, unsigned char* R, float* A,
 		A[j] = <double>(x*u)
 		B[j] -= A[j]
 
+
 ### Standard functions
 # Create marginal medians
 cpdef void marginalMedians(unsigned char[:,::1] R, float[:,::1] C, \
@@ -58,32 +59,29 @@ cpdef void marginalMedians(unsigned char[:,::1] R, float[:,::1] C, \
 		if n_vec[k] > 0:
 			Nk = 1.0/<float>n_vec[k]
 			for j in range(M):
-				R[k,j] = <unsigned char>(C[k,j]*Nk > 0.5)
+				R[k,j] = 1 if (C[k,j]*Nk > 0.5) else 0
 				C[k,j] = 0.0
 
 # Compute distances, cluster assignment and prepare for next loop
-cpdef void clusterAssignment(const unsigned char[:,::1] X, \
-		const unsigned char[:,::1] R, unsigned char[::1] z_vec, \
-		unsigned int[::1] c_vec, const unsigned int[::1] n_vec, \
-		const unsigned int[::1] u_vec, float[:,:,::1] C_thr, \
-		unsigned int[:,::1] N_thr, const unsigned int[:,::1] I_thr, \
-		const size_t K, const size_t T) noexcept nogil:
+cpdef void assignClust(unsigned char[:,::1] X, const unsigned char[:,::1] R, \
+		float[:,::1] C, unsigned char[::1] z_vec, unsigned int[::1] c_vec, \
+		const unsigned int[::1] n_vec, unsigned int[::1] n_tmp, \
+		const unsigned int[::1] u_vec, const size_t U, const size_t K) noexcept nogil:
 	cdef:
 		size_t M = X.shape[1]
-		size_t c, d, i, j, k, t, u, z
-	for t in prange(T, num_threads=T):
-		# Reset thread-local arrays
-		for k in range(K):
-			N_thr[t,k] = 0
-			for j in range(M):
-				C_thr[t,k,j] = 0.0
-
-		# Cluster haplotypes
-		for i in range(I_thr[t,0], I_thr[t,1]):
+		size_t c, d, i, k, u, x, y, z
+		float* C_thr
+		unsigned int* n_thr
+		unsigned char* xi
+	with nogil, parallel():
+		C_thr = <float*>calloc(K*M, sizeof(float))
+		n_thr = <unsigned int*>calloc(K, sizeof(unsigned int))
+		for i in prange(U):
 			c = M + 1
+			xi = &X[i,0]
 			for k in range(K):
 				if n_vec[k] > 0:
-					d = hammingDist(&X[i,0], &R[k,0], M)
+					d = hammingDist(xi, &R[k,0], M)
 					if d < c:
 						z = k
 						c = d
@@ -91,33 +89,32 @@ cpdef void clusterAssignment(const unsigned char[:,::1] X, \
 						if n_vec[k] > n_vec[z]:
 							z = k
 							c = d
-			z_vec[i] = z
+			z_vec[i] = <unsigned char>z
 			c_vec[i] = c
 
 			# Add individual contributions to temporary arrays
 			u = u_vec[i]
-			N_thr[t,z] += u
-			addHaplo(&X[i,0], &C_thr[t,z,0], u, M)
+			n_thr[z] += u
+			addHaplo(xi, &C_thr[z*M], u, M)
+		with gil:
+			for x in range(K):
+				n_tmp[x] += n_thr[x]
+				for y in range(M):
+					C[x,y] += C_thr[x*M + y]
+		free(C_thr)
+		free(n_thr)
 
-# Update contributions and counts from thread-local arrays
-cpdef void updateArrays(const float[:,:,::1] C_thr, float[:,::1] C, 
-		const unsigned int[:,::1] N_thr, unsigned int[::1] n_vec, const size_t K, \
-		const size_t T) noexcept nogil:
+# Copy and reset size of clusters
+cpdef void updateN(unsigned int[::1] n_vec, unsigned int[::1] n_tmp, const size_t K) \
+		noexcept nogil:
 	cdef:
-		size_t M = C.shape[1]
-		size_t k, j, t
+		size_t k
 	for k in range(K):
-		n_vec[k] = N_thr[0,k]
-		for j in range(M):
-			C[k,j] = C_thr[0,k,j]
-	for t in range(1, T):
-		for k in range(K):
-			n_vec[k] += N_thr[t,k]
-			for j in range(M):
-				C[k,j] += C_thr[t,k,j]
+		n_vec[k] = n_tmp[k]
+		n_tmp[k] = 0
 
 # Check and generate new cluster
-cpdef unsigned int checkCluster(const unsigned char[:,::1] X, unsigned char[:,::1] R, \
+cpdef unsigned int checkClust(const unsigned char[:,::1] X, unsigned char[:,::1] R, \
 		float[:,::1] C, unsigned char[::1] z_vec, const unsigned int[::1] c_vec, \
 		unsigned int[::1] n_vec, const unsigned int[::1] u_vec, const float c_lim, \
 		const size_t K) noexcept nogil:
@@ -144,7 +141,7 @@ cpdef unsigned int checkCluster(const unsigned char[:,::1] X, unsigned char[:,::
 		return 0
 
 # Generate new cluster from no check
-cpdef void genCluster(const unsigned char[:,::1] X, unsigned char[:,::1] R, \
+cpdef void genClust(const unsigned char[:,::1] X, unsigned char[:,::1] R, \
 		float[:,::1] C, unsigned char[::1] z_vec, const unsigned int[::1] c_vec, \
 		unsigned int[::1] n_vec, const unsigned int[::1] u_vec, const size_t K) \
 		noexcept nogil:
@@ -220,19 +217,15 @@ cpdef void assignFix(unsigned char[:,::1] Z, unsigned char[::1] z_vec, \
 		Z[w,p_vec[i]] = z
 
 # Reset arrays for next iteration
-cpdef void resetArrays(float[:,:,::1] C_thr, unsigned int[:,::1] N_thr, \
-		unsigned int[::1] c_vec, unsigned int[::1] p_vec, unsigned int[::1] d_vec, \
-		unsigned int[::1] u_vec, const size_t T) noexcept nogil:
+cpdef void resetArrays(unsigned int[::1] c_vec,	unsigned int[::1] n_vec, \
+		unsigned int[::1] p_vec, unsigned int[::1] d_vec, unsigned int[::1] u_vec) \
+		noexcept nogil:
 	cdef:
-		size_t K = C_thr.shape[1]
-		size_t M = C_thr.shape[2]
 		size_t N = c_vec.shape[0]
-		size_t i, j, k, t
-	for t in range(T):
-		for k in range(K):
-			N_thr[t,k] = 0
-			for j in range(M):
-				C_thr[t,k,j] = 0.0
+		size_t K = n_vec.shape[0]
+		size_t i, k
+	for k in range(K):
+		n_vec[k] = 0
 	for i in range(N):
 		c_vec[i] = 0
 		p_vec[i] = i

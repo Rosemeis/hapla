@@ -12,7 +12,7 @@ from time import time
 ##### hapla admix #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.14.2)")
+	print("hapla by Jonas Meisner (v0.14.3)")
 	print(f"hapla admix using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 
@@ -140,7 +140,7 @@ def main(args):
 	# Estimate initial log-likelihood
 	ts = time()
 	L_pre = admix_cy.loglike(Z, P, Q, k_vec, c_vec)
-	print(f"Initial loglike: {L_pre:.1f}\n")
+	print(f"Initial log-like: {L_pre:.1f}\n")
 
 	# Prime iterations
 	for _ in np.arange(3):

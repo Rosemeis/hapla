@@ -8,7 +8,7 @@ from libc.stdlib cimport calloc, free
 ##### hapla - ancestry estimation #####
 # Inline functions
 cdef inline double project(const double s) noexcept nogil:
-	return min(max(s, 1e-5), 1-(1e-5))
+	return min(max(s, 1e-5), 1.0-(1e-5))
 
 cdef inline double computeH(const double* p, const double* q, const size_t z, \
 		const size_t K, const size_t B) noexcept nogil:
@@ -28,7 +28,7 @@ cdef inline double computeL(const double* p, const double* q, const size_t z, \
 		h += p[k*B + z]*q[k]
 	return log(h)
 
-cdef inline void innerJ(const double* p, const double* q, double* p_tmp, \
+cdef inline void inner(const double* p, const double* q, double* p_tmp, \
 		double* q_thr, const double h, const size_t z, const size_t K, const size_t B) \
 		noexcept nogil:
 	cdef:
@@ -134,20 +134,24 @@ cpdef void updateP(const unsigned char[:,::1] Z, double[::1] P, const double[:,:
 		size_t W = Z.shape[0]
 		size_t N = Z.shape[1]
 		size_t K = Q.shape[1]
-		size_t i, l, n, w, z, x, y, B
+		size_t i, l, n, w, x, y, z, B
 		double h
+		double* pl
+		double* pt
 		double* Q_thr
 	with nogil, parallel():
 		Q_thr = <double*>calloc((N//2)*K, sizeof(double))
 		for w in prange(W):
 			B = k_vec[w]
 			l = c_vec[w]
+			pl = &P[l]
+			pt = &P_tmp[l]
 			for i in range(N):
 				n = i//2
 				z = <size_t>Z[w,i]
-				h = computeH(&P[l], &Q[n,0], z, K, B)
-				innerJ(&P[l], &Q[n,0], &P_tmp[l], &Q_thr[n*K], h, z, K, B)
-			outerP(&P[l], &P_tmp[l], K, B)
+				h = computeH(pl, &Q[n,0], z, K, B)
+				inner(pl, &Q[n,0], pt, &Q_thr[n*K], h, z, K, B)
+			outerP(pl, pt, K, B)
 		with gil:
 			for x in range(N//2):
 				for y in range(K):
@@ -163,20 +167,24 @@ cpdef void accelP(const unsigned char[:,::1] Z, const double[::1] P, \
 		size_t W = Z.shape[0]
 		size_t N = Z.shape[1]
 		size_t K = Q.shape[1]
-		size_t i, l, n, w, z, x, y, B
+		size_t i, l, n, w, x, y, z, B
 		double h
+		double* pl
+		double* pt
 		double* Q_thr
 	with nogil, parallel():
 		Q_thr = <double*>calloc((N//2)*K, sizeof(double))
 		for w in prange(W):
 			B = k_vec[w]
 			l = c_vec[w]
+			pl = &P[l]
+			pt = &P_tmp[l]
 			for i in range(N):
 				n = i//2
 				z = <size_t>Z[w,i]
-				h = computeH(&P[l], &Q[n,0], z, K, B)
-				innerJ(&P[l], &Q[n,0], &P_tmp[l], &Q_thr[n*K], h, z, K, B)
-			outerP(&P_new[l], &P_tmp[l], K, B)
+				h = computeH(pl, &Q[n,0], z, K, B)
+				inner(pl, &Q[n,0], pt, &Q_thr[n*K], h, z, K, B)
+			outerP(&P_new[l], pt, K, B)
 		with gil:
 			for x in range(N//2):
 				for y in range(K):
@@ -246,14 +254,14 @@ cpdef double loglike(const unsigned char[:,::1] Z, const double[::1] P, \
 		size_t W = Z.shape[0]
 		size_t N = Z.shape[1]
 		size_t K = Q.shape[1]
-		size_t i, k, l, n, w, z, B
+		size_t i, l, w, B
 		double res = 0.0
 		double h
+		double* pl
 	for w in prange(W):
 		B = k_vec[w]
 		l = c_vec[w]
+		pl = &P[l]
 		for i in range(N):
-			n = i//2
-			z = <size_t>Z[w,i]
-			res += computeL(&P[l], &Q[n,0], z, K, B)
+			res += computeL(pl, &Q[i//2,0], <size_t>Z[w,i], K, B)
 	return res

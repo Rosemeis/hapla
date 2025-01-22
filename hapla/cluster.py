@@ -13,7 +13,7 @@ from time import time
 ##### hapla cluster #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.14.2)")
+	print("hapla by Jonas Meisner (v0.14.3)")
 	print(f"hapla cluster using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 	
@@ -141,6 +141,7 @@ def main(args):
 	b_tmp = np.zeros_like(p_vec) # Help vector (suffix array)
 	d_tmp = np.zeros_like(d_vec) # Help vector (suffix array)
 	e_tmp = np.zeros_like(d_vec) # Help vector (suffix array)
+	n_tmp = np.zeros_like(n_vec) # Help vector (size)
 	Z = np.zeros((W, N), dtype=np.uint8) # Chromosome-based cluster assignments
 	if args.size is not None: # Window length-based
 		if args.memory:
@@ -148,13 +149,6 @@ def main(args):
 		X = np.zeros((N, args.size), dtype=np.uint8) # Haplotypes
 		R = np.zeros((args.max_clusters, args.size), dtype=np.uint8) # Medians
 		C = np.zeros((args.max_clusters, args.size), dtype=np.float32) # Means
-
-	# Thread-local containers
-	I_thr = np.zeros((args.threads, 2), dtype=np.uint32)
-	N_thr = np.zeros((args.threads, args.max_clusters), dtype=np.uint32)
-	if args.size is not None:
-		C_thr = np.zeros((args.threads, args.max_clusters, args.size), \
-			dtype=np.float32)
 
 	# Optional containers
 	if args.medians:
@@ -175,8 +169,6 @@ def main(args):
 			X = np.zeros((N, w_vec[w+1]-S), dtype=np.uint8)
 			R = np.zeros((args.max_clusters, X.shape[1]), dtype=np.uint8)
 			C = np.zeros((args.max_clusters, X.shape[1]), dtype=np.float32)
-			C_thr = np.zeros((args.threads, args.max_clusters, X.shape[1]), \
-				dtype=np.float32)
 
 		# Prepare last window
 		if w == (W-1):
@@ -185,8 +177,6 @@ def main(args):
 			X = np.zeros((N, M-S), dtype=np.uint8)
 			R = np.zeros((args.max_clusters, X.shape[1]), dtype=np.uint8)
 			C = np.zeros((args.max_clusters, X.shape[1]), dtype=np.float32)
-			C_thr = np.zeros((args.threads, args.max_clusters, X.shape[1]), \
-				dtype=np.float32)
 		c_lim = args.lmbda*float(X.shape[1])
 		
 		# Load haplotype window
@@ -196,8 +186,6 @@ def main(args):
 		else:
 			reader_cy.convertHap(G, C, p_vec, d_vec, a_tmp, b_tmp, d_tmp, e_tmp, S)
 			U = reader_cy.uniqueHap(G, X, p_vec, d_vec, u_vec, S)
-		T = min(U, args.threads)
-		reader_cy.intervalThr(I_thr, U, U//T)
 
 		# Compute mean and initialize first median
 		K = 1
@@ -206,10 +194,9 @@ def main(args):
 
 		# Perform PDC-DP-Medians
 		for it in np.arange(args.max_iterations):
-			cluster_cy.clusterAssignment(X, R, z_vec, c_vec, n_vec, u_vec, \
-				C_thr, N_thr, I_thr, K, T)
-			cluster_cy.updateArrays(C_thr, C, N_thr, n_vec, K, T)
-			K += cluster_cy.checkCluster(X, R, C, z_vec, c_vec, n_vec, u_vec, c_lim, K)
+			cluster_cy.assignClust(X, R, C, z_vec, c_vec, n_vec, n_tmp, u_vec, U, K)
+			cluster_cy.updateN(n_vec, n_tmp, K)
+			K += cluster_cy.checkClust(X, R, C, z_vec, c_vec, n_vec, u_vec, c_lim, K)
 
 			# Check for convergence
 			if it > 0:
@@ -233,18 +220,16 @@ def main(args):
 
 			# Remove singletons in one go
 			n_vec[n_vec == 1] = 0
-			cluster_cy.clusterAssignment(X, R, z_vec, c_vec, n_vec, u_vec, \
-				C_thr, N_thr, I_thr, K, T)
-			cluster_cy.updateArrays(C_thr, C, N_thr, n_vec, K, T)
+			cluster_cy.assignClust(X, R, C, z_vec, c_vec, n_vec, n_tmp, u_vec, U, K)
+			cluster_cy.updateN(n_vec, n_tmp, K)
 			K_tmp = np.sum(n_vec > 0, dtype=np.uint32)
 
 			# Remove small clusters iterativly
 			while K_tmp > 2:
 				# Re-assign haplotypes
 				cluster_cy.marginalMedians(R, C, n_vec, K)
-				cluster_cy.clusterAssignment(X, R, z_vec, c_vec, n_vec, u_vec, \
-					C_thr, N_thr, I_thr, K, T)
-				cluster_cy.updateArrays(C_thr, C, N_thr, n_vec, K, T)
+				cluster_cy.assignClust(X, R, C, z_vec, c_vec, n_vec, n_tmp, u_vec, U, K)
+				cluster_cy.updateN(n_vec, n_tmp, K)
 
 				# Find smallest cluster
 				N_min = cluster_cy.findZero(n_vec, N, N_mac, K)
@@ -257,9 +242,8 @@ def main(args):
 
 			# Re-cluster K = 2 non-break case
 			if (K_tmp == 2) and (N_min < N_mac):
-				cluster_cy.clusterAssignment(X, R, z_vec, c_vec, n_vec, u_vec, \
-					C_thr, N_thr, I_thr, K, T)
-				np.sum(N_thr, axis=0, out=n_vec)
+				cluster_cy.assignClust(X, R, C, z_vec, c_vec, n_vec, n_tmp, u_vec, U, K)
+				cluster_cy.updateN(n_vec, n_tmp, K)
 
 		# Fix cluster median and cluster assignment order
 		cluster_cy.medianFix(R, z_vec, n_vec, K, U)
@@ -274,12 +258,11 @@ def main(args):
 				R[:K].tofile(f)
 
 		# Reset arrays
-		n_vec.fill(0)
-		cluster_cy.resetArrays(C_thr, N_thr, c_vec, p_vec, d_vec, u_vec, T)
+		cluster_cy.resetArrays(c_vec, n_vec, p_vec, d_vec, u_vec)
 	
 	# Release memory
-	del G, X, C_thr, N_thr, w_vec, z_vec, c_vec, z_tmp, p_vec, d_vec, n_vec, u_vec, \
-		a_tmp, b_tmp, d_tmp, e_tmp
+	del G, X, C, w_vec, z_vec, c_vec, z_tmp, p_vec, d_vec, n_vec, u_vec, \
+		a_tmp, b_tmp, d_tmp, e_tmp, n_tmp
 	if args.memory:
 		del H
 	print(".\n")

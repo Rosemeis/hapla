@@ -84,17 +84,19 @@ cdef inline unsigned int hammingPred(const unsigned char* X, const unsigned char
 	return dist
 
 # Haplotype cluster assignment based on pre-estimated medians
-cpdef void predictCluster(const unsigned char[:,::1] X, const unsigned char[:,::1] R, \
+cpdef void predictCluster(unsigned char[:,::1] X, const unsigned char[:,::1] R, \
 		unsigned char[:,::1] Z, const unsigned int[::1] n_vec, const size_t K, \
 		const size_t w) noexcept nogil:
 	cdef:
 		size_t N = X.shape[0]
 		size_t M = X.shape[1]
 		size_t c, d, i, j, k, z
+		unsigned char* xi
 	for i in prange(N):
 		c = M + 1
+		xi = &X[i,0]
 		for k in range(K):
-			d = hammingPred(&X[i,0], &R[k,0], M)
+			d = hammingPred(xi, &R[k,0], M)
 			if d < c:
 				z = k
 				c = d
@@ -102,4 +104,4 @@ cpdef void predictCluster(const unsigned char[:,::1] X, const unsigned char[:,::
 				if n_vec[k] > n_vec[z]:
 					z = k
 					c = d
-		Z[w,i] = z
+		Z[w,i] = <unsigned char>z

@@ -91,18 +91,6 @@ cpdef unsigned int uniqueHap(const unsigned char[:,::1] G, unsigned char[:,::1] 
 			u += 1
 		u_vec[u-1] += 1
 	return u
-
-# Create interval for individual-based threading
-cpdef void intervalThr(unsigned int[:,::1] I_thr, const size_t U, const size_t B) \
-		noexcept nogil:
-	cdef:
-		size_t t = I_thr.shape[0]
-		size_t thr
-	for thr in range(t-1):
-		I_thr[thr,0] = thr*B
-		I_thr[thr,1] = (thr+1)*B
-	I_thr[t-1,0] = (t-1)*B
-	I_thr[t-1,1] = U
 			
 # Convert transposed window for predicting target clusters
 cpdef void predictHap(const unsigned char[:,::1] G, unsigned char[:,::1] X, \
