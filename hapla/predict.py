@@ -13,7 +13,7 @@ from time import time
 ##### hapla predict #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.14.3)")
+	print("hapla by Jonas Meisner (v0.14.4)")
 	print(f"hapla predict using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 	
@@ -51,34 +51,34 @@ def main(args):
 	# Initiate VCF and extract sample list
 	print("\rLoading VCF/BCF file...", end="")
 	v_file = VCF(args.vcf, threads=min(args.threads, 4))
-	v_list = []
 	s_list = np.array(v_file.samples).reshape(-1, 1)
-	M = 0
 	N = 2*len(v_file.samples)
 	B = ceil(N/4)
 
-	# Check number of sites and allocate array
-	for variant in v_file:
+	# Check number of sites
+	for M, variant in enumerate(v_file):
 		if M == 0:
 			chrom = re.findall(r'\d+', variant.CHROM)[-1]
-		v_list.append(variant.POS)
-		M += 1
+	M += 1
+	del v_file
+
+	# Allocate arrays
 	if args.memory:
 		G = np.zeros((M, B), dtype=np.uint8)
 	else:
 		G = np.zeros((M, N), dtype=np.uint8)
+	v_vec = np.zeros(M, dtype=np.uint32)
 
 	# Read variants into matrix
 	v_file = VCF(args.vcf, threads=min(args.threads, 4))
-	j = 0
-	for variant in v_file:
+	for j, variant in enumerate(v_file):
 		V = variant.genotype.array()
 		if args.memory:
-			memory_cy.predBit(G, V, j, N//2)
+			memory_cy.readBit(G, V, j, N//2)
 		else:
-			reader_cy.predVar(G, V, j, N//2)
-		j += 1
-	del V
+			reader_cy.readVar(G, V, j, N//2)
+		v_vec[j] = variant.POS
+	del V, v_file
 	print(f"\rLoaded phased genotype data: {N} haplotypes and {M} SNPs.")
 
 	# Load window information from reference
@@ -99,9 +99,8 @@ def main(args):
 	# Load window setup files
 	w_vec = np.loadtxt(f"{args.ref}.wix", dtype=np.uint32)
 	N_arr = np.loadtxt(f"{args.ref}.hcc", dtype=np.uint32)
-	v_vec = np.array(v_list, dtype=np.uint32)
 	assert np.allclose(v_vec[w_vec], s_vec), "SNP set doesn't match!"
-	del v_list, v_vec
+	del v_vec
 
 	# Containers
 	Z = np.zeros((W, N), dtype=np.uint8) # Haplotype cluster alleles

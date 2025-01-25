@@ -1,4 +1,4 @@
-# hapla (v0.14.3)
+# hapla (v0.14.4)
 ***hapla*** is a framework for performing window-based haplotype clustering in phased genotype data. The inferred haplotype cluster alleles can be used to infer fine-scale population structure, perform polygenic prediction and haplotype cluster based association studies.
 
 ### Citation
@@ -53,7 +53,7 @@ hapla cluster --bcf data.chr1.bcf --size 8 --step 4 --threads 8 --out hapla.chr1
 for c in {1..22}
 do
 	hapla cluster --bcf data.chr${c}.bcf --size 8 --threads 8 --out hapla.chr${c}
-	realpath hapla.chr${c} >> hapla.filelist
+	echo "hapla.chr${c}" >> hapla.filelist
 done
 ```
 
@@ -137,7 +137,7 @@ hapla fatash --clusters hapla.chr1 --qfile hapla.chr1.K3.s1.Q --pfile hapla.chr1
 #	- hapla.chr1.path
 
 # Infer local ancestry tracts using filelist with all chromosomes (Viterbi decoding)
-for c in {1..22}; do realpath hapla.chr1.K3.s1.file${c}.P.bin >> hapla.K3.s1.pfilelist; done
+for c in {1..22}; do echo "hapla.chr1.K3.s1.file${c}.P.bin" >> hapla.K3.s1.pfilelist; done
 hapla fatash --filelist hapla.filelist --qfile hapla.K3.s1.Q --pfilelist hapla.K3.s1.pfilelist --threads 16 --out hapla --viterbi
 # Saves Viterbi decoding paths in text-files
 #	- hapla.file{1..22}.path

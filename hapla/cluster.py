@@ -13,7 +13,7 @@ from time import time
 ##### hapla cluster #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.14.3)")
+	print("hapla by Jonas Meisner (v0.14.4)")
 	print(f"hapla cluster using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 	
@@ -60,34 +60,34 @@ def main(args):
 	# Initiate VCF and extract sample list
 	print("\rLoading VCF/BCF file...", end="")
 	v_file = VCF(args.vcf, threads=min(args.threads, 4))
-	v_list = []
 	s_list = np.array(v_file.samples).reshape(-1, 1)
-	M = 0
 	N = 2*len(v_file.samples)
 	B = ceil(N/8)
 
-	# Check number of sites and allocate array
-	for variant in v_file:
+	# Check number of sites
+	for M, variant in enumerate(v_file):
 		if M == 0:
 			chrom = re.findall(r'\d+', variant.CHROM)[-1]
-		v_list.append(variant.POS)
-		M += 1
+	M += 1
+	del v_file
+
+	# Allocate arrays
 	if args.memory:
 		G = np.zeros((M, B), dtype=np.uint8)
 	else:
 		G = np.zeros((M, N), dtype=np.uint8)
+	v_vec = np.zeros(M, dtype=np.uint32)
 
 	# Read variants into matrix
 	v_file = VCF(args.vcf, threads=min(args.threads, 4))
-	j = 0
-	for variant in v_file:
+	for j, variant in enumerate(v_file):
 		V = variant.genotype.array()
 		if args.memory:
 			memory_cy.readBit(G, V, j, N//2)
 		else:
 			reader_cy.readVar(G, V, j, N//2)
-		j += 1
-	del V
+		v_vec[j] = variant.POS
+	del V, v_file
 	t_par = time()-start
 	print(f"\rLoaded phased genotype data: {N} haplotypes and {M} SNPs.")
 
@@ -116,7 +116,6 @@ def main(args):
 		print(f"Clustering {W} windows with provided SNP lengths.")
 
 	# Extract window information
-	v_vec = np.array(v_list, dtype=np.uint32)
 	s_vec = v_vec[w_vec[:-1]].copy()
 	if args.size is not None:
 		e_vec = v_vec[w_vec[:-1]+args.size-1].copy()
@@ -126,7 +125,7 @@ def main(args):
 	else:
 		e_vec = v_vec[w_vec[1:]-1]
 		b_vec = w_vec[1:] - w_vec[:-1]
-	del v_list, v_vec
+	del v_vec
 
 	# Containers
 	z_vec = np.zeros(N, dtype=np.uint8) # Window-based cluster assignments 
@@ -205,7 +204,7 @@ def main(args):
 						break
 					else: # Make sure two haplotype clusters are generated
 						print(", No diversity (K=1)! Adding extra cluster.")
-						cluster_cy.genCluster(X, R, C, z_vec, c_vec, n_vec, u_vec, K)
+						cluster_cy.genClust(X, R, C, z_vec, c_vec, n_vec, u_vec, K)
 						K += 1
 			else:
 				memoryview(z_tmp)[:] = memoryview(z_vec)
