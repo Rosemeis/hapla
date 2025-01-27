@@ -1,6 +1,7 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, initializedcheck=False, cdivision=True
 import numpy as np
 cimport numpy as np
+cimport openmp as omp
 from cython.parallel import parallel, prange
 from libc.stdlib cimport calloc, free
 
@@ -73,6 +74,8 @@ cpdef void assignClust(unsigned char[:,::1] X, const unsigned char[:,::1] R, \
 		float* C_thr
 		unsigned int* n_thr
 		unsigned char* xi
+		omp.omp_lock_t mutex
+	omp.omp_init_lock(&mutex)
 	with nogil, parallel():
 		C_thr = <float*>calloc(K*M, sizeof(float))
 		n_thr = <unsigned int*>calloc(K, sizeof(unsigned int))
@@ -96,13 +99,17 @@ cpdef void assignClust(unsigned char[:,::1] X, const unsigned char[:,::1] R, \
 			u = u_vec[i]
 			n_thr[z] += u
 			addHaplo(xi, &C_thr[z*M], u, M)
-		with gil:
-			for x in range(K):
-				n_tmp[x] += n_thr[x]
-				for y in range(M):
-					C[x,y] += C_thr[x*M + y]
+		
+		# omp critical
+		omp.omp_set_lock(&mutex)
+		for x in range(K):
+			n_tmp[x] += n_thr[x]
+			for y in range(M):
+				C[x,y] += C_thr[x*M + y]
+		omp.omp_unset_lock(&mutex)
 		free(C_thr)
 		free(n_thr)
+	omp.omp_destroy_lock(&mutex)
 
 # Copy and reset size of clusters
 cpdef void updateN(unsigned int[::1] n_vec, unsigned int[::1] n_tmp, const size_t K) \
