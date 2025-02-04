@@ -13,7 +13,7 @@ from time import time
 ##### hapla cluster #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.14.5)")
+	print("hapla by Jonas Meisner (v0.14.6)")
 	print(f"hapla cluster using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 	
@@ -85,7 +85,7 @@ def main(args):
 		if args.memory:
 			memory_cy.readBit(G, V, j, N//2)
 		else:
-			reader_cy.readVar(G, V, j, N//2)
+			reader_cy.readVar(G[j], V, N//2)
 		v_vec[j] = variant.POS
 	del V, v_file
 	t_par = time()-start
@@ -128,6 +128,7 @@ def main(args):
 	del v_vec
 
 	# Containers
+	Z = np.zeros((W, N), dtype=np.uint8) # Chromosome-based cluster assignments
 	z_vec = np.zeros(N, dtype=np.uint8) # Window-based cluster assignments 
 	k_vec = np.zeros(W, dtype=np.uint8) # Number of clusters in windows
 	c_vec = np.zeros(N, dtype=np.uint32) # Cost vector
@@ -141,13 +142,12 @@ def main(args):
 	d_tmp = np.zeros_like(d_vec) # Help vector (suffix array)
 	e_tmp = np.zeros_like(d_vec) # Help vector (suffix array)
 	n_tmp = np.zeros_like(n_vec) # Help vector (size)
-	Z = np.zeros((W, N), dtype=np.uint8) # Chromosome-based cluster assignments
 	if args.size is not None: # Window length-based
 		if args.memory:
 			H = np.zeros((args.size, N), dtype=np.uint8) # Haplotypes transposed
 		X = np.zeros((N, args.size), dtype=np.uint8) # Haplotypes
 		R = np.zeros((args.max_clusters, args.size), dtype=np.uint8) # Medians
-		C = np.zeros((args.max_clusters, args.size), dtype=np.float32) # Means
+		C = np.zeros((args.max_clusters, args.size), dtype=np.uint32) # Means
 
 	# Optional containers
 	if args.medians:
@@ -167,7 +167,7 @@ def main(args):
 				H = np.zeros((w_vec[w+1]-S, N), dtype=np.uint8)
 			X = np.zeros((N, w_vec[w+1]-S), dtype=np.uint8)
 			R = np.zeros((args.max_clusters, X.shape[1]), dtype=np.uint8)
-			C = np.zeros((args.max_clusters, X.shape[1]), dtype=np.float32)
+			C = np.zeros((args.max_clusters, X.shape[1]), dtype=np.uint32)
 
 		# Prepare last window
 		if w == (W-1):
@@ -175,8 +175,8 @@ def main(args):
 				H = np.zeros((M-S, N), dtype=np.uint8)
 			X = np.zeros((N, M-S), dtype=np.uint8)
 			R = np.zeros((args.max_clusters, X.shape[1]), dtype=np.uint8)
-			C = np.zeros((args.max_clusters, X.shape[1]), dtype=np.float32)
-		c_lim = args.lmbda*float(X.shape[1])
+			C = np.zeros((args.max_clusters, X.shape[1]), dtype=np.uint32)
+		c_lim = np.uint32(args.lmbda*float(X.shape[1]))
 		
 		# Load haplotype window
 		if args.memory:

@@ -3,14 +3,14 @@ import numpy as np
 cimport numpy as np
 cimport openmp as omp
 from cython.parallel import parallel, prange
-from libc.math cimport log
+from libc.math cimport fmin, fmax, log
 from libc.stdlib cimport calloc, free
 
 ##### hapla - ancestry estimation #####
 ### Inline functions
 # Truncate parameters to domain
 cdef inline double project(const double s) noexcept nogil:
-	return min(max(s, 1e-5), 1.0-(1e-5))
+	return fmin(fmax(s, 1e-5), 1.0-(1e-5))
 
 # Estimate inverse individual allele frequency
 cdef inline double computeH(const double* p, const double* q, const size_t z, \
@@ -56,14 +56,12 @@ cdef inline void outerP(double* p, double* p_tmp, const size_t K, const size_t B
 			valP = p_tmp[s+c]*p[s+c]
 			sumA += valP
 			p[s+c] = valP
-		sumA = 1.0/sumA
 		for c in range(B):
-			valP = project(p[s+c]*sumA)
+			valP = project(p[s+c]/sumA)
 			sumB += valP
 			p[s+c] = valP
-		sumB = 1.0/sumB
 		for c in range(B):
-			p[s+c] *= sumB
+			p[s+c] /= sumB
 			p_tmp[s+c] = 0.0
 
 # Outer loop accelerated update for P
@@ -80,14 +78,12 @@ cdef inline void outerAccelP(const double* p, double* p_new, double* p_tmp, \
 			valP = p_tmp[s+c]*p[s+c]
 			sumA += valP
 			p_new[s+c] = valP
-		sumA = 1.0/sumA
 		for c in range(B):
-			valP = project(p_new[s+c]*sumA)
+			valP = project(p_new[s+c]/sumA)
 			sumB += valP
 			p_new[s+c] = valP
-		sumB = 1.0/sumB
 		for c in range(B):
-			p_new[s+c] *= sumB
+			p_new[s+c] /= sumB
 			p_tmp[s+c] = 0.0
 
 # Outer loop update for Q
@@ -101,9 +97,8 @@ cdef inline void outerQ(double* q, double* q_tmp, const double S, const size_t K
 		valQ = project(q[k]*q_tmp[k]*S)
 		sumQ += valQ
 		q[k] = valQ
-	sumQ = 1.0/sumQ
 	for k in range(K):
-		q[k] *= sumQ
+		q[k] /= sumQ
 		q_tmp[k] = 0.0
 
 # Outer loop accelerated update for Q
@@ -117,9 +112,8 @@ cdef inline void outerAccelQ(const double* q, double* q_new, double* q_tmp, cons
 		valQ = project(q[k]*q_tmp[k]*S)
 		sumQ += valQ
 		q_new[k] = valQ
-	sumQ = 1.0/sumQ
 	for k in range(K):
-		q_new[k] *= sumQ
+		q_new[k] /= sumQ
 		q_tmp[k] = 0.0
 
 # Estimate QN factor
@@ -135,7 +129,7 @@ cdef inline double factorAccel(const double* v0, const double* v1, const double*
 		v = v2[i] - v1[i] - u
 		sum1 += u*u
 		sum2 += u*v
-	return min(max(-(sum1/sum2), 1.0), 256.0)
+	return fmin(fmax(-(sum1/sum2), 1.0), 256.0)
 
 
 ### Update functions
@@ -154,9 +148,8 @@ cpdef void createP(double[::1] P, const unsigned char[::1] k_vec, \
 			sumP = 0.0
 			for c in range(B):
 				sumP = sumP + P[s+c]
-			sumP = 1.0/sumP
 			for c in range(B):
-				P[s+c] *= sumP
+				P[s+c] /= sumP
 
 # Update Q in supervised mode
 cpdef void superQ(double[:,::1] Q, const unsigned char[::1] y) noexcept nogil:
@@ -175,9 +168,8 @@ cpdef void superQ(double[:,::1] Q, const unsigned char[::1] y) noexcept nogil:
 					valQ = 1e-5
 				sumQ = sumQ + valQ
 				Q[i,k] = valQ
-			sumQ = 1.0/sumQ
 			for k in range(K):
-				Q[i,k] *= sumQ
+				Q[i,k] /= sumQ
 
 # Update P and Q temp arrays
 cpdef void updateP(const unsigned char[:,::1] Z, double[::1] P, const double[:,::1] Q, \
@@ -278,9 +270,8 @@ cpdef void alphaP(double[::1] P0, const double[::1] P1, const double[::1] P2, \
 				valP = project(c2*P1[s+c] + c1*P2[s+c])
 				sumP = sumP + valP
 				P0[s+c] = valP
-			sumP = 1.0/sumP
 			for c in range(B):
-				P0[s+c] *= sumP
+				P0[s+c] /= sumP
 
 # Update Q
 cpdef void updateQ(double[:,::1] Q, double[:,::1] Q_tmp, const size_t W) noexcept nogil:
@@ -319,9 +310,8 @@ cpdef void alphaQ(double[:,::1] Q0, const double[:,::1] Q1, const double[:,::1] 
 			valQ = project(c2*Q1[i,k] + c1*Q2[i,k])
 			sumQ = sumQ + valQ
 			Q0[i,k] = valQ
-		sumQ = 1.0/sumQ
 		for k in range(K):
-			Q0[i,k] *= sumQ	
+			Q0[i,k] /= sumQ	
 
 # Log-likelihood
 cpdef double loglike(const unsigned char[:,::1] Z, double[::1] P, \

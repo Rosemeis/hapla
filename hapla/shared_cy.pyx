@@ -34,7 +34,7 @@ cpdef void centerZ(const unsigned char[:,::1] Z_agg, float[:,::1] Z_bat, \
 		float u
 	for j in prange(M):
 		l = M_b + j
-		u = <float>(2.0*p[l])
+		u = 2.0*<float>p[l]
 		for i in range(N):
 			Z_bat[j,i] = Z_agg[l,i] - u
 
@@ -80,7 +80,7 @@ cdef inline unsigned int hammingPred(const unsigned char* X, const unsigned char
 		unsigned int dist = 0
 	for j in range(M):
 		if X[j] != 9: # Ignore missing
-			dist += X[j]^R[j]
+			dist += (X[j]^R[j])
 	return dist
 
 # Haplotype cluster assignment based on pre-estimated medians
@@ -90,12 +90,13 @@ cpdef void predictCluster(unsigned char[:,::1] X, const unsigned char[:,::1] R, 
 	cdef:
 		size_t N = X.shape[0]
 		size_t M = X.shape[1]
-		size_t c, d, i, j, k, z
+		size_t c, d, i, k, z
 		unsigned char* xi
 	for i in prange(N):
-		c = M + 1
 		xi = &X[i,0]
-		for k in range(K):
+		z = 0
+		c = hammingPred(xi, &R[0,0], M)
+		for k in range(1, K):
 			d = hammingPred(xi, &R[k,0], M)
 			if d < c:
 				z = k
@@ -104,4 +105,4 @@ cpdef void predictCluster(unsigned char[:,::1] X, const unsigned char[:,::1] R, 
 				if n_vec[k] > n_vec[z]:
 					z = k
 					c = d
-		Z[w,i] = <unsigned char>z
+		Z[w,i] = z

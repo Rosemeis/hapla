@@ -14,7 +14,7 @@ cdef inline unsigned int hammingDist(const unsigned char* X, const unsigned char
 		size_t j
 		unsigned int dist = 0
 	for j in range(M):
-		dist += X[j]^R[j]
+		dist += (X[j]^R[j])
 	return dist
 
 # Calculate Hamming distance and change assignments
@@ -24,65 +24,68 @@ cdef inline unsigned int hammingCheck(const unsigned char* z_vec, unsigned char*
 		size_t i
 		unsigned int dist = 0
 	for i in range(N):
-		dist += z_vec[i]^z_pre[i]
+		dist += (z_vec[i]^z_pre[i])
 		z_pre[i] = z_vec[i]
 	return dist
 
 # Add haplotype contribution to frequency vector
-cdef inline void addHaplo(const unsigned char* X, float* C, const size_t u, \
+cdef inline void addHaplo(const unsigned char* X, unsigned int* C, const size_t u, \
 		const size_t M) noexcept nogil:
 	cdef size_t j
 	for j in range(M):
-		C[j] += <float>(X[j]*u)
+		if X[j] == 1:
+			C[j] += u
 
 # Update cluster information
-cdef inline void updateClust(const unsigned char* X, unsigned char* R, float* A, \
-		float* B, const size_t u, const size_t M) noexcept nogil:
+cdef inline void updateClust(const unsigned char* X, unsigned char* R, unsigned int* A, \
+		unsigned int* B, const size_t u, const size_t M) noexcept nogil:
 	cdef:
 		size_t j
 		unsigned char x
 	for j in range(M):
-		x = X[j]
-		R[j] = x
-		A[j] = <double>(x*u)
-		B[j] -= A[j]
+		x = R[j] = A[j] = X[j]
+		if x == 1:
+			A[j] = u
+			B[j] -= u
 
 
 ### Standard functions
 # Create marginal medians
-cpdef void marginalMedians(unsigned char[:,::1] R, float[:,::1] C, \
+cpdef void marginalMedians(unsigned char[:,::1] R, unsigned int[:,::1] C, \
 		const unsigned int[::1] n_vec, const size_t K) noexcept nogil:
 	cdef:
 		size_t M = R.shape[1]
 		size_t j, k
-		float Nk
+		unsigned int Nk
 	for k in range(K):
 		if n_vec[k] > 0:
-			Nk = 1.0/<float>n_vec[k]
+			Nk = n_vec[k]//2
 			for j in range(M):
-				R[k,j] = 1 if (C[k,j]*Nk > 0.5) else 0
-				C[k,j] = 0.0
+				R[k,j] = 1 if C[k,j] > Nk else 0
+				C[k,j] = 0
 
 # Compute distances, cluster assignment and prepare for next loop
 cpdef void assignClust(unsigned char[:,::1] X, const unsigned char[:,::1] R, \
-		float[:,::1] C, unsigned char[::1] z_vec, unsigned int[::1] c_vec, \
+		unsigned int[:,::1] C, unsigned char[::1] z_vec, unsigned int[::1] c_vec, \
 		const unsigned int[::1] n_vec, unsigned int[::1] n_tmp, \
 		const unsigned int[::1] u_vec, const size_t U, const size_t K) noexcept nogil:
 	cdef:
 		size_t M = X.shape[1]
-		size_t c, d, i, k, u, x, y, z
-		float* C_thr
+		size_t i, k, x, y, z
+		unsigned int c, d, u
+		unsigned int* C_thr
 		unsigned int* n_thr
 		unsigned char* xi
 		omp.omp_lock_t mutex
 	omp.omp_init_lock(&mutex)
 	with nogil, parallel():
-		C_thr = <float*>calloc(K*M, sizeof(float))
+		C_thr = <unsigned int*>calloc(K*M, sizeof(unsigned int))
 		n_thr = <unsigned int*>calloc(K, sizeof(unsigned int))
 		for i in prange(U):
-			c = M + 1
 			xi = &X[i,0]
-			for k in range(K):
+			z = 0
+			c = hammingDist(xi, &R[0,0], M)
+			for k in range(1, K):
 				if n_vec[k] > 0:
 					d = hammingDist(xi, &R[k,0], M)
 					if d < c:
@@ -92,7 +95,7 @@ cpdef void assignClust(unsigned char[:,::1] X, const unsigned char[:,::1] R, \
 						if n_vec[k] > n_vec[z]:
 							z = k
 							c = d
-			z_vec[i] = <unsigned char>z
+			z_vec[i] = z
 			c_vec[i] = c
 
 			# Add individual contributions to temporary arrays
@@ -103,9 +106,10 @@ cpdef void assignClust(unsigned char[:,::1] X, const unsigned char[:,::1] R, \
 		# omp critical
 		omp.omp_set_lock(&mutex)
 		for x in range(K):
-			n_tmp[x] += n_thr[x]
-			for y in range(M):
-				C[x,y] += C_thr[x*M + y]
+			if n_vec[x] > 0:
+				n_tmp[x] += n_thr[x]
+				for y in range(M):
+					C[x,y] += C_thr[x*M + y]
 		omp.omp_unset_lock(&mutex)
 		free(C_thr)
 		free(n_thr)
@@ -122,16 +126,17 @@ cpdef void updateN(unsigned int[::1] n_vec, unsigned int[::1] n_tmp, const size_
 
 # Check and generate new cluster
 cpdef unsigned int checkClust(const unsigned char[:,::1] X, unsigned char[:,::1] R, \
-		float[:,::1] C, unsigned char[::1] z_vec, const unsigned int[::1] c_vec, \
-		unsigned int[::1] n_vec, const unsigned int[::1] u_vec, const float c_lim, \
-		const size_t K) noexcept nogil:
+		unsigned int[:,::1] C, unsigned char[::1] z_vec, const unsigned int[::1] c_vec, \
+		unsigned int[::1] n_vec, const unsigned int[::1] u_vec, \
+		const unsigned int c_lim, const size_t K) noexcept nogil:
 	cdef:
 		size_t N = X.shape[0]
 		size_t M = X.shape[1]
 		size_t L = R.shape[0]
 		size_t c_arg = 0
-		size_t c_max = c_vec[0]
-		size_t i, j, k, u, z
+		size_t i, j, k, z
+		unsigned int c_max = c_vec[0]
+		unsigned int u
 	for i in range(1, N): # Find extreme point
 		if c_vec[i] > c_max:
 			c_arg = i
@@ -149,15 +154,16 @@ cpdef unsigned int checkClust(const unsigned char[:,::1] X, unsigned char[:,::1]
 
 # Generate new cluster from no check
 cpdef void genClust(const unsigned char[:,::1] X, unsigned char[:,::1] R, \
-		float[:,::1] C, unsigned char[::1] z_vec, const unsigned int[::1] c_vec, \
+		unsigned int[:,::1] C, unsigned char[::1] z_vec, const unsigned int[::1] c_vec, \
 		unsigned int[::1] n_vec, const unsigned int[::1] u_vec, const size_t K) \
 		noexcept nogil:
 	cdef:
 		size_t N = X.shape[0]
 		size_t M = X.shape[1]
 		size_t c_arg = 0
-		size_t c_max = c_vec[0]
-		size_t i, j, k, u, z
+		size_t i, j, k, z
+		unsigned int c_max = c_vec[0]
+		unsigned int u
 	for i in range(1, N): # Find extreme point
 		if c_vec[i] > c_max:
 			c_arg = i

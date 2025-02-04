@@ -13,7 +13,7 @@ from time import time
 ##### hapla predict #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.14.5)")
+	print("hapla by Jonas Meisner (v0.14.6)")
 	print(f"hapla predict using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 	
@@ -76,7 +76,7 @@ def main(args):
 		if args.memory:
 			memory_cy.readBit(G, V, j, N//2)
 		else:
-			reader_cy.readVar(G, V, j, N//2)
+			reader_cy.readVar(G[j], V, N//2)
 		v_vec[j] = variant.POS
 	del V, v_file
 	print(f"\rLoaded phased genotype data: {N} haplotypes and {M} SNPs.")

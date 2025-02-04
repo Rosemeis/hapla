@@ -47,27 +47,28 @@ cpdef void predBit(unsigned char[:,::1] G, const short[:,::1] V, const size_t j,
 
 # Convert 1-bit into full array and initialize cluster mean
 cpdef void convertBit(const unsigned char[:,::1] G, unsigned char[:,::1] H, \
-		float[:,::1] C, unsigned int[::1] p_vec, unsigned int[::1] d_vec, \
+		unsigned int[:,::1] C, unsigned int[::1] p_vec, unsigned int[::1] d_vec, \
 		unsigned int[::1] a_tmp, unsigned int[::1] b_tmp, unsigned int[::1] d_tmp, \
 		unsigned int[::1] e_tmp, const size_t w_s) noexcept nogil:
 	cdef:
 		size_t B = G.shape[1]
 		size_t M = H.shape[0]
 		size_t N = H.shape[1]
-		size_t b, f, i, j, k, l, p, q, s, u, v, bit
+		size_t b, i, j, k, s, u, v, bit
+		unsigned int f, l, p, q
 		unsigned char mask = 1
-		unsigned char byte
+		unsigned char g, byte
 	# Populate haplotype matrix and cluster mean
 	for j in range(M):
 		i = 0
 		s = w_s+j
-		C[0,j] = 0.0
+		C[0,j] = 0
 		for b in range(B):
 			byte = G[s,b]
 			for bit in range(8):
-				H[j,i] = byte & mask
-				C[0,j] += <float>(byte & mask)
-				byte = byte >> 1 # Right shift 1 bit
+				g = (byte >> bit) & mask
+				H[j,i] = g
+				C[0,j] += g
 				i += 1
 				if i == N:
 					break

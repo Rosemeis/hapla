@@ -6,49 +6,50 @@ from libc.stdlib cimport malloc, free
 
 ##### Cython functions for reading genotype files #####
 # Read variant from VCF/BCF into 8-bit integer format
-cpdef void readVar(unsigned char[:,::1] G, const short[:,::1] V, const size_t j, \
-		const size_t N) noexcept nogil:
+cpdef void readVar(unsigned char[::1] G, const short[:,::1] V, const size_t N) \
+		noexcept nogil:
 	cdef:
 		size_t i
 	for i in range(N):
-		G[j,2*i] = <unsigned char>V[i,0] # Allele 1
-		G[j,2*i+1] = <unsigned char>V[i,1] # Allele 2
+		G[2*i] = <unsigned char>V[i,0] # Allele 1
+		G[2*i+1] = <unsigned char>V[i,1] # Allele 2
 
 # Read variant from VCF/BCF into 8-bit integer format with missing option
-cpdef void predVar(unsigned char[:,::1] G, const short[:,::1] V, const size_t j, \
-		const size_t N) noexcept nogil:
+cpdef void predVar(unsigned char[::1] G, const short[:,::1] V, const size_t N) \
+		noexcept nogil:
 	cdef:
 		size_t i
 	for i in range(N):
 		# Allele 1
 		if V[i,0] == -1:
-			G[j,2*i] = 9
+			G[2*i] = 9
 		else:
-			G[j,2*i] = <unsigned char>V[i,0]
+			G[2*i] = <unsigned char>V[i,0]
 
 		# Allele 2
 		if V[i,0] == -1:
-			G[j,2*i+1] = 9
+			G[2*i+1] = 9
 		else:
-			G[j,2*i+1] = <unsigned char>V[i,1]
+			G[2*i+1] = <unsigned char>V[i,1]
 
 # Initialize cluster mean and suffix arrays
-cpdef void convertHap(const unsigned char[:,::1] G, float[:,::1] C, \
+cpdef void convertHap(const unsigned char[:,::1] G, unsigned int[:,::1] C, \
 		unsigned int[::1] p_vec, unsigned int[::1] d_vec, unsigned int[::1] a_tmp, \
 		unsigned int[::1] b_tmp, unsigned int[::1] d_tmp, unsigned int[::1] e_tmp, \
 		const size_t S) noexcept nogil:
 	cdef:
 		size_t M = C.shape[1]
 		size_t N = G.shape[1]
-		size_t b, f, i, j, k, l, p, q, u, v
+		size_t b, i, j, k, u, v
+		unsigned int f, l, p, q
 	for j in range(M):
 		b = S+j
 		u = v = 0
 		p = q = j+1
-		C[0,j] = 0.0
+		C[0,j] = 0
 		for i in range(N):
 			# Add to cluster mean
-			C[0,j] += <float>G[b,i]
+			C[0,j] += G[b,i]
 
 			# Suffix array updates
 			f = p_vec[i]
