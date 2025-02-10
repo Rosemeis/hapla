@@ -10,7 +10,10 @@ from libc.stdlib cimport calloc, free
 ### Inline functions
 # Truncate parameters to domain
 cdef inline double project(const double s) noexcept nogil:
-	return fmin(fmax(s, 1e-5), 1.0-(1e-5))
+	cdef:
+		double min_val = 1e-5
+		double max_val = 1.0-(1e-5)
+	return fmin(fmax(s, min_val), max_val)
 
 # Estimate inverse individual allele frequency
 cdef inline double computeH(const double* p, const double* q, const size_t z, \
@@ -47,19 +50,17 @@ cdef inline void outerP(double* p, double* p_tmp, const size_t K, const size_t B
 		noexcept nogil:
 	cdef:
 		size_t c, k, s
-		double sumA, sumB, valP
+		double sumA, sumB
 	for k in range(K):
 		s = k*B
 		sumA = 0.0
 		sumB = 0.0
 		for c in range(B):
-			valP = p_tmp[s+c]*p[s+c]
-			sumA += valP
-			p[s+c] = valP
+			p[s+c] = p_tmp[s+c]*p[s+c]
+			sumA += p[s+c]
 		for c in range(B):
-			valP = project(p[s+c]/sumA)
-			sumB += valP
-			p[s+c] = valP
+			p[s+c] = project(p[s+c]/sumA)
+			sumB += p[s+c]
 		for c in range(B):
 			p[s+c] /= sumB
 			p_tmp[s+c] = 0.0
@@ -69,19 +70,17 @@ cdef inline void outerAccelP(const double* p, double* p_new, double* p_tmp, \
 		const size_t K, const size_t B) noexcept nogil:
 	cdef:
 		size_t c, k, s
-		double sumA, sumB, valP
+		double sumA, sumB
 	for k in range(K):
 		s = k*B
 		sumA = 0.0
 		sumB = 0.0
 		for c in range(B):
-			valP = p_tmp[s+c]*p[s+c]
-			sumA += valP
-			p_new[s+c] = valP
+			p_new[s+c] = p_tmp[s+c]*p[s+c]
+			sumA += p_new[s+c]
 		for c in range(B):
-			valP = project(p_new[s+c]/sumA)
-			sumB += valP
-			p_new[s+c] = valP
+			p_new[s+c] = project(p_new[s+c]/sumA)
+			sumB += p_new[s+c]
 		for c in range(B):
 			p_new[s+c] /= sumB
 			p_tmp[s+c] = 0.0
@@ -92,11 +91,9 @@ cdef inline void outerQ(double* q, double* q_tmp, const double S, const size_t K
 	cdef:
 		size_t k
 		double sumQ = 0.0
-		double valQ
 	for k in range(K):
-		valQ = project(q[k]*q_tmp[k]*S)
-		sumQ += valQ
-		q[k] = valQ
+		q[k] = project(q[k]*q_tmp[k]*S)
+		sumQ += q[k]
 	for k in range(K):
 		q[k] /= sumQ
 		q_tmp[k] = 0.0
@@ -107,11 +104,9 @@ cdef inline void outerAccelQ(const double* q, double* q_new, double* q_tmp, cons
 	cdef:
 		size_t k
 		double sumQ = 0.0
-		double valQ
 	for k in range(K):
-		valQ = project(q[k]*q_tmp[k]*S)
-		sumQ += valQ
-		q_new[k] = valQ
+		q_new[k] = project(q[k]*q_tmp[k]*S)
+		sumQ += q_new[k]
 	for k in range(K):
 		q_new[k] /= sumQ
 		q_tmp[k] = 0.0
@@ -121,6 +116,8 @@ cdef inline double factorAccel(const double* v0, const double* v1, const double*
 		const size_t I) noexcept nogil:
 	cdef:
 		size_t i
+		double min_val = 1.0
+		double max_val = 256.0
 		double sum1 = 0.0
 		double sum2 = 0.0
 		double u, v
@@ -129,7 +126,7 @@ cdef inline double factorAccel(const double* v0, const double* v1, const double*
 		v = v2[i] - v1[i] - u
 		sum1 += u*u
 		sum2 += u*v
-	return fmin(fmax(-(sum1/sum2), 1.0), 256.0)
+	return fmin(fmax(-(sum1/sum2), min_val), max_val)
 
 
 ### Update functions
@@ -157,17 +154,16 @@ cpdef void superQ(double[:,::1] Q, const unsigned char[::1] y) noexcept nogil:
 		size_t N = Q.shape[0]
 		size_t K = Q.shape[1]
 		size_t i, k
-		double sumQ, valQ
+		double sumQ
 	for i in prange(N):
 		if y[i] > 0:
 			sumQ = 0.0
 			for k in range(K):
 				if k == (y[i]-1):
-					valQ = 1-(1e-5)
+					Q[i,k] = 1-(1e-5)
 				else:
-					valQ = 1e-5
-				sumQ = sumQ + valQ
-				Q[i,k] = valQ
+					Q[i,k] = 1e-5
+				sumQ = sumQ + Q[i,k]
 			for k in range(K):
 				Q[i,k] /= sumQ
 
@@ -257,7 +253,7 @@ cpdef void alphaP(double[::1] P0, const double[::1] P1, const double[::1] P2, \
 		size_t c, k, l, s, w, B
 		double sum1 = 0.0
 		double sum2 = 0.0
-		double c1, c2, sumP, valP
+		double c1, c2, sumP
 	c1 = factorAccel(&P0[0], &P1[0], &P2[0], M)
 	c2 = 1.0 - c1
 	for w in prange(W):
@@ -267,9 +263,8 @@ cpdef void alphaP(double[::1] P0, const double[::1] P1, const double[::1] P2, \
 			s = l + k*B
 			sumP = 0.0
 			for c in range(B):
-				valP = project(c2*P1[s+c] + c1*P2[s+c])
-				sumP = sumP + valP
-				P0[s+c] = valP
+				P0[s+c] = project(c2*P1[s+c] + c1*P2[s+c])
+				sumP = sumP + P0[s+c]
 			for c in range(B):
 				P0[s+c] /= sumP
 
@@ -301,15 +296,14 @@ cpdef void alphaQ(double[:,::1] Q0, const double[:,::1] Q1, const double[:,::1] 
 		size_t N = Q0.shape[0]
 		size_t K = Q0.shape[1]
 		size_t i, k
-		double c1, c2, sumQ, valQ
+		double c1, c2, sumQ
 	c1 = factorAccel(&Q0[0,0], &Q1[0,0], &Q2[0,0], N*K)
 	c2 = 1.0 - c1
 	for i in prange(N):
 		sumQ = 0.0
 		for k in range(K):
-			valQ = project(c2*Q1[i,k] + c1*Q2[i,k])
-			sumQ = sumQ + valQ
-			Q0[i,k] = valQ
+			Q0[i,k] = project(c2*Q1[i,k] + c1*Q2[i,k])
+			sumQ = sumQ + Q0[i,k]
 		for k in range(K):
 			Q0[i,k] /= sumQ	
 

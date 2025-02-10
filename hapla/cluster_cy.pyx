@@ -84,8 +84,8 @@ cpdef void assignClust(unsigned char[:,::1] X, const unsigned char[:,::1] R, \
 		for i in prange(U):
 			xi = &X[i,0]
 			z = 0
-			c = hammingDist(xi, &R[0,0], M)
-			for k in range(1, K):
+			c = M + 1
+			for k in range(K):
 				if n_vec[k] > 0:
 					d = hammingDist(xi, &R[k,0], M)
 					if d < c:
