@@ -1,45 +1,44 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, initializedcheck=False, cdivision=True
-import numpy as np
 cimport numpy as np
 
 ##### Cython memory efficient functions #####
 # Read variant from VCF/BCF into 1-bit integer format
-cpdef void readBit(unsigned char[:,::1] G, const short[:,::1] V, const size_t j, \
-		const size_t N) noexcept nogil:
+cpdef void readBit(unsigned char[::1] G, const short[:,::1] V, const size_t N) \
+		noexcept nogil:
 	cdef:
-		size_t B = G.shape[1]
+		size_t B = G.shape[0]
 		size_t i = 0
 		size_t b, bit
 	for b in range(B):
 		for bit in range(0, 8, 2):
 			if V[i,0] == 1:
-				G[j,b] |= (1<<bit)
+				G[b] |= (1<<bit)
 			if V[i,1] == 1:
-				G[j,b] |= (1<<(bit+1))
+				G[b] |= (1<<(bit+1))
 			# Increase counter and check for break
 			i += 1
 			if i == N:
 				break
 
 # Read variant from VCF/BCF into 2-bit integer format
-cpdef void predBit(unsigned char[:,::1] G, const short[:,::1] V, const size_t j, \
-		const size_t N) noexcept nogil:
+cpdef void predBit(unsigned char[::1] G, const short[:,::1] V, const size_t N) \
+		noexcept nogil:
 	cdef:
-		size_t B = G.shape[1]
+		size_t B = G.shape[0]
 		size_t i = 0
 		size_t b, bit
 	for b in range(B):
 		for bit in range(0, 8, 4):
 			if V[i,0] == 1: # Allele 1 (1,1)
-				G[j,b] |= (1<<bit)
-				G[j,b] |= (1<<(bit+1))
+				G[b] |= (1<<bit)
+				G[b] |= (1<<(bit+1))
 			elif V[i,0] == -1: # Missing (1,0)
-				G[j,b] |= (1<<(bit))
+				G[b] |= (1<<bit)
 			if V[i,1] == 1: # Allele 2 (1,1)
-				G[j,b] |= (1<<(bit+2))
-				G[j,b] |= (1<<(bit+3))
+				G[b] |= (1<<(bit+2))
+				G[b] |= (1<<(bit+3))
 			elif V[i,1] == -1: # Missing (1,0)
-				G[j,b] |= (1<<(bit+2))
+				G[b] |= (1<<(bit+2))
 			# Increase counter and check for break
 			i += 1
 			if i == N:
@@ -49,28 +48,28 @@ cpdef void predBit(unsigned char[:,::1] G, const short[:,::1] V, const size_t j,
 cpdef void convertBit(const unsigned char[:,::1] G, unsigned char[:,::1] H, \
 		unsigned int[:,::1] C, unsigned int[::1] p_vec, unsigned int[::1] d_vec, \
 		unsigned int[::1] a_tmp, unsigned int[::1] b_tmp, unsigned int[::1] d_tmp, \
-		unsigned int[::1] e_tmp, const size_t w_s) noexcept nogil:
+		unsigned int[::1] e_tmp, const size_t S) noexcept nogil:
 	cdef:
 		size_t B = G.shape[1]
 		size_t M = H.shape[0]
 		size_t N = H.shape[1]
-		size_t b, i, j, k, s, u, v, bit
+		size_t b, h, i, j, k, s, u, v, bit
 		unsigned int f, l, p, q
 		unsigned char mask = 1
 		unsigned char g, byte
 	# Populate haplotype matrix and cluster mean
 	for j in range(M):
-		i = 0
-		s = w_s+j
+		h = 0
+		s = S+j
 		C[0,j] = 0
 		for b in range(B):
 			byte = G[s,b]
 			for bit in range(8):
 				g = (byte >> bit) & mask
-				H[j,i] = g
+				H[j,h] = g
 				C[0,j] += g
-				i += 1
-				if i == N:
+				h += 1
+				if h == N:
 					break
 	
 		# Populate suffix arrays

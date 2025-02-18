@@ -1,4 +1,4 @@
-# hapla (v0.14.7)
+# hapla (v0.20.0)
 ***hapla*** is a framework for performing window-based haplotype clustering in phased genotype data. The inferred haplotype cluster alleles can be used to infer fine-scale population structure, perform polygenic prediction and haplotype cluster based association studies.
 
 ### Citation
@@ -34,7 +34,7 @@ You can now run the `hapla` software and the subcommands.
 
 ### Haplotype clustering
 ***hapla cluster***\
-Window-based haplotype clustering in a phased VCF/BCF.
+Window-based haplotype clustering in a phased VCF/BCF file (including index).
 ```bash
 # Cluster haplotypes in a chromosome with fixed window size (8 SNPs)
 hapla cluster --bcf data.chr1.bcf --size 8 --threads 8 --out hapla.chr1
@@ -92,7 +92,7 @@ hapla struct --clusters hapla.chr1 --threads 64 --pca 20 --out hapla.chr1
 
 ### Predict haplotype cluster assignments
 ***hapla predict***\
-Predict haplotype cluster assignments using pre-computed cluster medians in a new set of haplotypes. SNP sets must be overlapping.
+Predict haplotype cluster assignments using pre-computed cluster medians in a new set of haplotypes (VCF/BCF format). SNP sets must be overlapping.
 ```bash
 # Cluster haplotypes in a chromosome with 'hapla cluster' and save cluster medians (--medians)
 hapla cluster --bcf ref.chr1.bcf --size 8 --threads 64 --out ref.chr1 --medians
@@ -112,7 +112,7 @@ Using `--medians` in `hapla cluster` outputs three extra files. A **.bcm**-file 
 
 ### Admixture estimation
 ***hapla admix***\
-Estimate ancestry proportions and ancestral haplotype cluster frequencies with a pre-specified number of sources (K). Using a modified ADMIXTURE model for haplotype clusters.
+Estimate ancestry proportions and ancestral haplotype cluster frequencies with a pre-specified number of sources (K). Using a modified ADMIXTURE model for our haplotype clusters.
 ```bash
 # Estimate ancestry proportions assuming K=3 ancestral sources for a single chromosome
 hapla admix --clusters hapla.chr1 --K 3 --seed 1 --threads 64 --out hapla.chr1
@@ -129,7 +129,7 @@ hapla admix --filelist hapla.filelist --K 3 --seed 1 --threads 64 --out hapla
 
 ### Local ancestry inference
 ***hapla fatash***\
-Infer local ancestry tracts using the admixture estimation in a hidden markov model. Using a modified fastPHASE model for haplotype clusters.
+Infer local ancestry tracts using the admixture estimation in a hidden markov model. Using a modified fastPHASE model for our haplotype clusters.
 ```bash
 # Infer local ancestry tracts for a single chromosome (posterior decoding)
 hapla fatash --clusters hapla.chr1 --qfile hapla.chr1.K3.s1.Q --pfile hapla.chr1.K3.s1.P.bin --threads 16 --out hapla.chr1

@@ -13,7 +13,7 @@ from time import time
 ##### hapla predict #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.14.7)")
+	print("hapla by Jonas Meisner (v0.20.0)")
 	print(f"hapla predict using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 	
@@ -21,6 +21,8 @@ def main(args):
 	assert args.vcf is not None, \
 		"Please provide phased genotype file (--bcf or --vcf)!"
 	assert os.path.isfile(f"{args.vcf}"), "VCF/BCF file doesn't exist!"
+	assert os.path.isfile(f"{args.vcf}.csi") or os.path.isfile(f"{args.vcf}.tbi"), \
+		"VCF/BCF index doesn't exist!"
 	assert args.ref is not None, \
 		"Please provide pre-estimated reference haplotype cluster medians (--ref)!"
 	assert os.path.isfile(f"{args.ref}.bcm"), "bcm file doesn't exist!"
@@ -52,15 +54,11 @@ def main(args):
 	print("\rLoading VCF/BCF file...", end="")
 	v_file = VCF(args.vcf, threads=min(args.threads, 4))
 	s_list = np.array(v_file.samples).reshape(-1, 1)
-	N = 2*len(v_file.samples)
+	N = 2*s_list.shape[0]
+	M = v_file.num_records
 	B = ceil(N/4)
-
-	# Check number of sites
-	for M, variant in enumerate(v_file):
-		if M == 0:
-			chrom = re.findall(r'\d+', variant.CHROM)[-1]
-	M += 1
-	del v_file
+	chrom = v_file.seqnames[0]
+	assert len(v_file.seqnames) == 1, "Multiple chromosomes in VCF/BCF file!"
 
 	# Allocate arrays
 	if args.memory:
@@ -74,9 +72,9 @@ def main(args):
 	for j, variant in enumerate(v_file):
 		V = variant.genotype.array()
 		if args.memory:
-			memory_cy.readBit(G, V, j, N//2)
+			memory_cy.predBit(G[j], V, N//2)
 		else:
-			reader_cy.readVar(G[j], V, N//2)
+			reader_cy.predVar(G[j], V, N//2)
 		v_vec[j] = variant.POS
 	del V, v_file
 	print(f"\rLoaded phased genotype data: {N} haplotypes and {M} SNPs.")

@@ -1,5 +1,4 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, initializedcheck=False, cdivision=True
-import numpy as np
 cimport numpy as np
 from cython.parallel import parallel, prange
 from libc.stdlib cimport malloc, free
@@ -40,16 +39,16 @@ cpdef void convertHap(const unsigned char[:,::1] G, unsigned int[:,::1] C, \
 	cdef:
 		size_t M = C.shape[1]
 		size_t N = G.shape[1]
-		size_t b, i, j, k, u, v
+		size_t i, j, k, s, u, v
 		unsigned int f, l, p, q
 	for j in range(M):
-		b = S+j
+		s = S+j
 		u = v = 0
 		p = q = j+1
 		C[0,j] = 0
 		for i in range(N):
 			# Add to cluster mean
-			C[0,j] += G[b,i]
+			C[0,j] += G[s,i]
 
 			# Suffix array updates
 			f = p_vec[i]
@@ -58,7 +57,7 @@ cpdef void convertHap(const unsigned char[:,::1] G, unsigned int[:,::1] C, \
 				p = l
 			if l > q:
 				q = l
-			if G[b,f] == 0:
+			if G[s,f] == 0:
 				a_tmp[u] = f
 				d_tmp[u] = p
 				u += 1

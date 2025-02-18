@@ -7,22 +7,25 @@ __author__ = "Jonas Meisner"
 
 # Libraries
 import os
-import re
 from time import time
 
 ##### hapla cluster #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.14.7)")
+	print("hapla by Jonas Meisner (v0.20.0)")
 	print(f"hapla cluster using {args.threads} thread(s)")
 	print("-----------------------------------\n")
-	
+
 	# Check input
 	assert args.vcf is not None, \
 		"No phased genotype file (--bcf or --vcf)!"
 	assert os.path.isfile(f"{args.vcf}"), "VCF/BCF file doesn't exist!"
+	assert os.path.isfile(f"{args.vcf}.csi") or os.path.isfile(f"{args.vcf}.tbi"), \
+		"VCF/BCF index doesn't exist!"
 	assert args.threads > 0, "Please select a valid number of threads!"
 	assert args.min_freq > 0.0, "Invalid haplotype cluster frequency!"
+	if args.min_mac is not None:
+		assert args.min_mac > 2, "Please select a valid MAC threshold!"
 	assert args.max_iterations > 0, "Please select a valid number of iterations!"
 	assert (args.lmbda > 0.0) and (args.lmbda < 1.0), \
 		"Please select a valid lambda value!"
@@ -31,10 +34,11 @@ def main(args):
 	if args.size is not None:
 		assert args.size > 0, "Invalid window size!"
 		if args.step is not None:
-			assert (args.step <= args.size) and (args.step > 0), \
-				"Invalid step size for sliding window chosen!"
 			if args.size == 1:
 				args.step = None
+			else:
+				assert (args.step <= args.size) and (args.step > 0), \
+					"Invalid step size for sliding window chosen!"
 	else:
 		assert args.windows is not None, "No window option (--size or --windows)!"
 	start = time()
@@ -57,19 +61,22 @@ def main(args):
 	from hapla import memory_cy
 	from hapla import cluster_cy
 
-	# Initiate VCF and extract sample list
+	# Initiate VCF and extract parameters
 	print("\rLoading VCF/BCF file...", end="")
 	v_file = VCF(args.vcf, threads=min(args.threads, 4))
 	s_list = np.array(v_file.samples).reshape(-1, 1)
-	N = 2*len(v_file.samples)
+	N = 2*s_list.shape[0]
+	M = v_file.num_records
 	B = ceil(N/8)
+	chrom = v_file.seqnames[0]
+	assert len(v_file.seqnames) == 1, "VCF/BCF file contains multiple chromosomes!"
 
-	# Check number of sites
-	for M, variant in enumerate(v_file):
-		if M == 0:
-			chrom = re.findall(r'\d+', variant.CHROM)[-1]
-	M += 1
-	del v_file
+	# Check haplotype cluster frequency
+	if args.min_mac is None:
+		N_mac = ceil(N*args.min_freq)
+		assert N_mac > 2, "Frequency threshold too low for sample size (--min-freq)!"
+	else:
+		N_mac = args.min_mac
 
 	# Allocate arrays
 	if args.memory:
@@ -79,21 +86,16 @@ def main(args):
 	v_vec = np.zeros(M, dtype=np.uint32)
 
 	# Read variants into matrix
-	v_file = VCF(args.vcf, threads=min(args.threads, 4))
 	for j, variant in enumerate(v_file):
 		V = variant.genotype.array()
 		if args.memory:
-			memory_cy.readBit(G, V, j, N//2)
+			memory_cy.readBit(G[j], V, N//2)
 		else:
 			reader_cy.readVar(G[j], V, N//2)
 		v_vec[j] = variant.POS
 	del V, v_file
 	t_par = time()-start
 	print(f"\rLoaded phased genotype data: {N} haplotypes and {M} SNPs.")
-
-	# Check haplotype cluster frequency
-	N_mac = ceil(N*args.min_freq)
-	assert N_mac > 2, "Frequency threshold too low for sample size (--min-freq)!"
 
 	# Set up windows
 	if args.size is not None:
@@ -111,21 +113,10 @@ def main(args):
 	else:
 		w_vec = np.loadtxt(args.windows, dtype=np.uint32)
 		assert w_vec[-1] <= M, "Genotype and window files don't match!"
+		if w_vec[-1] != M:
+			w_vec = np.insert(w_vec, W, M)
 		W = w_vec.shape[0]
-		w_vec = np.insert(w_vec, W, M)
 		print(f"Clustering {W} windows with provided SNP lengths.")
-
-	# Extract window information
-	s_vec = v_vec[w_vec[:-1]].copy()
-	if args.size is not None:
-		e_vec = v_vec[w_vec[:-1]+args.size-1].copy()
-		e_vec[-1] = v_vec[-1]
-		b_vec = np.full(W, args.size, dtype=np.uint32)
-		b_vec[-1] = w_vec[-1] - w_vec[-2]
-	else:
-		e_vec = v_vec[w_vec[1:]-1]
-		b_vec = w_vec[1:] - w_vec[:-1]
-	del v_vec
 
 	# Containers
 	Z = np.zeros((W, N), dtype=np.uint8) # Chromosome-based cluster assignments
@@ -148,6 +139,7 @@ def main(args):
 		X = np.zeros((N, args.size), dtype=np.uint8) # Haplotypes
 		R = np.zeros((args.max_clusters, args.size), dtype=np.uint8) # Medians
 		C = np.zeros((args.max_clusters, args.size), dtype=np.uint32) # Means
+		c_lim = np.uint32(args.lmbda*float(X.shape[1]))
 
 	# Optional containers
 	if args.medians:
@@ -168,6 +160,7 @@ def main(args):
 			X = np.zeros((N, w_vec[w+1]-S), dtype=np.uint8)
 			R = np.zeros((args.max_clusters, X.shape[1]), dtype=np.uint8)
 			C = np.zeros((args.max_clusters, X.shape[1]), dtype=np.uint32)
+			c_lim = np.uint32(args.lmbda*float(X.shape[1]))
 
 		# Prepare last window
 		if w == (W-1):
@@ -176,8 +169,8 @@ def main(args):
 			X = np.zeros((N, M-S), dtype=np.uint8)
 			R = np.zeros((args.max_clusters, X.shape[1]), dtype=np.uint8)
 			C = np.zeros((args.max_clusters, X.shape[1]), dtype=np.uint32)
-		c_lim = np.uint32(args.lmbda*float(X.shape[1]))
-		
+			c_lim = np.uint32(args.lmbda*float(X.shape[1]))
+
 		# Load haplotype window
 		if args.memory:
 			memory_cy.convertBit(G, H, C, p_vec, d_vec, a_tmp, b_tmp, d_tmp, e_tmp, S)
@@ -258,14 +251,26 @@ def main(args):
 
 		# Reset arrays
 		cluster_cy.resetArrays(c_vec, n_vec, p_vec, d_vec, u_vec)
-	
+
 	# Release memory
-	del G, X, C, w_vec, z_vec, c_vec, z_tmp, p_vec, d_vec, n_vec, u_vec, \
+	del G, X, C, z_vec, c_vec, z_tmp, p_vec, d_vec, n_vec, u_vec, \
 		a_tmp, b_tmp, d_tmp, e_tmp, n_tmp
 	if args.memory:
 		del H
 	print(".\n")
-	
+
+	# Extract window information
+	s_vec = v_vec[w_vec[:-1]].copy()
+	if args.size is not None:
+		e_vec = v_vec[w_vec[:-1]+args.size-1].copy()
+		e_vec[-1] = v_vec[-1]
+		b_vec = np.full(W, args.size, dtype=np.uint32)
+		b_vec[-1] = w_vec[-1] - w_vec[-2]
+	else:
+		e_vec = v_vec[w_vec[1:]-1]
+		b_vec = w_vec[1:] - w_vec[:-1]
+	del v_vec, w_vec
+
 	# Create window information array
 	w_mat = np.hstack((
 		np.array([chrom]).repeat(W).reshape(-1, 1), \
@@ -348,7 +353,7 @@ def main(args):
 	t_sec = int(t_tot - t_min*60)
 	print(f"Total elapsed time: {t_min}m{t_sec}s")
 
-	
+
 
 ##### Main exception #####
 assert __name__ != "__main__", "Please use the 'hapla cluster' command!"
