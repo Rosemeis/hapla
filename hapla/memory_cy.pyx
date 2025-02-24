@@ -15,6 +15,7 @@ cpdef void readBit(unsigned char[::1] G, const short[:,::1] V, const size_t N) \
 				G[b] |= (1<<bit)
 			if V[i,1] == 1:
 				G[b] |= (1<<(bit+1))
+			
 			# Increase counter and check for break
 			i += 1
 			if i == N:
@@ -39,6 +40,7 @@ cpdef void predBit(unsigned char[::1] G, const short[:,::1] V, const size_t N) \
 				G[b] |= (1<<(bit+3))
 			elif V[i,1] == -1: # Missing (1,0)
 				G[b] |= (1<<(bit+2))
+			
 			# Increase counter and check for break
 			i += 1
 			if i == N:

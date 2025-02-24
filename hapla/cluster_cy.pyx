@@ -13,7 +13,8 @@ cdef inline unsigned int hammingDist(const unsigned char* X, const unsigned char
 		size_t j
 		unsigned int dist = 0
 	for j in range(M):
-		dist += (X[j]^R[j])
+		if X[j] != R[j]:
+			dist += 1
 	return dist
 
 # Calculate Hamming distance and change assignments
@@ -23,8 +24,9 @@ cdef inline unsigned int hammingCheck(const unsigned char* z_vec, unsigned char*
 		size_t i
 		unsigned int dist = 0
 	for i in range(N):
-		dist += (z_vec[i]^z_pre[i])
-		z_pre[i] = z_vec[i]
+		if z_vec[i] != z_pre[i]:
+			dist += 1
+			z_pre[i] = z_vec[i]
 	return dist
 
 # Add haplotype contribution to frequency vector
@@ -32,7 +34,7 @@ cdef inline void addHaplo(const unsigned char* X, unsigned int* C, const size_t 
 		const size_t M) noexcept nogil:
 	cdef size_t j
 	for j in range(M):
-		if X[j] == 1:
+		if X[j]:
 			C[j] += u
 
 # Update cluster information
@@ -40,12 +42,13 @@ cdef inline void updateClust(const unsigned char* X, unsigned char* R, unsigned 
 		unsigned int* B, const size_t u, const size_t M) noexcept nogil:
 	cdef:
 		size_t j
-		unsigned char x
 	for j in range(M):
-		x = R[j] = A[j] = X[j]
-		if x == 1:
+		R[j] = X[j]
+		if X[j]:
 			A[j] = u
 			B[j] -= u
+		else:
+			A[j] = X[j]
 
 
 ### Standard functions
@@ -60,7 +63,7 @@ cpdef void marginalMedians(unsigned char[:,::1] R, unsigned int[:,::1] C, \
 		if n_vec[k] > 0:
 			Nk = n_vec[k]//2
 			for j in range(M):
-				R[k,j] = 1 if C[k,j] > Nk else 0
+				R[k,j] = C[k,j] > Nk
 				C[k,j] = 0
 
 # Compute distances, cluster assignment and prepare for next loop
@@ -87,13 +90,9 @@ cpdef void assignClust(unsigned char[:,::1] X, const unsigned char[:,::1] R, \
 			for k in range(K):
 				if n_vec[k] > 0:
 					d = hammingDist(xi, &R[k,0], M)
-					if d < c:
+					if d < c or (d == c and n_vec[k] > n_vec[z]):
 						z = k
 						c = d
-					elif d == c: # Assign to largest cluster in ties
-						if n_vec[k] > n_vec[z]:
-							z = k
-							c = d
 			z_vec[i] = z
 			c_vec[i] = c
 
@@ -133,14 +132,14 @@ cpdef unsigned int checkClust(const unsigned char[:,::1] X, unsigned char[:,::1]
 		size_t M = X.shape[1]
 		size_t L = R.shape[0]
 		size_t c_arg = 0
-		size_t i, j, k, z
+		size_t i, j, z
 		unsigned int c_max = c_vec[0]
 		unsigned int u
 	for i in range(1, N): # Find extreme point
 		if c_vec[i] > c_max:
 			c_arg = i
 			c_max = c_vec[i]
-	if (c_max > c_lim) & (K < L):
+	if c_max > c_lim and K < L:
 		u = u_vec[c_arg]
 		z = z_vec[c_arg]
 		updateClust(&X[c_arg,0], &R[K,0], &C[K,0], &C[z,0], u, M)
@@ -160,7 +159,7 @@ cpdef void genClust(const unsigned char[:,::1] X, unsigned char[:,::1] R, \
 		size_t N = X.shape[0]
 		size_t M = X.shape[1]
 		size_t c_arg = 0
-		size_t i, j, k, z
+		size_t i, j, z
 		unsigned int c_max = c_vec[0]
 		unsigned int u
 	for i in range(1, N): # Find extreme point
@@ -188,10 +187,9 @@ cpdef unsigned int findZero(unsigned int[::1] n_vec, const size_t N, const size_
 		unsigned int minI = 0
 		unsigned int minN = N + 1
 	for k in range(K):
-		if n_vec[k] > 0:
-			if n_vec[k] <= minN:
-				minI = k
-				minN = n_vec[k]
+		if n_vec[k] > 0 and n_vec[k] <= minN:
+			minI = k
+			minN = n_vec[k]
 	if minN < mac:
 		n_vec[minI] = 0
 	return minN

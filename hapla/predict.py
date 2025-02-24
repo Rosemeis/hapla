@@ -7,13 +7,12 @@ __author__ = "Jonas Meisner"
 
 # Libraries
 import os
-import re
 from time import time
 
 ##### hapla predict #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.20.0)")
+	print("hapla by Jonas Meisner (v0.20.1)")
 	print(f"hapla predict using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 	

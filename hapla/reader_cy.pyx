@@ -19,17 +19,8 @@ cpdef void predVar(unsigned char[::1] G, const short[:,::1] V, const size_t N) \
 	cdef:
 		size_t i
 	for i in range(N):
-		# Allele 1
-		if V[i,0] == -1:
-			G[2*i] = 9
-		else:
-			G[2*i] = <unsigned char>V[i,0]
-
-		# Allele 2
-		if V[i,0] == -1:
-			G[2*i+1] = 9
-		else:
-			G[2*i+1] = <unsigned char>V[i,1]
+		G[2*i] = 9 if V[i,0] == -1 else <unsigned char>V[i,0] # Allele 1
+		G[2*i+1] = 9 if V[i,1] == -1 else <unsigned char>V[i,1] # Allele 2
 
 # Initialize cluster mean and suffix arrays
 cpdef void convertHap(const unsigned char[:,::1] G, unsigned int[:,::1] C, \
@@ -42,9 +33,9 @@ cpdef void convertHap(const unsigned char[:,::1] G, unsigned int[:,::1] C, \
 		size_t i, j, k, s, u, v
 		unsigned int f, l, p, q
 	for j in range(M):
-		s = S+j
+		s = S + j
 		u = v = 0
-		p = q = j+1
+		p = q = j + 1
 		C[0,j] = 0
 		for i in range(N):
 			# Add to cluster mean

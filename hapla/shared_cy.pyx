@@ -78,8 +78,8 @@ cdef inline unsigned int hammingPred(const unsigned char* X, const unsigned char
 		size_t j
 		unsigned int dist = 0
 	for j in range(M):
-		if X[j] != 9: # Ignore missing
-			dist += (X[j]^R[j])
+		if X[j] != R[j] and X[j] != 9: # Ignore missing
+			dist += 1
 	return dist
 
 # Haplotype cluster assignment based on pre-estimated medians
@@ -97,11 +97,7 @@ cpdef void predictCluster(unsigned char[:,::1] X, const unsigned char[:,::1] R, 
 		c = hammingPred(xi, &R[0,0], M)
 		for k in range(1, K):
 			d = hammingPred(xi, &R[k,0], M)
-			if d < c:
+			if d < c or (d == c and n_vec[k] > n_vec[z]):
 				z = k
 				c = d
-			elif d == c: # Assign to largest cluster in ties
-				if n_vec[k] > n_vec[z]:
-					z = k
-					c = d
 		Z[w,i] = z
