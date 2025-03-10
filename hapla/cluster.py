@@ -12,7 +12,7 @@ from time import time
 ##### hapla cluster #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.20.1)")
+	print("hapla by Jonas Meisner (v0.21.0)")
 	print(f"hapla cluster using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 
@@ -25,7 +25,7 @@ def main(args):
 	assert args.threads > 0, "Please select a valid number of threads!"
 	assert args.min_freq > 0.0, "Invalid haplotype cluster frequency!"
 	if args.min_mac is not None:
-		assert args.min_mac > 2, "Please select a valid MAC threshold!"
+		assert args.min_mac > 1, "Please select a valid MAC threshold!"
 	assert args.max_iterations > 0, "Please select a valid number of iterations!"
 	assert (args.lmbda > 0.0) and (args.lmbda < 1.0), \
 		"Please select a valid lambda value!"
@@ -71,12 +71,11 @@ def main(args):
 	chrom = v_file.seqnames[0]
 	assert len(v_file.seqnames) == 1, "VCF/BCF file contains multiple chromosomes!"
 
-	# Check haplotype cluster frequency
-	if args.min_mac is None:
-		N_mac = ceil(N*args.min_freq)
-		assert N_mac > 2, "Frequency threshold too low for sample size (--min-freq)!"
-	else:
+	# Set haplotype cluster size threshold
+	if args.min_mac is not None:
 		N_mac = args.min_mac
+	else:
+		N_mac = ceil(N*args.min_freq)
 
 	# Allocate arrays
 	if args.memory:
@@ -207,16 +206,9 @@ def main(args):
 
 		# Iterative re-clustering of haplotypes
 		if K > 2:
-			# Ensure correct medians
-			cluster_cy.marginalMedians(R, C, n_vec, K)
-
-			# Remove singletons in one go
-			n_vec[n_vec == 1] = 0
-			cluster_cy.assignClust(X, R, C, z_vec, c_vec, n_vec, n_tmp, u_vec, U, K)
-			cluster_cy.updateN(n_vec, n_tmp, K)
 			K_tmp = np.sum(n_vec > 0, dtype=np.uint32)
 
-			# Remove small clusters iterativly
+			# Remove smallest clusters iterativly
 			while K_tmp > 2:
 				# Re-assign haplotypes
 				cluster_cy.marginalMedians(R, C, n_vec, K)
@@ -229,10 +221,10 @@ def main(args):
 					if cluster_cy.countDist(z_vec, z_tmp) == 0:
 						break
 				else:
-					K_tmp -= 1
+					K_tmp -= 1 # Cluster removed
 					memoryview(z_tmp)[:] = memoryview(z_vec)
 
-			# Re-cluster K = 2 non-break case
+			# Re-cluster K = 2 case
 			if (K_tmp == 2) and (N_min < N_mac):
 				cluster_cy.assignClust(X, R, C, z_vec, c_vec, n_vec, n_tmp, u_vec, U, K)
 				cluster_cy.updateN(n_vec, n_tmp, K)
@@ -278,7 +270,7 @@ def main(args):
 		b_vec.reshape(-1, 1), k_vec.reshape(-1, 1)
 	))
 
-	# Save hapla output
+	# Save hapla output and print info
 	h_win = ["#CHROM", "START", "END", "LENGTH", "SIZE", "K"]
 	with open(f"{args.out}.bca", "wb") as f:
 		np.array([7, 9, 13], dtype=np.uint8).tofile(f) # Add magic numbers
@@ -338,6 +330,8 @@ def main(args):
 			np.full((N//2, 1), -9, dtype=np.int8)
 		))
 		np.savetxt(f"{args.out}.fam", fam, fmt="%s", delimiter="\t")
+
+		# Print info
 		print("\rSaved haplotype clusters in binary PLINK format:\n" + \
 			f"- {args.out}.bed\n" + \
 			f"- {args.out}.bim\n" + \

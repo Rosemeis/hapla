@@ -1,9 +1,8 @@
-# hapla (v0.20.1)
+# hapla (v0.21.0)
 ***hapla*** is a framework for performing window-based haplotype clustering in phased genotype data. The inferred haplotype cluster alleles can be used to infer fine-scale population structure, perform polygenic prediction and haplotype cluster based association studies.
 
 ### Citation
-Please cite our paper in [*Nature Communications*](https://doi.org/10.1038/s41467-024-55477-3)
-
+Please cite our paper in [*Nature Communications*](https://doi.org/10.1038/s41467-024-55477-3)\
 Preprint also available on [medRxiv](https://doi.org/10.1101/2024.04.30.24306654)
 
 ## Installation
@@ -22,6 +21,8 @@ conda env create -f hapla/environment.yml
 conda activate hapla
 ```
 You can now run the `hapla` software and the subcommands. 
+
+If you run into issues with your installation on a HPC system, it could be due to a mismatch of CPU architectures between login and compute nodes (illegal instruction). You can try and remove every instance of the `march=native` compiler flag in the [setup.py](./setup.py) file which optimizes `hapla` to your specific hardware setup. Another alternative is to use the [uv package manager](https://docs.astral.sh/uv/), where you can run `hapla` in a temporary and isolated environment by simply adding `uvx` in front of the `hapla` command.
 
 ## Quick start
 ***hapla*** contains the following subcommands at this moment:
@@ -65,6 +66,9 @@ hapla cluster --bcf data.chr1.bcf --threads 8 --out hapla.chr1 --plink
 #	- hapla.chr1.bim
 #	- hapla.chr1.fam
 ```
+
+The number of inferred haplotype clusters will depend on the chosen window size but also on the minimum haplotype cluster size. The minimum haplotype cluster size can be adjusted using either `--min-freq` or `--min-mac`. The default setting is a minimum haplotype cluster frequency of at least 0.005 for the cluster to be retained (`--min-freq 0.005`). Smaller clusters will be iteratively removed.
+
 
 ### GRM estimation and population structure inference
 ***hapla struct***\

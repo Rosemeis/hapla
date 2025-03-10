@@ -12,7 +12,7 @@ from time import time
 ##### hapla predict #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.20.1)")
+	print("hapla by Jonas Meisner (v0.21.0)")
 	print(f"hapla predict using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 	
@@ -130,7 +130,7 @@ def main(args):
 	del G, X, R_mat, R_arr, N_arr, n_vec, w_vec
 	print(".\n")
 
-	# Save hapla output
+	# Save hapla output and print info
 	h_win = ["#CHROM", "START", "END", "LENGTH", "SIZE", "K"]
 	with open(f"{args.out}.bca", "wb") as f:
 		np.array([7, 9, 13], dtype=np.uint8).tofile(f) # Add magic numbers
@@ -183,6 +183,8 @@ def main(args):
 			np.full((N//2, 1), -9, dtype=np.int8)
 		))
 		np.savetxt(f"{args.out}.fam", fam, fmt="%s", delimiter="\t")
+
+		# Print info
 		print("\rSaved haplotype cluster alleles in binary PLINK format:\n" + \
 			f"- {args.out}.bed\n" + \
 			f"- {args.out}.bim\n" + \
