@@ -12,7 +12,7 @@ from time import time
 ##### hapla cluster #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.21.0)")
+	print("hapla by Jonas Meisner (v0.21.1)")
 	print(f"hapla cluster using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 
@@ -68,8 +68,6 @@ def main(args):
 	N = 2*s_list.shape[0]
 	M = v_file.num_records
 	B = ceil(N/8)
-	chrom = v_file.seqnames[0]
-	assert len(v_file.seqnames) == 1, "VCF/BCF file contains multiple chromosomes!"
 
 	# Set haplotype cluster size threshold
 	if args.min_mac is not None:
@@ -92,6 +90,7 @@ def main(args):
 		else:
 			reader_cy.readVar(G[j], V, N//2)
 		v_vec[j] = variant.POS
+	chrom = variant.CHROM # Extract chromosome information
 	del V, v_file
 	t_par = time()-start
 	print(f"\rLoaded phased genotype data: {N} haplotypes and {M} SNPs.")
