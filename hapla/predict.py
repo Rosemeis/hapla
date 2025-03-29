@@ -12,7 +12,7 @@ from time import time
 ##### hapla predict #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.21.1)")
+	print("hapla by Jonas Meisner (v0.22.0)")
 	print(f"hapla predict using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 	
@@ -56,8 +56,6 @@ def main(args):
 	N = 2*s_list.shape[0]
 	M = v_file.num_records
 	B = ceil(N/4)
-	chrom = v_file.seqnames[0]
-	assert len(v_file.seqnames) == 1, "Multiple chromosomes in VCF/BCF file!"
 
 	# Allocate arrays
 	if args.memory:
@@ -75,11 +73,15 @@ def main(args):
 		else:
 			reader_cy.predVar(G[j], V, N//2)
 		v_vec[j] = variant.POS
+	chrom = str(variant.CHROM) # Extract chromosome information
 	del V, v_file
 	print(f"\rLoaded phased genotype data: {N} haplotypes and {M} SNPs.")
 
 	# Load window information from reference
 	w_mat = np.loadtxt(f"{args.ref}.win", dtype=np.str_, skiprows=1)
+	assert w_mat[0,0] == chrom, "Chromosome name differ between files!"
+	assert int(w_mat[0,1]) == v_vec[0], "Positions differ between files!"
+	assert int(w_mat[-1,2]) == v_vec[-1], "Positions differ between files!"
 	s_vec = w_mat[:,1].astype(np.uint32)
 	b_vec = w_mat[:,4].astype(np.uint32)
 	k_vec = w_mat[:,5].astype(np.uint8)
@@ -89,8 +91,7 @@ def main(args):
 	with open(f"{args.ref}.bcm", "rb") as f:
 		# Check magic numbers
 		m_vec = np.fromfile(f, dtype=np.uint8, count=3)
-		assert np.allclose(m_vec, np.array([7, 9, 13], dtype=np.uint8)), \
-			"Magic number doesn't match file format!"
+		assert np.allclose(m_vec, np.array([7, 9, 13], dtype=np.uint8)), "Magic number doesn't match file format!"
 		R_arr = np.fromfile(f, dtype=np.uint8)
 		
 	# Load window setup files
@@ -136,8 +137,7 @@ def main(args):
 		np.array([7, 9, 13], dtype=np.uint8).tofile(f) # Add magic numbers
 		Z.tofile(f) # Save haplotype cluster assignments to binary file
 	np.savetxt(f"{args.out}.ids", s_list, fmt="%s")
-	np.savetxt(f"{args.out}.win", w_mat, fmt="%s", delimiter="\t", \
-		comments="", header="\t".join(h_win))
+	np.savetxt(f"{args.out}.win", w_mat, fmt="%s", delimiter="\t", comments="", header="\t".join(h_win))
 	print("\rSaved haplotype clusters in binary hapla format:\n" + \
 		f"- {args.out}.bca\n" + \
 		f"- {args.out}.ids\n" + \
@@ -162,11 +162,11 @@ def main(args):
 		# Save .bim file
 		tmp = np.array([f"{chrom}_W{w}_K{k}_B{l}" for w,k,l in P_mat])
 		bim = np.hstack((
-			np.array([chrom]).repeat(K_tot).reshape(-1, 1), \
-			tmp.reshape(-1, 1), \
-			np.zeros((K_tot, 1), dtype=np.uint32), \
-			s_vec.repeat(k_vec).reshape(-1, 1), \
-			np.array(["K"]).repeat(K_tot).reshape(-1, 1), \
+			np.array([chrom]).repeat(K_tot).reshape(-1, 1),
+			tmp.reshape(-1, 1),
+			np.zeros((K_tot, 1), dtype=np.uint32),
+			s_vec.repeat(k_vec).reshape(-1, 1),
+			np.array(["K"]).repeat(K_tot).reshape(-1, 1),
 			np.zeros((K_tot, 1), dtype=np.uint32)
 		))
 		np.savetxt(f"{args.out}.bim", bim, fmt="%s", delimiter="\t")
@@ -178,8 +178,8 @@ def main(args):
 		else:
 			s_list = np.hstack((np.zeros((N//2, 1), dtype=np.uint8), s_list))
 		fam = np.hstack((
-			s_list, \
-			np.zeros((N//2, 3), dtype=np.uint8), \
+			s_list,
+			np.zeros((N//2, 3), dtype=np.uint8),
 			np.full((N//2, 1), -9, dtype=np.int8)
 		))
 		np.savetxt(f"{args.out}.fam", fam, fmt="%s", delimiter="\t")

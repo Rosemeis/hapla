@@ -1,13 +1,15 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, initializedcheck=False, cdivision=True
 cimport numpy as np
 from cython.parallel import prange
+from libc.stdint cimport uint8_t, uint32_t
 
 ##### hapla - analyses on haplotype cluster assignments #####
 ### hapla struct
 # Extract aggregated haplotype cluster counts
-cpdef void haplotypeAggregate(const unsigned char[:,::1] Z, unsigned char[:,::1] Z_agg, \
-		double[::1] p, const unsigned char[::1] k_vec, const unsigned int[::1] c_vec) \
-		noexcept nogil:
+cpdef void haplotypeAggregate(
+		const uint8_t[:,::1] Z, uint8_t[:,::1] Z_agg, double[::1] p, const uint8_t[::1] k_vec, 
+		const uint32_t[::1] c_vec
+	) noexcept nogil:
 	cdef:
 		size_t W = Z.shape[0]
 		size_t N = Z.shape[1]
@@ -24,8 +26,9 @@ cpdef void haplotypeAggregate(const unsigned char[:,::1] Z, unsigned char[:,::1]
 			p[l] *= d
 
 # Center batch haplotype cluster assignment matrix
-cpdef void centerZ(const unsigned char[:,::1] Z_agg, float[:,::1] Z_bat, \
-		const double[::1] p, const size_t M_b) noexcept nogil:
+cpdef void centerZ(
+		const uint8_t[:,::1] Z_agg, float[:,::1] Z_bat, const double[::1] p, const size_t M_b
+	) noexcept nogil:
 	cdef:
 		size_t M = Z_bat.shape[0]
 		size_t N = Z_bat.shape[1]
@@ -38,9 +41,10 @@ cpdef void centerZ(const unsigned char[:,::1] Z_agg, float[:,::1] Z_bat, \
 			Z_bat[j,i] = Z_agg[l,i] - u
 
 # Standardize permuted batch haplotype cluster assignment matrix
-cpdef void blockZ(const unsigned char[:,::1] Z_agg, double[:,::1] Z_bat, \
-		const double[::1] p, const double[::1] a, const unsigned int[::1] s, \
-		const size_t M_b) noexcept nogil:
+cpdef void blockZ(
+		const uint8_t[:,::1] Z_agg, double[:,::1] Z_bat, const double[::1] p, const double[::1] a, 
+		const uint32_t[::1] s, const size_t M_b
+	) noexcept nogil:
 	cdef:
 		size_t M = Z_bat.shape[0]
 		size_t N = Z_bat.shape[1]
@@ -54,8 +58,9 @@ cpdef void blockZ(const unsigned char[:,::1] Z_agg, double[:,::1] Z_bat, \
 			Z_bat[j,i] = (Z_agg[l,i] - u)*d
 
 # Standardize batch haplotype cluster assignment matrix
-cpdef void batchZ(const unsigned char[:,::1] Z_agg, double[:,::1] Z_bat, \
-		const double[::1] p, const double[::1] a, const size_t M_b) noexcept nogil:
+cpdef void batchZ(
+		const uint8_t[:,::1] Z_agg, double[:,::1] Z_bat, const double[::1] p, const double[::1] a, const size_t M_b
+	) noexcept nogil:
 	cdef:
 		size_t M = Z_bat.shape[0]
 		size_t N = Z_bat.shape[1]
@@ -72,25 +77,27 @@ cpdef void batchZ(const unsigned char[:,::1] Z_agg, double[:,::1] Z_bat, \
 
 ### hapla predict
 # Calculate Hamming distance
-cdef inline unsigned int hammingPred(const unsigned char* X, const unsigned char* R, \
-		const size_t M) noexcept nogil:
+cdef inline uint32_t hammingPred(
+		const uint8_t* X, const uint8_t* R, const size_t M
+	) noexcept nogil:
 	cdef:
 		size_t j
-		unsigned int dist = 0
+		uint32_t dist = 0
 	for j in range(M):
 		if X[j] != R[j] and X[j] != 9: # Ignore missing
 			dist += 1
 	return dist
 
 # Haplotype cluster assignment based on pre-estimated medians
-cpdef void predictCluster(unsigned char[:,::1] X, const unsigned char[:,::1] R, \
-		unsigned char[:,::1] Z, const unsigned int[::1] n_vec, const size_t K, \
-		const size_t w) noexcept nogil:
+cpdef void predictCluster(
+		uint8_t[:,::1] X, const uint8_t[:,::1] R, uint8_t[:,::1] Z, const uint32_t[::1] n_vec, const size_t K, 
+		const size_t w
+	) noexcept nogil:
 	cdef:
 		size_t N = X.shape[0]
 		size_t M = X.shape[1]
 		size_t c, d, i, k, z
-		unsigned char* xi
+		uint8_t* xi
 	for i in prange(N):
 		xi = &X[i,0]
 		z = 0
@@ -100,4 +107,4 @@ cpdef void predictCluster(unsigned char[:,::1] X, const unsigned char[:,::1] R, 
 			if d < c or (d == c and n_vec[k] > n_vec[z]):
 				z = k
 				c = d
-		Z[w,i] = z
+		Z[w,i] = <uint8_t>z

@@ -2,10 +2,13 @@
 cimport numpy as np
 from cython.parallel import prange
 from libc.math cimport log, exp
+from libc.stdint cimport uint8_t, uint32_t
 
 ##### hapla - local ancestry inference #####
 # Safe log-sum-exp for array
-cdef inline double logsumexp(const double* vec, const size_t K) noexcept nogil:
+cdef inline double _logsumexp(
+		const double* vec, const size_t K
+	) noexcept nogil:
 	cdef:
 		double max_v = vec[0]
 		double sum_v = 0.0
@@ -18,9 +21,10 @@ cdef inline double logsumexp(const double* vec, const size_t K) noexcept nogil:
 	return log(sum_v) + max_v
 
 # Calculate emission probabilities
-cpdef void calcEmissions(double[:,:,::1] E, const unsigned char[:,::1] Z, \
-		const double[::1] P, const unsigned char[::1] k_vec, \
-		const unsigned int[::1] c_vec) noexcept nogil:
+cpdef void calcEmissions(
+		double[:,:,::1] E, const uint8_t[:,::1] Z, const double[::1] P, const uint8_t[::1] k_vec, 
+		const uint32_t[::1] c_vec
+	) noexcept nogil:
 	cdef:
 		size_t N = E.shape[0]
 		size_t W = E.shape[1]
@@ -35,8 +39,9 @@ cpdef void calcEmissions(double[:,:,::1] E, const unsigned char[:,::1] Z, \
 				E[i,w,k] = log(P[s + B*k + z])
 
 # Calculate transition probabilities - T[k1, k2] = P(Z_{w} = k1 | Z_{w-1} = k2)
-cpdef void calcTransition(double[:,::1] T, const double[::1] Q, const double a) \
-		noexcept nogil:
+cpdef void calcTransition(
+		double[:,::1] T, const double[::1] Q, const double a
+	) noexcept nogil:
 	cdef:
 		size_t K = T.shape[0]
 		size_t k1, k2
@@ -49,9 +54,10 @@ cpdef void calcTransition(double[:,::1] T, const double[::1] Q, const double a) 
 				T[k1,k2] = log((1.0 - e)*Q[k1])
 
 # Viterbi algorithm
-cpdef void viterbi(const double[:,::1] E, const double[::1] Q_log, \
-		const double[:,::1] T, double[:,::1] A, unsigned char[:,::1] I, \
-		unsigned char[::1] V) noexcept nogil:
+cpdef void viterbi(
+		const double[:,::1] E, const double[::1] Q_log, const double[:,::1] T, double[:,::1] A, uint8_t[:,::1] I, 
+		uint8_t[::1] V
+	) noexcept nogil:
 	cdef:
 		size_t W = E.shape[0]
 		size_t K = E.shape[1]
@@ -84,9 +90,10 @@ cpdef void viterbi(const double[:,::1] E, const double[::1] Q_log, \
 		V[w] = I[w+1,V[w+1]]
 
 # Forward-backward algorithm
-cpdef void calcFwdBwd(const double[:,::1] E, double[:,::1] L, \
-		const double[::1] Q_log, const double[:,::1] T, double[:,::1] A, \
-		double[:,::1] B, double[::1] v) noexcept nogil:
+cpdef void calcFwdBwd(
+		const double[:,::1] E, double[:,::1] L, const double[::1] Q_log, const double[:,::1] T, double[:,::1] A, \
+		double[:,::1] B, double[::1] v
+	) noexcept nogil:
 	cdef:
 		size_t W = E.shape[0]
 		size_t K = E.shape[1]
@@ -99,12 +106,12 @@ cpdef void calcFwdBwd(const double[:,::1] E, double[:,::1] L, \
 		for k1 in range(K):
 			for k2 in range(K):
 				v[k2] = A[w-1,k2] + T[k1,k2]
-			A[w,k1] = logsumexp(&v[0], K) + E[w,k1]
+			A[w,k1] = _logsumexp(&v[0], K) + E[w,k1]
 	
 	# Forward log-likelihood
 	for k in range(K):
 		v[k] = A[W-1,k]
-	l_fwd = logsumexp(&v[0], K)
+	l_fwd = _logsumexp(&v[0], K)
 
 	# Backward calculations
 	for k in range(K):
@@ -113,7 +120,7 @@ cpdef void calcFwdBwd(const double[:,::1] E, double[:,::1] L, \
 		for k1 in range(K):
 			for k2 in range(K):
 				v[k2] = B[w+1,k2] + E[w+1,k2] + T[k2,k1]
-			B[w,k1] = logsumexp(&v[0], K)
+			B[w,k1] = _logsumexp(&v[0], K)
 
 	# Compute posterior probabilities
 	for w in range(W):

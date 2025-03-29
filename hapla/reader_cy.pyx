@@ -2,40 +2,43 @@
 cimport numpy as np
 from cython.parallel import parallel, prange
 from libc.stdlib cimport malloc, free
+from libc.stdint cimport uint8_t, int16_t, uint32_t
 
 ##### Cython functions for reading genotype files #####
 # Read variant from VCF/BCF into 8-bit integer format
-cpdef void readVar(unsigned char[::1] G, const short[:,::1] V, const size_t N) \
-		noexcept nogil:
+cpdef void readVar(
+		uint8_t[::1] G, const int16_t[:,::1] V, const size_t N
+	) noexcept nogil:
 	cdef:
 		size_t i
 	for i in range(N):
-		G[2*i] = <unsigned char>V[i,0] # Allele 1
-		G[2*i+1] = <unsigned char>V[i,1] # Allele 2
+		G[2*i] = <uint8_t>V[i,0] # Allele 1
+		G[2*i+1] = <uint8_t>V[i,1] # Allele 2
 
 # Read variant from VCF/BCF into 8-bit integer format with missing option
-cpdef void predVar(unsigned char[::1] G, const short[:,::1] V, const size_t N) \
-		noexcept nogil:
+cpdef void predVar(
+		uint8_t[::1] G, const int16_t[:,::1] V, const size_t N
+	) noexcept nogil:
 	cdef:
 		size_t i
 	for i in range(N):
-		G[2*i] = 9 if V[i,0] == -1 else <unsigned char>V[i,0] # Allele 1
-		G[2*i+1] = 9 if V[i,1] == -1 else <unsigned char>V[i,1] # Allele 2
+		G[2*i] = 9 if V[i,0] == -1 else <uint8_t>V[i,0] # Allele 1
+		G[2*i+1] = 9 if V[i,1] == -1 else <uint8_t>V[i,1] # Allele 2
 
 # Initialize cluster mean and suffix arrays
-cpdef void convertHap(const unsigned char[:,::1] G, unsigned int[:,::1] C, \
-		unsigned int[::1] p_vec, unsigned int[::1] d_vec, unsigned int[::1] a_tmp, \
-		unsigned int[::1] b_tmp, unsigned int[::1] d_tmp, unsigned int[::1] e_tmp, \
-		const size_t S) noexcept nogil:
+cpdef void convertHap(
+		const uint8_t[:,::1] G, uint32_t[:,::1] C, uint32_t[::1] p_vec, uint32_t[::1] d_vec, uint32_t[::1] a_tmp, 
+		uint32_t[::1] b_tmp, uint32_t[::1] d_tmp, uint32_t[::1] e_tmp, const size_t S
+	) noexcept nogil:
 	cdef:
 		size_t M = C.shape[1]
 		size_t N = G.shape[1]
 		size_t i, j, k, s, u, v
-		unsigned int f, l, p, q
+		uint32_t f, l, p, q
 	for j in range(M):
 		s = S + j
 		u = v = 0
-		p = q = j + 1
+		p = q = <uint32_t>j + 1
 		C[0,j] = 0
 		for i in range(N):
 			# Add to cluster mean
@@ -66,17 +69,18 @@ cpdef void convertHap(const unsigned char[:,::1] G, unsigned int[:,::1] C, \
 			d_vec[u+k] = e_tmp[k]
 
 # Extract unique haplotypes from suffix arrays
-cpdef unsigned int uniqueHap(const unsigned char[:,::1] G, unsigned char[:,::1] X, \
-		const unsigned int[::1] p_vec, const unsigned int[::1] d_vec, \
-		unsigned int[::1] u_vec, const size_t S) noexcept nogil:
+cpdef uint32_t uniqueHap(
+		const uint8_t[:,::1] G, uint8_t[:,::1] X, const uint32_t[::1] p_vec, const uint32_t[::1] d_vec, 
+		uint32_t[::1] u_vec, const size_t S
+	) noexcept nogil:
 	cdef:
 		size_t N = X.shape[0]
 		size_t M = X.shape[1]
 		size_t h, i, j
-		unsigned int u = 0
+		uint32_t u = 0
 	for i in range(N):
 		if d_vec[i] != 0:
-			h = p_vec[i]
+			h = <size_t>p_vec[i]
 			for j in range(M):
 				X[u,j] = G[S+j,h]
 			u += 1
@@ -84,8 +88,9 @@ cpdef unsigned int uniqueHap(const unsigned char[:,::1] G, unsigned char[:,::1] 
 	return u
 			
 # Convert transposed window for predicting target clusters
-cpdef void predictHap(const unsigned char[:,::1] G, unsigned char[:,::1] X, \
-		const size_t S) noexcept nogil:
+cpdef void predictHap(
+		const uint8_t[:,::1] G, uint8_t[:,::1] X, const size_t S
+	) noexcept nogil:
 	cdef:
 		size_t N = X.shape[0]
 		size_t M = X.shape[1]
@@ -95,17 +100,18 @@ cpdef void predictHap(const unsigned char[:,::1] G, unsigned char[:,::1] X, \
 			X[i,j] = G[S+j,i]
 
 # Convert haplotype cluster alleles to 2-bit PLINK format
-cpdef void convertPlink(const unsigned char[:,::1] Z, unsigned char[:,::1] Z_bin, \
-		unsigned int[:,::1] P_mat, const unsigned char[::1] k_vec, \
-		const unsigned int[::1] c_vec, const unsigned int[::1] b_vec) noexcept nogil:
+cpdef void convertPlink(
+		const uint8_t[:,::1] Z, uint8_t[:,::1] Z_bin, uint32_t[:,::1] P_mat, const uint8_t[::1] k_vec, 
+		const uint32_t[::1] c_vec, const uint32_t[::1] b_vec
+	) noexcept nogil:
 	cdef:
 		size_t W = Z.shape[0]
 		size_t N = Z.shape[1]//2
 		size_t B = Z_bin.shape[1]
 		size_t b, i, c, l, n, s, w, bit
-		unsigned char* z_vec
+		uint8_t* z_vec
 	with nogil, parallel():
-		z_vec = <unsigned char*>malloc(sizeof(unsigned char)*N)
+		z_vec = <uint8_t*>malloc(sizeof(uint8_t)*N)
 		for w in prange(W):
 			s = <size_t>c_vec[w]
 			for c in range(k_vec[w]):
@@ -135,22 +141,23 @@ cpdef void convertPlink(const unsigned char[:,::1] Z, unsigned char[:,::1] Z_bin
 							break
 				
 				# Save window and cluster information
-				P_mat[l,0] = w + 1
-				P_mat[l,1] = c + 1
+				P_mat[l,0] = <uint32_t>(w + 1)
+				P_mat[l,1] = <uint32_t>(c + 1)
 				P_mat[l,2] = b_vec[w]
 		free(z_vec)
 
 # Convert 2-bit into standardized genotype array for phenotypes
-cpdef void phenoPlink(const unsigned char[:,::1] G_mat, double[:,::1] G, \
-		const unsigned int[::1] c) noexcept nogil:
+cpdef void phenoPlink(
+		const uint8_t[:,::1] G_mat, double[:,::1] G, const uint32_t[::1] c
+	) noexcept nogil:
 	cdef:
 		size_t M = G.shape[0]
 		size_t N = G.shape[1]
 		size_t B = G_mat.shape[1]
 		size_t b, i, j, bytepart
-		unsigned char[4] recode = [2, 9, 1, 0]
-		unsigned char mask = 3
-		unsigned char byte
+		uint8_t[4] recode = [2, 9, 1, 0]
+		uint8_t mask = 3
+		uint8_t byte
 	for j in range(M):
 		i = 0
 		for b in range(B):

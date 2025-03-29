@@ -12,7 +12,7 @@ from time import time
 ##### hapla fatash #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.21.1)")
+	print("hapla by Jonas Meisner (v0.22.0)")
 	print(f"hapla fatash using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 

@@ -12,7 +12,7 @@ from time import time
 ##### hapla admix #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.21.1)")
+	print("hapla by Jonas Meisner (v0.22.0)")
 	print(f"hapla admix using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 
@@ -109,7 +109,7 @@ def main(args):
 		f"- {W} windows\n" + \
 		f"- {M} clusters\n")
 	print(f"Estimating admixture proportions: K={args.K}, seed={args.seed}.")
-	
+
 	# Initialize parameters randomly
 	rng = np.random.default_rng(args.seed)
 	P = rng.random(size=(M*args.K)).clip(min=1e-5, max=1-(1e-5))

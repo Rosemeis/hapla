@@ -12,7 +12,7 @@ from time import time
 ##### hapla cluster #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.21.1)")
+	print("hapla by Jonas Meisner (v0.22.0)")
 	print(f"hapla cluster using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 
@@ -137,7 +137,7 @@ def main(args):
 		X = np.zeros((N, args.size), dtype=np.uint8) # Haplotypes
 		R = np.zeros((args.max_clusters, args.size), dtype=np.uint8) # Medians
 		C = np.zeros((args.max_clusters, args.size), dtype=np.uint32) # Means
-		c_lim = np.uint32(args.lmbda*float(X.shape[1]))
+		c_lim = np.uint32(args.lmbda*float(X.shape[1])) # SNP-based threshold
 
 	# Optional containers
 	if args.medians:
@@ -178,7 +178,7 @@ def main(args):
 			U = reader_cy.uniqueHap(G, X, p_vec, d_vec, u_vec, S)
 
 		# Compute mean and initialize first median
-		K = 1
+		K = np.uint32(1)
 		n_vec[0] = N
 		cluster_cy.marginalMedians(R, C, n_vec, K)
 
@@ -186,25 +186,30 @@ def main(args):
 		for it in np.arange(args.max_iterations):
 			cluster_cy.assignClust(X, R, C, z_vec, c_vec, n_vec, n_tmp, u_vec, U, K)
 			cluster_cy.updateN(n_vec, n_tmp, K)
-			K += cluster_cy.checkClust(X, R, C, z_vec, c_vec, n_vec, u_vec, c_lim, K)
+			K += cluster_cy.checkClust(X, R, C, z_vec, c_vec, n_vec, u_vec, c_lim, U, K)
 
 			# Check for convergence
 			if it > 0:
-				if cluster_cy.countDist(z_vec, z_tmp) == 0:
+				if cluster_cy.countDist(z_vec, z_tmp, U) == 0:
 					if K > 1:
 						break
 					else: # Make sure two haplotype clusters are generated
 						print(", No diversity (K=1)! Adding extra cluster.")
-						cluster_cy.genClust(X, R, C, z_vec, c_vec, n_vec, u_vec, K)
+						cluster_cy.genClust(X, R, C, z_vec, c_vec, n_vec, u_vec, U, K)
 						K += 1
 			else:
 				memoryview(z_tmp)[:] = memoryview(z_vec)
-			
+
 			# Count sizes and construct marginal medians
 			cluster_cy.marginalMedians(R, C, n_vec, K)
 
 		# Iterative re-clustering of haplotypes
 		if K > 2:
+			# Set singleton clusters to zero from right hand side
+			cluster_cy.setZero(n_vec, N_mac-1, K)
+			cluster_cy.marginalMedians(R, C, n_vec, K)
+			cluster_cy.assignClust(X, R, C, z_vec, c_vec, n_vec, n_tmp, u_vec, U, K)
+			cluster_cy.updateN(n_vec, n_tmp, K)
 			K_tmp = np.sum(n_vec > 0, dtype=np.uint32)
 
 			# Remove smallest clusters iterativly
@@ -217,7 +222,7 @@ def main(args):
 				# Find smallest cluster
 				N_min = cluster_cy.findZero(n_vec, N, N_mac, K)
 				if N_min >= N_mac: # Ensure convergence
-					if cluster_cy.countDist(z_vec, z_tmp) == 0:
+					if cluster_cy.countDist(z_vec, z_tmp, U) == 0:
 						break
 				else:
 					K_tmp -= 1 # Cluster removed
@@ -244,8 +249,7 @@ def main(args):
 		cluster_cy.resetArrays(c_vec, n_vec, p_vec, d_vec, u_vec)
 
 	# Release memory
-	del G, X, C, z_vec, c_vec, z_tmp, p_vec, d_vec, n_vec, u_vec, \
-		a_tmp, b_tmp, d_tmp, e_tmp, n_tmp
+	del G, X, C, z_vec, c_vec, z_tmp, p_vec, d_vec, n_vec, u_vec, a_tmp, b_tmp, d_tmp, e_tmp, n_tmp
 	if args.memory:
 		del H
 	print(".\n")
@@ -253,19 +257,20 @@ def main(args):
 	# Extract window information
 	s_vec = v_vec[w_vec[:-1]].copy()
 	if args.size is not None:
-		e_vec = v_vec[w_vec[:-1]+args.size-1].copy()
+		e_vec = v_vec[w_vec[:-1] + args.size-1].copy()
 		e_vec[-1] = v_vec[-1]
 		b_vec = np.full(W, args.size, dtype=np.uint32)
 		b_vec[-1] = w_vec[-1] - w_vec[-2]
 	else:
-		e_vec = v_vec[w_vec[1:]-1]
+		e_vec = v_vec[w_vec[1:] - 1]
 		b_vec = w_vec[1:] - w_vec[:-1]
 	del v_vec, w_vec
 
 	# Create window information array
 	w_mat = np.hstack((
-		np.array([chrom]).repeat(W).reshape(-1, 1), \
-		s_vec.reshape(-1, 1), e_vec.reshape(-1, 1), (e_vec - s_vec).reshape(-1, 1), \
+		np.array([chrom]).repeat(W).reshape(-1, 1),
+		s_vec.reshape(-1, 1), e_vec.reshape(-1, 1), 
+		(e_vec - s_vec).reshape(-1, 1),
 		b_vec.reshape(-1, 1), k_vec.reshape(-1, 1)
 	))
 
@@ -275,8 +280,7 @@ def main(args):
 		np.array([7, 9, 13], dtype=np.uint8).tofile(f) # Add magic numbers
 		Z.tofile(f) # Save haplotype cluster assignments to binary file format
 	np.savetxt(f"{args.out}.ids", s_list, fmt="%s")
-	np.savetxt(f"{args.out}.win", w_mat, fmt="%s", delimiter="\t", \
-		comments="", header="\t".join(h_win))
+	np.savetxt(f"{args.out}.win", w_mat, fmt="%s", delimiter="\t", comments="", header="\t".join(h_win))
 	print("\rSaved haplotype clusters in binary format:\n" + \
 		f"- {args.out}.bca\n" + \
 		f"- {args.out}.ids\n" + \
@@ -308,24 +312,24 @@ def main(args):
 		# Save .bim file
 		tmp = np.array([f"{chrom}_W{w}_K{k}_B{l}" for w,k,l in P_mat])
 		bim = np.hstack((
-			np.array([chrom]).repeat(K_tot).reshape(-1, 1), \
-			tmp.reshape(-1, 1), \
-			np.zeros((K_tot, 1), dtype=np.uint32), \
-			s_vec.repeat(k_vec).reshape(-1, 1), \
-			np.array(["K"]).repeat(K_tot).reshape(-1, 1), \
+			np.array([chrom]).repeat(K_tot).reshape(-1, 1),
+			tmp.reshape(-1, 1),
+			np.zeros((K_tot, 1), dtype=np.uint32),
+			s_vec.repeat(k_vec).reshape(-1, 1),
+			np.array(["K"]).repeat(K_tot).reshape(-1, 1),
 			np.zeros((K_tot, 1), dtype=np.uint32)
 		))
 		np.savetxt(f"{args.out}.bim", bim, fmt="%s", delimiter="\t")
 		del k_vec, s_vec, bim, tmp, P_mat
-		
+
 		# Save .fam file
 		if args.duplicate_fid:
 			s_list = s_list.repeat(2, axis=1)
 		else:
 			s_list = np.hstack((np.zeros((N//2, 1), dtype=np.uint8), s_list))
 		fam = np.hstack((
-			s_list, \
-			np.zeros((N//2, 3), dtype=np.uint8), \
+			s_list,
+			np.zeros((N//2, 3), dtype=np.uint8),
 			np.full((N//2, 1), -9, dtype=np.int8)
 		))
 		np.savetxt(f"{args.out}.fam", fam, fmt="%s", delimiter="\t")

@@ -1,10 +1,12 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, initializedcheck=False, cdivision=True
 cimport numpy as np
+from libc.stdint cimport uint8_t, int16_t, uint32_t
 
 ##### Cython memory efficient functions #####
 # Read variant from VCF/BCF into 1-bit integer format
-cpdef void readBit(unsigned char[::1] G, const short[:,::1] V, const size_t N) \
-		noexcept nogil:
+cpdef void readBit(
+		uint8_t[::1] G, const int16_t[:,::1] V, const size_t N
+	) noexcept nogil:
 	cdef:
 		size_t B = G.shape[0]
 		size_t i = 0
@@ -22,8 +24,9 @@ cpdef void readBit(unsigned char[::1] G, const short[:,::1] V, const size_t N) \
 				break
 
 # Read variant from VCF/BCF into 2-bit integer format
-cpdef void predBit(unsigned char[::1] G, const short[:,::1] V, const size_t N) \
-		noexcept nogil:
+cpdef void predBit(
+		uint8_t[::1] G, const int16_t[:,::1] V, const size_t N
+	) noexcept nogil:
 	cdef:
 		size_t B = G.shape[0]
 		size_t i = 0
@@ -47,22 +50,22 @@ cpdef void predBit(unsigned char[::1] G, const short[:,::1] V, const size_t N) \
 				break
 
 # Convert 1-bit into full array and initialize cluster mean
-cpdef void convertBit(const unsigned char[:,::1] G, unsigned char[:,::1] H, \
-		unsigned int[:,::1] C, unsigned int[::1] p_vec, unsigned int[::1] d_vec, \
-		unsigned int[::1] a_tmp, unsigned int[::1] b_tmp, unsigned int[::1] d_tmp, \
-		unsigned int[::1] e_tmp, const size_t S) noexcept nogil:
+cpdef void convertBit(
+		const uint8_t[:,::1] G, uint8_t[:,::1] H, uint32_t[:,::1] C, uint32_t[::1] p_vec, uint32_t[::1] d_vec, \
+		uint32_t[::1] a_tmp, uint32_t[::1] b_tmp, uint32_t[::1] d_tmp, uint32_t[::1] e_tmp, const size_t S
+	) noexcept nogil:
 	cdef:
 		size_t B = G.shape[1]
 		size_t M = H.shape[0]
 		size_t N = H.shape[1]
 		size_t b, h, i, j, k, s, u, v, bit
-		unsigned int f, l, p, q
-		unsigned char mask = 1
-		unsigned char g, byte
+		uint32_t f, l, p, q
+		uint8_t mask = 1
+		uint8_t g, byte
 	# Populate haplotype matrix and cluster mean
 	for j in range(M):
 		h = 0
-		s = S+j
+		s = S + j
 		C[0,j] = 0
 		for b in range(B):
 			byte = G[s,b]
@@ -76,7 +79,7 @@ cpdef void convertBit(const unsigned char[:,::1] G, unsigned char[:,::1] H, \
 	
 		# Populate suffix arrays
 		u = v = 0
-		p = q = j+1
+		p = q = <uint32_t>j + 1
 		for i in range(N):
 			f = p_vec[i]
 			l = d_vec[i]
@@ -102,17 +105,18 @@ cpdef void convertBit(const unsigned char[:,::1] G, unsigned char[:,::1] H, \
 			d_vec[u+k] = e_tmp[k]
 
 # Extract unique haplotypes from suffix arrays
-cpdef unsigned int uniqueBit(const unsigned char[:,::1] H, unsigned char[:,::1] X, \
-		const unsigned int[::1] p_vec, const unsigned int[::1] d_vec, \
-		unsigned int[::1] u_vec) noexcept nogil:
+cpdef uint32_t uniqueBit(
+		const uint8_t[:,::1] H, uint8_t[:,::1] X, const uint32_t[::1] p_vec, const uint32_t[::1] d_vec, 
+		uint32_t[::1] u_vec
+	) noexcept nogil:
 	cdef:
 		size_t N = X.shape[0]
 		size_t M = X.shape[1]
 		size_t h, i, j
-		unsigned int u = 0
+		uint32_t u = 0
 	for i in range(N):
 		if d_vec[i] != 0:
-			h = p_vec[i]
+			h = <size_t>p_vec[i]
 			for j in range(M):
 				X[u,j] = H[j,h]
 			u += 1
@@ -120,24 +124,25 @@ cpdef unsigned int uniqueBit(const unsigned char[:,::1] H, unsigned char[:,::1] 
 	return u
 
 # Convert 2-bit into full array for predicting target clusters
-cpdef void predictBit(const unsigned char[:,::1] G, unsigned char[:,::1] X, \
-		const size_t w_s) noexcept nogil:
+cpdef void predictBit(
+		const uint8_t[:,::1] G, uint8_t[:,::1] X, const size_t w_s
+	) noexcept nogil:
 	cdef:
 		size_t B = G.shape[1]
 		size_t N = X.shape[0]
 		size_t M = X.shape[1]
 		size_t b, i, j, s, bit
-		unsigned char[4] recode = [0, 9, 9, 1]
-		unsigned char mask = 3
-		unsigned char byte
+		uint8_t[4] recode = [0, 9, 9, 1]
+		uint8_t mask = 3
+		uint8_t byte
 	for j in range(M):
 		i = 0
-		s = w_s+j
+		s = w_s + j
 		for b in range(B):
 			byte = G[s,b]
 			for bit in range(4):
 				X[i,j] = recode[byte & mask]
-				byte = byte >> 2 # Right shift 2 bit
+				byte = byte >> 2 # Right shift 2 bits
 				i += 1
 				if i == N:
 					break

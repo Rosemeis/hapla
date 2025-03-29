@@ -23,8 +23,8 @@ def main():
 		metavar="INT", help="Use fixed window size")
 	parser_cluster.add_argument("-w", "--windows", metavar="FILE",
 		help="Use provided window indices")
-	parser_cluster.add_argument("-l", "--lmbda", type=float, default=0.1,
-		metavar="FLOAT", help="Set lambda hyperparameter (0.1)")
+	parser_cluster.add_argument("-l", "--lmbda", type=float, default=0.125,
+		metavar="FLOAT", help="Set lambda hyperparameter (0.125)")
 	parser_cluster.add_argument("-s", "--step", type=int,
 		metavar="INT", help="Step-size for sliding window")
 	parser_cluster.add_argument("-t", "--threads", type=int, default=1,
@@ -35,8 +35,8 @@ def main():
 		metavar="FLOAT", help="Minimum haplotype cluster frequency (0.01)")
 	parser_cluster.add_argument("--min-mac", type=int,
 		metavar="INT", help="Minimum haplotype cluster allele count")
-	parser_cluster.add_argument("--max-clusters", type=int, default=100,
-		metavar="INT", help="Maximum number of haplotype clusters per window (100)")
+	parser_cluster.add_argument("--max-clusters", type=int, default=128,
+		metavar="INT", help="Maximum number of haplotype clusters per window (128)")
 	parser_cluster.add_argument("--max-iterations", type=int, default=500,
 		metavar="INT", help="Maximum number of iterations (500)")
 	parser_cluster.add_argument("--medians", action="store_true",
