@@ -190,13 +190,11 @@ cpdef void setZero(
 	cdef:
 		size_t k = K - 1
 		uint32_t c_mac = 0
-	while c_mac < lim:
+	while (c_mac < lim) and (k > 1):
 		if n_vec[k] == 1:
 			n_vec[k] = 0
 			c_mac += 1
 		k -= 1
-		if k == 1:
-			break
 
 # Find non-zero cluster with least assignments
 cpdef uint32_t findZero(
