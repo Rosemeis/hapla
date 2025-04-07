@@ -12,7 +12,7 @@ from time import time
 ##### hapla predict #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.22.0)")
+	print("hapla by Jonas Meisner (v0.22.1)")
 	print(f"hapla predict using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 	
@@ -78,7 +78,7 @@ def main(args):
 	print(f"\rLoaded phased genotype data: {N} haplotypes and {M} SNPs.")
 
 	# Load window information from reference
-	w_mat = np.loadtxt(f"{args.ref}.win", dtype=np.str_, skiprows=1)
+	w_mat = np.genfromtxt(f"{args.ref}.win", dtype=np.str_, skip_header=1)
 	assert w_mat[0,0] == chrom, "Chromosome name differ between files!"
 	assert int(w_mat[0,1]) == v_vec[0], "Positions differ between files!"
 	assert int(w_mat[-1,2]) == v_vec[-1], "Positions differ between files!"
@@ -95,8 +95,8 @@ def main(args):
 		R_arr = np.fromfile(f, dtype=np.uint8)
 		
 	# Load window setup files
-	w_vec = np.loadtxt(f"{args.ref}.wix", dtype=np.uint32)
-	N_arr = np.loadtxt(f"{args.ref}.hcc", dtype=np.uint32)
+	w_vec = np.genfromtxt(f"{args.ref}.wix", dtype=np.uint32)
+	N_arr = np.genfromtxt(f"{args.ref}.hcc", dtype=np.uint32)
 	assert np.allclose(v_vec[w_vec], s_vec), "SNP set doesn't match!"
 	del v_vec
 

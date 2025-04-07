@@ -12,7 +12,7 @@ from time import time
 ##### hapla cluster #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.22.0)")
+	print("hapla by Jonas Meisner (v0.22.1)")
 	print(f"hapla cluster using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 
@@ -109,7 +109,7 @@ def main(args):
 		w_vec.append(M)
 		w_vec = np.array(w_vec, dtype=np.uint32)
 	else:
-		w_vec = np.loadtxt(args.windows, dtype=np.uint32)
+		w_vec = np.genfromtxt(args.windows, dtype=np.uint32)
 		assert w_vec[-1] <= M, "Genotype and window files don't match!"
 		if w_vec[-1] != M:
 			w_vec = np.insert(w_vec, W, M)

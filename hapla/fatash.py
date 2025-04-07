@@ -12,7 +12,7 @@ from time import time
 ##### hapla fatash #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.22.0)")
+	print("hapla by Jonas Meisner (v0.22.1)")
 	print(f"hapla fatash using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 
@@ -56,15 +56,15 @@ def main(args):
 				assert os.path.isfile(f"{z}.ids"), "ids file doesn't exist!"
 				assert os.path.isfile(f"{z}.win"), "win file doesn't exist!"
 				if len(Z_list) == 1: # First file
-					z_ids = np.loadtxt(f"{z}.ids", dtype=np.str_)
-					k_vec = np.loadtxt(f"{z}.win", dtype=np.uint8, usecols=[5])
+					z_ids = np.genfromtxt(f"{z}.ids", dtype=np.str_)
+					k_vec = np.genfromtxt(f"{z}.win", dtype=np.uint8, usecols=[5])
 					N = 2*z_ids.shape[0]
 					w_list = [k_vec.shape[0]]
 				else: # Loop files
-					t_ids = np.loadtxt(f"{z}.ids", dtype=np.str_)
+					t_ids = np.genfromtxt(f"{z}.ids", dtype=np.str_)
 					assert np.sum(z_ids != t_ids) == 0, \
 						"Samples do not match across files!"
-					k_tmp = np.loadtxt(f"{z}.win", dtype=np.uint8, usecols=[5])
+					k_tmp = np.genfromtxt(f"{z}.win", dtype=np.uint8, usecols=[5])
 					k_vec = np.append(k_vec, k_tmp)
 					w_list.append(k_tmp.shape[0])
 		w_vec = np.array(w_list, dtype=int)
@@ -74,13 +74,13 @@ def main(args):
 		assert os.path.isfile(f"{Z_list[0]}.bca"), "bca file doesn't exist!"
 		assert os.path.isfile(f"{Z_list[0]}.ids"), "ids file doesn't exist!"
 		assert os.path.isfile(f"{Z_list[0]}.win"), "win file doesn't exist!"
-		k_vec = np.loadtxt(f"{Z_list[0]}.win", dtype=np.uint8, usecols=[5])
+		k_vec = np.genfromtxt(f"{Z_list[0]}.win", dtype=np.uint8, usecols=[5])
 		w_vec = np.array([k_vec.shape[0]], dtype=int)
-		N = 2*np.loadtxt(f"{Z_list[0]}.ids", dtype=np.str_).shape[0]
+		N = 2*np.genfromtxt(f"{Z_list[0]}.ids", dtype=np.str_).shape[0]
 	print(f"Parsing {len(Z_list)} file(s).")
 
 	# Load Q matrix
-	Q = np.loadtxt(args.qfile, dtype=float)
+	Q = np.genfromtxt(args.qfile, dtype=float)
 	if Q.shape[0] == N//2:
 		Q = np.repeat(Q, 2, axis=0)
 	else:

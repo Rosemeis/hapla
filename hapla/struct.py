@@ -12,7 +12,7 @@ from time import time
 ##### hapla struct #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.22.0)")
+	print("hapla by Jonas Meisner (v0.22.1)")
 	print(f"hapla struct using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 
@@ -58,16 +58,16 @@ def main(args):
 				assert os.path.isfile(f"{z}.ids"), "ids file doesn't exist!"
 				assert os.path.isfile(f"{z}.win"), "win file doesn't exist!"
 				if W == 0: # First file
-					z_ids = np.loadtxt(f"{z}.ids", dtype=np.str_)
-					k_vec = np.loadtxt(f"{z}.win", dtype=np.uint8, usecols=[5])
+					z_ids = np.genfromtxt(f"{z}.ids", dtype=np.str_)
+					k_vec = np.genfromtxt(f"{z}.win", dtype=np.uint8, usecols=[5])
 					N = z_ids.shape[0]
 					W = k_vec.shape[0]
 					w_list = [W]
 				else: # Loop files
-					t_ids = np.loadtxt(f"{z}.ids", dtype=np.str_)
+					t_ids = np.genfromtxt(f"{z}.ids", dtype=np.str_)
 					assert np.sum(z_ids != t_ids) == 0, \
 						"Samples don't match across files!"
-					k_tmp = np.loadtxt(f"{z}.win", dtype=np.uint8, usecols=[5])
+					k_tmp = np.genfromtxt(f"{z}.win", dtype=np.uint8, usecols=[5])
 					k_vec = np.append(k_vec, k_tmp)
 					W += k_tmp.shape[0]
 					w_list.append(k_tmp.shape[0])
@@ -78,8 +78,8 @@ def main(args):
 		assert os.path.isfile(f"{Z_list[0]}.bca"), "bca file doesn't exist!"
 		assert os.path.isfile(f"{Z_list[0]}.ids"), "ids file doesn't exist!"
 		assert os.path.isfile(f"{Z_list[0]}.win"), "win file doesn't exist!"
-		z_ids = np.loadtxt(f"{Z_list[0]}.ids", dtype=np.str_)
-		k_vec = np.loadtxt(f"{Z_list[0]}.win", dtype=np.uint8, usecols=[5])
+		z_ids = np.genfromtxt(f"{Z_list[0]}.ids", dtype=np.str_)
+		k_vec = np.genfromtxt(f"{Z_list[0]}.win", dtype=np.uint8, usecols=[5])
 		N = z_ids.shape[0]
 		W = k_vec.shape[0]
 		w_vec = np.array([W], dtype=np.uint32)
