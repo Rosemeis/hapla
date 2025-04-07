@@ -238,8 +238,9 @@ cpdef void assignFix(
 	) noexcept nogil:
 	cdef:
 		size_t N = Z.shape[1]
-		size_t i, z
+		size_t i
 		size_t u = 0
+		size_t z = <size_t>z_vec[u]
 	for i in range(N):
 		if d_vec[i] != 0:
 			z = z_vec[u]
