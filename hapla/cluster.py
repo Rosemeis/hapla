@@ -239,7 +239,7 @@ def main(args):
 
 		# Generate optional saves (medians)
 		if args.medians:
-			cluster_cy.estimateLoglike(R, C, n_vec, L, K)
+			cluster_cy.estimateLoglike(R, C, L, n_vec, K)
 			N_arr = np.append(N_arr, n_vec[:K])
 			with open(f"{args.out}.bcm", "ab") as f:
 				R[:K].tofile(f)

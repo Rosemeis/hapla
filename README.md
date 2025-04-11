@@ -102,6 +102,7 @@ Predict haplotype cluster assignments using pre-computed cluster medians in a ne
 hapla cluster --bcf ref.chr1.bcf --size 8 --threads 64 --out ref.chr1 --medians
 # Saves haplotype cluster medians (besides standard binary hapla format)
 #	- ref.chr1.bcm
+#	- ref.chr1.blk
 #	- ref.chr1.wix
 #	- ref.chr1.hcc
 
@@ -112,7 +113,7 @@ hapla predict --bcf new.chr1.bcf  --ref ref.chr1 --threads 64 --out new.chr1
 #	- new.chr1.ids
 #	- new.chr1.win
 ```
-Using `--medians` in `hapla cluster` outputs three extra files. A **.bcm**-file (binary cluster medians), which stores the cluster medians as *unsigned char*s, a **.wix**-file with window index information and a **.hcc**-file with haplotype cluster counts. All files are needed to predict haplotype clusters in a new set of haplotypes.
+Using `--medians` in `hapla cluster` outputs four extra files. A **.bcm**-file (binary cluster medians), which stores the cluster medians as *unsigned char*s, a **.blk**-file, which stores pairwise log-likelihoods between the cluster medians, a **.wix**-file with window index information, and a **.hcc**-file with haplotype cluster counts. The files are needed to predict haplotype clusters in a new set of haplotypes.
 
 ### Ancestry estimation
 ***hapla admix***\
