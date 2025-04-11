@@ -12,18 +12,15 @@ from time import time
 ##### hapla predict #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.22.1)")
+	print("hapla by Jonas Meisner (v0.23.0)")
 	print(f"hapla predict using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 	
 	# Check input
-	assert args.vcf is not None, \
-		"Please provide phased genotype file (--bcf or --vcf)!"
+	assert args.vcf is not None, "Please provide phased genotype file (--bcf or --vcf)!"
 	assert os.path.isfile(f"{args.vcf}"), "VCF/BCF file doesn't exist!"
-	assert os.path.isfile(f"{args.vcf}.csi") or os.path.isfile(f"{args.vcf}.tbi"), \
-		"VCF/BCF index doesn't exist!"
-	assert args.ref is not None, \
-		"Please provide pre-estimated reference haplotype cluster medians (--ref)!"
+	assert os.path.isfile(f"{args.vcf}.csi") or os.path.isfile(f"{args.vcf}.tbi"), "VCF/BCF index doesn't exist!"
+	assert args.ref is not None, "Please provide pre-estimated reference haplotype cluster medians (--ref)!"
 	assert os.path.isfile(f"{args.ref}.bcm"), "bcm file doesn't exist!"
 	assert os.path.isfile(f"{args.ref}.win"), "win file doesn't exist!"
 	assert os.path.isfile(f"{args.ref}.wix"), "wix file doesn't exist!"
@@ -192,7 +189,7 @@ def main(args):
 		del fam, s_list
 
 	# Print elapsed time for computation
-	t_tot = time()-start
+	t_tot = time() - start
 	t_min = int(t_tot//60)
 	t_sec = int(t_tot - t_min*60)
 	print(f"Total elapsed time: {t_min}m{t_sec}s")

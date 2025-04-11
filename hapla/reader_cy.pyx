@@ -1,16 +1,15 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, initializedcheck=False, cdivision=True
 cimport numpy as np
 from cython.parallel import parallel, prange
-from libc.stdlib cimport malloc, free
 from libc.stdint cimport uint8_t, int16_t, uint32_t
+from libc.stdlib cimport malloc, free
 
 ##### Cython functions for reading genotype files #####
 # Read variant from VCF/BCF into 8-bit integer format
 cpdef void readVar(
 		uint8_t[::1] G, const int16_t[:,::1] V, const size_t N
 	) noexcept nogil:
-	cdef:
-		size_t i
+	cdef size_t i
 	for i in range(N):
 		G[2*i] = <uint8_t>V[i,0] # Allele 1
 		G[2*i+1] = <uint8_t>V[i,1] # Allele 2
@@ -19,8 +18,7 @@ cpdef void readVar(
 cpdef void predVar(
 		uint8_t[::1] G, const int16_t[:,::1] V, const size_t N
 	) noexcept nogil:
-	cdef:
-		size_t i
+	cdef size_t i
 	for i in range(N):
 		G[2*i] = 9 if V[i,0] == -1 else <uint8_t>V[i,0] # Allele 1
 		G[2*i+1] = 9 if V[i,1] == -1 else <uint8_t>V[i,1] # Allele 2
@@ -76,15 +74,15 @@ cpdef uint32_t uniqueHap(
 	cdef:
 		size_t N = X.shape[0]
 		size_t M = X.shape[1]
+		size_t u = 0
 		size_t h, i, j
-		uint32_t u = 0
 	for i in range(N):
 		if d_vec[i] != 0:
 			h = <size_t>p_vec[i]
 			for j in range(M):
 				X[u,j] = G[S+j,h]
 			u += 1
-		u_vec[u-1] += 1
+		u_vec[u - 1] += 1
 	return u
 			
 # Convert transposed window for predicting target clusters
@@ -108,7 +106,7 @@ cpdef void convertPlink(
 		size_t W = Z.shape[0]
 		size_t N = Z.shape[1]//2
 		size_t B = Z_bin.shape[1]
-		size_t b, i, c, l, n, s, w, bit
+		size_t b, c, i, j, l, n, s, w, bit
 		uint8_t* z_vec
 	with nogil, parallel():
 		z_vec = <uint8_t*>malloc(sizeof(uint8_t)*N)
@@ -126,18 +124,18 @@ cpdef void convertPlink(
 						z_vec[n] += 1
 
 				# Save in 2-bit form with bit-wise operations
-				i = 0
+				j = 0
 				for b in range(B):
 					for bit in range(0, 8, 2):
-						if z_vec[i] == 0:
+						if z_vec[j] == 0:
 							Z_bin[l,b] |= (1<<bit)
 							Z_bin[l,b] |= (1<<(bit+1))
-						if z_vec[i] == 1:
+						if z_vec[j] == 1:
 							Z_bin[l,b] |= (1<<(bit+1))
 
 						# Increase counter and check for break
-						i = i + 1
-						if i == N:
+						j = j + 1
+						if j == N:
 							break
 				
 				# Save window and cluster information
@@ -161,7 +159,7 @@ cpdef void phenoPlink(
 	for j in range(M):
 		i = 0
 		for b in range(B):
-			byte = G_mat[c[j],b]
+			byte = G_mat[<size_t>c[j],b]
 			for bytepart in range(4):
 				G[j,i] = <double>recode[byte & mask]
 				byte = byte >> 2

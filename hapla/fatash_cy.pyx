@@ -32,8 +32,8 @@ cpdef void calcEmissions(
 		size_t i, k, s, w, z, B
 	for i in prange(N):
 		for w in range(W):
-			B = k_vec[w]
 			s = c_vec[w]
+			B = k_vec[w]
 			z = Z[i,w]
 			for k in range(K):
 				E[i,w,k] = log(P[s + B*k + z])
@@ -43,9 +43,9 @@ cpdef void calcTransition(
 		double[:,::1] T, const double[::1] Q, const double a
 	) noexcept nogil:
 	cdef:
-		size_t K = T.shape[0]
-		size_t k1, k2
+		uint32_t K = T.shape[0]
 		double e = exp(-a)
+		size_t k1, k2
 	for k1 in range(K):
 		for k2 in range(K):
 			if k1 == k2:
@@ -59,10 +59,10 @@ cpdef void viterbi(
 		uint8_t[::1] V
 	) noexcept nogil:
 	cdef:
+		double max_v
 		size_t W = E.shape[0]
 		size_t K = E.shape[1]
 		size_t k, w, k1, k2
-		double max_v
 	# Basis step
 	A[0,0] = E[0,0] + Q_log[0]
 	for k in range(1, K):
@@ -74,20 +74,20 @@ cpdef void viterbi(
 			A[w,k1] = A[w-1,0] + T[k1,0] + E[w,k1]
 			I[w,k1] = 0
 			for k2 in range(1, K):
-				max_v = A[w-1,k2] + T[k1,k2] + E[w,k1]
+				max_v = A[w - 1,k2] + T[k1,k2] + E[w,k1]
 				if max_v > A[w,k1]:
 					A[w,k1] = max_v
 					I[w,k1] = k2
 	
 	# Decode path
-	V[W-1] = 0
-	max_v = A[W-1,0]
+	V[W - 1] = 0
+	max_v = A[W - 1,0]
 	for k in range(1, K):
-		if A[W-1,k] > max_v:
-			V[W-1] = k
-			max_v = A[W-1,k]
+		if A[W - 1,k] > max_v:
+			V[W - 1] = k
+			max_v = A[W - 1,k]
 	for w in range(W-2, -1, -1):
-		V[w] = I[w+1,V[w+1]]
+		V[w] = I[w + 1,V[w + 1]]
 
 # Forward-backward algorithm
 cpdef void calcFwdBwd(
@@ -95,31 +95,31 @@ cpdef void calcFwdBwd(
 		double[:,::1] B, double[::1] v
 	) noexcept nogil:
 	cdef:
+		double l_fwd
 		size_t W = E.shape[0]
 		size_t K = E.shape[1]
 		size_t k, w, k1, k2
-		double l_fwd
 	# Forward calculations
 	for k in range(K):
 		A[0,k] = E[0,k] + Q_log[k]
 	for w in range(1, W):
 		for k1 in range(K):
 			for k2 in range(K):
-				v[k2] = A[w-1,k2] + T[k1,k2]
+				v[k2] = A[w - 1,k2] + T[k1,k2]
 			A[w,k1] = _logsumexp(&v[0], K) + E[w,k1]
 	
 	# Forward log-likelihood
 	for k in range(K):
-		v[k] = A[W-1,k]
+		v[k] = A[W - 1,k]
 	l_fwd = _logsumexp(&v[0], K)
 
 	# Backward calculations
 	for k in range(K):
-		B[W-1,k] = 0.0
+		B[W - 1,k] = 0.0
 	for w in range(W-2, -1, -1):
 		for k1 in range(K):
 			for k2 in range(K):
-				v[k2] = B[w+1,k2] + E[w+1,k2] + T[k2,k1]
+				v[k2] = B[w + 1,k2] + E[w + 1,k2] + T[k2,k1]
 			B[w,k1] = _logsumexp(&v[0], K)
 
 	# Compute posterior probabilities

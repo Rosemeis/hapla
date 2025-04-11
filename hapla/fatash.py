@@ -12,15 +12,13 @@ from time import time
 ##### hapla fatash #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.22.1)")
+	print("hapla by Jonas Meisner (v0.23.0)")
 	print(f"hapla fatash using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 
 	# Check input
-	assert (args.filelist is not None) or (args.clusters is not None), \
-		"No input data (--filelist or --clusters)!"
-	assert (args.pfilelist is not None) or (args.pfile is not None), \
-		"No P files provided (--pfilelist or --pfile)!"
+	assert (args.filelist is not None) or (args.clusters is not None), "No input data (--filelist or --clusters)!"
+	assert (args.pfilelist is not None) or (args.pfile is not None), "No P files provided (--pfilelist or --pfile)!"
 	if args.filelist is not None:
 		assert args.pfilelist is not None, "Input formats don't match!"
 	if args.clusters is not None:
@@ -62,8 +60,7 @@ def main(args):
 					w_list = [k_vec.shape[0]]
 				else: # Loop files
 					t_ids = np.genfromtxt(f"{z}.ids", dtype=np.str_)
-					assert np.sum(z_ids != t_ids) == 0, \
-						"Samples do not match across files!"
+					assert np.sum(z_ids != t_ids) == 0, "Samples do not match across files!"
 					k_tmp = np.genfromtxt(f"{z}.win", dtype=np.uint8, usecols=[5])
 					k_vec = np.append(k_vec, k_tmp)
 					w_list.append(k_tmp.shape[0])
@@ -124,8 +121,7 @@ def main(args):
 		with open(f"{Z_list[z]}.bca", "rb") as f:
 			# Check magic numbers
 			m_vec = np.fromfile(f, dtype=np.uint8, count=3)
-			assert np.allclose(m_vec, np.array([7, 9, 13], dtype=np.uint8)), \
-				"Magic number doesn't match file format!"
+			assert np.allclose(m_vec, np.array([7, 9, 13], dtype=np.uint8)), "Magic number doesn't match file format!"
 			
 			# Add haplotype cluster assignments to container
 			Z_tmp = np.fromfile(f, dtype=np.uint8)
@@ -192,7 +188,7 @@ def main(args):
 			del B, L
 
 	# Print elapsed time for computation
-	t_tot = time()-start
+	t_tot = time() - start
 	t_min = int(t_tot//60)
 	t_sec = int(t_tot - t_min*60)
 	print(f"Total elapsed time: {t_min}m{t_sec}s")

@@ -27,15 +27,15 @@ cpdef void haplotypeAggregate(
 
 # Center batch haplotype cluster assignment matrix
 cpdef void centerZ(
-		const uint8_t[:,::1] Z_agg, float[:,::1] Z_bat, const double[::1] p, const size_t M_b
+		const uint8_t[:,::1] Z_agg, float[:,::1] Z_bat, const double[::1] p, const size_t m
 	) noexcept nogil:
 	cdef:
+		float u
 		size_t M = Z_bat.shape[0]
 		size_t N = Z_bat.shape[1]
 		size_t i, j, l
-		float u
 	for j in prange(M):
-		l = M_b + j
+		l = m+j
 		u = 2.0*<float>p[l]
 		for i in range(N):
 			Z_bat[j,i] = Z_agg[l,i] - u
@@ -43,15 +43,15 @@ cpdef void centerZ(
 # Standardize permuted batch haplotype cluster assignment matrix
 cpdef void blockZ(
 		const uint8_t[:,::1] Z_agg, double[:,::1] Z_bat, const double[::1] p, const double[::1] a, 
-		const uint32_t[::1] s, const size_t M_b
+		const uint32_t[::1] s, const size_t m
 	) noexcept nogil:
 	cdef:
+		double d, u
 		size_t M = Z_bat.shape[0]
 		size_t N = Z_bat.shape[1]
 		size_t i, j, l
-		double d, u
 	for j in prange(M):
-		l = <size_t>s[M_b + j]
+		l = s[m+j]
 		d = a[l]
 		u = 2.0*p[l]
 		for i in range(N):
@@ -59,15 +59,15 @@ cpdef void blockZ(
 
 # Standardize batch haplotype cluster assignment matrix
 cpdef void batchZ(
-		const uint8_t[:,::1] Z_agg, double[:,::1] Z_bat, const double[::1] p, const double[::1] a, const size_t M_b
+		const uint8_t[:,::1] Z_agg, double[:,::1] Z_bat, const double[::1] p, const double[::1] a, const size_t m
 	) noexcept nogil:
 	cdef:
+		double d, u
 		size_t M = Z_bat.shape[0]
 		size_t N = Z_bat.shape[1]
 		size_t i, j, l
-		double d, u
 	for j in prange(M):
-		l = M_b + j
+		l = m+j
 		d = a[l]
 		u = 2.0*p[l]
 		for i in range(N):
@@ -94,9 +94,9 @@ cpdef void predictCluster(
 		const size_t w
 	) noexcept nogil:
 	cdef:
+		size_t c, d, i, k, z
 		size_t N = X.shape[0]
 		size_t M = X.shape[1]
-		size_t c, d, i, k, z
 		uint8_t* xi
 	for i in prange(N):
 		xi = &X[i,0]

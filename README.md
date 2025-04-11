@@ -1,4 +1,4 @@
-# hapla (v0.22.1)
+# hapla (v0.23.0)
 ***hapla*** is a framework for performing window-based haplotype clustering in phased genotype data. The inferred haplotype cluster alleles can be used to infer fine-scale population structure, perform polygenic prediction and haplotype cluster based association studies.
 
 ### Citation
@@ -114,7 +114,7 @@ hapla predict --bcf new.chr1.bcf  --ref ref.chr1 --threads 64 --out new.chr1
 ```
 Using `--medians` in `hapla cluster` outputs three extra files. A **.bcm**-file (binary cluster medians), which stores the cluster medians as *unsigned char*s, a **.wix**-file with window index information and a **.hcc**-file with haplotype cluster counts. All files are needed to predict haplotype clusters in a new set of haplotypes.
 
-### Admixture estimation
+### Ancestry estimation
 ***hapla admix***\
 Estimate ancestry proportions and ancestral haplotype cluster frequencies with a pre-specified number of sources (K). Using a modified ADMIXTURE model for our haplotype clusters.
 ```bash

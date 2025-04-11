@@ -2,8 +2,9 @@
 cimport numpy as np
 cimport openmp as omp
 from cython.parallel import parallel, prange
-from libc.stdlib cimport calloc, free
+from libc.math cimport log, log1p
 from libc.stdint cimport uint8_t, uint32_t
+from libc.stdlib cimport calloc, free
 
 ##### hapla - haplotype clustering #####
 ### Inline functions
@@ -53,8 +54,21 @@ cdef inline void _updateClust(
 			A[j] = u
 			B[j] -= u
 		else:
-			A[j] = X[j]
+			A[j] = 0
 
+# Estimate log-likelihood between cluster medians based on frequencies
+cdef inline float _logLike(
+		uint8_t* r, uint32_t* c, float n, size_t M
+	) noexcept nogil:
+	cdef:
+		float s = 0.0
+		float d, p
+		size_t j
+	for j in range(M):
+		d = <float>r[j]
+		p = <float>c[j]*n
+		s += d*log(p) + (1.0 - d)*log1p(-p)
+	return s
 
 ### Standard functions
 # Create marginal medians
@@ -64,12 +78,12 @@ cpdef void marginalMedians(
 	cdef:
 		size_t M = R.shape[1]
 		size_t j, k
-		uint32_t Nk
+		uint32_t n
 	for k in range(K):
 		if n_vec[k] > 0:
-			Nk = n_vec[k]//2
+			n = n_vec[k]//2
 			for j in range(M):
-				R[k,j] = <uint8_t>(C[k,j] > Nk)
+				R[k,j] = C[k,j] > n
 				C[k,j] = 0
 
 # Compute distances, cluster assignment and prepare for next loop
@@ -78,13 +92,13 @@ cpdef void assignClust(
 		const uint32_t[::1] n_vec, uint32_t[::1] n_tmp, const uint32_t[::1] u_vec, const size_t U, const size_t K
 	) noexcept nogil:
 	cdef:
+		omp.omp_lock_t mutex
 		size_t M = X.shape[1]
 		size_t i, k, x, y, z
 		uint8_t* xi
 		uint32_t c, d, u
 		uint32_t* C_thr
 		uint32_t* n_thr
-		omp.omp_lock_t mutex
 	omp.omp_init_lock(&mutex)
 	with nogil, parallel():
 		C_thr = <uint32_t*>calloc(K*M, sizeof(uint32_t))
@@ -92,7 +106,7 @@ cpdef void assignClust(
 		for i in prange(U):
 			xi = &X[i,0]
 			z = 0
-			c = <uint32_t>(M + 1)
+			c = M + 1
 			for k in range(K):
 				if n_vec[k] > 0:
 					d = _hammingDist(xi, &R[k,0], M)
@@ -137,7 +151,7 @@ cpdef uint32_t checkClust(
 		size_t M = X.shape[1]
 		size_t L = R.shape[0]
 		size_t c_arg = 0
-		size_t i, j, z
+		size_t i, z
 		uint32_t c_max = c_vec[0]
 		uint32_t u
 	for i in range(1, U): # Find extreme point
@@ -163,7 +177,7 @@ cpdef void genClust(
 	cdef:
 		size_t M = X.shape[1]
 		size_t c_arg = 0
-		size_t i, j, z
+		size_t i, z
 		uint32_t c_max = c_vec[0]
 		uint32_t u
 	for i in range(1, U): # Find extreme point
@@ -198,7 +212,7 @@ cpdef void setZero(
 
 # Find non-zero cluster with least assignments
 cpdef uint32_t findZero(
-		uint32_t[::1] n_vec, const size_t N, const size_t mac, const size_t K
+		uint32_t[::1] n_vec, const uint32_t N, const uint32_t mac, const size_t K
 	) noexcept nogil:
 	cdef:
 		size_t k
@@ -218,8 +232,8 @@ cpdef void medianFix(
 	) noexcept nogil:
 	cdef:
 		size_t M = R.shape[1]
-		size_t i, j, k
 		size_t c = 0
+		size_t i, j, k
 	for k in range(K):
 		if n_vec[k] > 0:
 			if k != c:
@@ -238,14 +252,14 @@ cpdef void assignFix(
 	) noexcept nogil:
 	cdef:
 		size_t N = Z.shape[1]
-		size_t i
 		size_t u = 0
-		size_t z = <size_t>z_vec[u]
+		size_t i
+		uint8_t z = z_vec[0]
 	for i in range(N):
 		if d_vec[i] != 0:
 			z = z_vec[u]
 			u += 1
-		Z[w,p_vec[i]] = z
+		Z[w,<size_t>p_vec[i]] = z
 
 # Reset arrays for next iteration
 cpdef void resetArrays(
@@ -262,3 +276,14 @@ cpdef void resetArrays(
 		p_vec[i] = <uint32_t>i
 		d_vec[i] = 0
 		u_vec[i] = 0
+
+# Estimate log-likelihoods between cluster medians
+cpdef void estimateLoglike(
+		uint8_t[:,::1] R, uint32_t[:,::1] C, float[:,::1] L, uint32_t[::1] n_vec, size_t K
+	) noexcept nogil:
+	cdef:
+		size_t M = R.shape[1]
+		size_t k1, k2
+	for k1 in range(K):
+		for k2 in range(K):
+			L[k1,k2] = _logLike(&R[k1,0], &C[k2,0], 1.0/<float>n_vec[k2], M)

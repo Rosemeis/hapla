@@ -59,9 +59,9 @@ cpdef void convertBit(
 		size_t M = H.shape[0]
 		size_t N = H.shape[1]
 		size_t b, h, i, j, k, s, u, v, bit
-		uint32_t f, l, p, q
 		uint8_t mask = 1
 		uint8_t g, byte
+		uint32_t f, l, p, q
 	# Populate haplotype matrix and cluster mean
 	for j in range(M):
 		h = 0
@@ -112,11 +112,11 @@ cpdef uint32_t uniqueBit(
 	cdef:
 		size_t N = X.shape[0]
 		size_t M = X.shape[1]
+		size_t u = 0
 		size_t h, i, j
-		uint32_t u = 0
 	for i in range(N):
 		if d_vec[i] != 0:
-			h = <size_t>p_vec[i]
+			h = p_vec[i]
 			for j in range(M):
 				X[u,j] = H[j,h]
 			u += 1
@@ -125,19 +125,19 @@ cpdef uint32_t uniqueBit(
 
 # Convert 2-bit into full array for predicting target clusters
 cpdef void predictBit(
-		const uint8_t[:,::1] G, uint8_t[:,::1] X, const size_t w_s
+		const uint8_t[:,::1] G, uint8_t[:,::1] X, const size_t m
 	) noexcept nogil:
 	cdef:
+		uint8_t[4] recode = [0, 9, 9, 1]
+		uint8_t mask = 3
+		uint8_t i, s, byte
 		size_t B = G.shape[1]
 		size_t N = X.shape[0]
 		size_t M = X.shape[1]
-		size_t b, i, j, s, bit
-		uint8_t[4] recode = [0, 9, 9, 1]
-		uint8_t mask = 3
-		uint8_t byte
+		size_t b, j, bit
 	for j in range(M):
 		i = 0
-		s = w_s + j
+		s = m + j
 		for b in range(B):
 			byte = G[s,b]
 			for bit in range(4):

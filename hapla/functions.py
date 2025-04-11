@@ -64,14 +64,14 @@ def randomizedSVD(Z_agg, p_vec, a_vec, K, batch, power, rng):
 
 
 ### hapla admix
-# Update for admixture estimation
+# Update for ancestry estimation
 def steps(Z, P, Q, P_tmp, Q_tmp, k_vec, c_vec, y):
 	admix_cy.updateP(Z, P, Q, P_tmp, Q_tmp, k_vec, c_vec)
 	admix_cy.updateQ(Q, Q_tmp, Z.shape[0])
 	if y is not None:
 		admix_cy.superQ(Q, y)
 
-# Accelerated update for admixture estimation
+# Accelerated update for ancestry estimation
 def quasi(Z, P0, Q0, P_tmp, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, y):
 	# 1st EM step
 	admix_cy.accelP(Z, P0, P1, Q0, P_tmp, Q_tmp, k_vec, c_vec)

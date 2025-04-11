@@ -1,6 +1,6 @@
 """
 hapla.
-Estimate admixture proportions using EM algorithm.
+Ancestry estimation using fastmixture mini-batch EM algorithm.
 """
 
 __author__ = "Jonas Meisner"
@@ -12,13 +12,12 @@ from time import time
 ##### hapla admix #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.22.1)")
+	print("hapla by Jonas Meisner (v0.23.0)")
 	print(f"hapla admix using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 
 	# Check input
-	assert (args.filelist is not None) or (args.clusters is not None), \
-		"No input data (--filelist or --clusters)!"
+	assert (args.filelist is not None) or (args.clusters is not None), "No input data (--filelist or --clusters)!"
 	assert args.K > 1, "Please select K > 1!"
 	assert args.threads > 0, "Please select a valid number of threads!"
 	assert args.seed >= 0, "Please select a valid seed!"
@@ -62,8 +61,7 @@ def main(args):
 					w_list = [W]
 				else: # Loop files
 					t_ids = np.genfromtxt(f"{z}.ids", dtype=np.str_)
-					assert np.sum(z_ids != t_ids) == 0, \
-						"Samples don't match across files!"
+					assert np.sum(z_ids != t_ids) == 0, "Samples don't match across files!"
 					k_tmp = np.genfromtxt(f"{z}.win", dtype=np.uint8, usecols=[5])
 					k_vec = np.append(k_vec, k_tmp)
 					W += k_tmp.shape[0]
@@ -89,8 +87,7 @@ def main(args):
 		with open(f"{Z_list[z]}.bca", "rb") as f:
 			# Check magic numbers
 			m_vec = np.fromfile(f, dtype=np.uint8, count=3)
-			assert np.allclose(m_vec, np.array([7, 9, 13], dtype=np.uint8)), \
-				"Magic number doesn't match file format!"
+			assert np.allclose(m_vec, np.array([7, 9, 13], dtype=np.uint8)), "Magic number doesn't match file format!"
 			
 			# Add haplotype cluster assignments to container
 			z_tmp = np.fromfile(f, dtype=np.uint8)
@@ -108,7 +105,7 @@ def main(args):
 		f"- {N} samples\n" + \
 		f"- {W} windows\n" + \
 		f"- {M} clusters\n")
-	print(f"Estimating admixture proportions: K={args.K}, seed={args.seed}.")
+	print(f"Estimating ancestry proportions: K={args.K}, seed={args.seed}.")
 
 	# Initialize parameters randomly
 	rng = np.random.default_rng(args.seed)
@@ -129,7 +126,7 @@ def main(args):
 	else:
 		y = None
 	
-	# Setup containers for EM algorithm
+	# Set up containers for EM algorithm
 	P1 = np.zeros_like(P)
 	P2 = np.zeros_like(P)
 	Q1 = np.zeros_like(Q)
@@ -138,7 +135,6 @@ def main(args):
 	Q_tmp = np.zeros_like(Q)
 
 	# Estimate initial log-likelihood
-	ts = time()
 	L_pre = admix_cy.loglike(Z, P, Q, k_vec, c_vec)
 	print(f"Initial log-like: {L_pre:.1f}\n")
 
@@ -177,14 +173,13 @@ def main(args):
 				)
 				w_cnt += w_vec[z]
 				c_cnt += p_num
-			print("Saved P matrices (binary) as " + \
-		 		f"{args.out}.K{args.K}.s{args.seed}.file{{1..{len(Z_list)}}}.P.bin")
+			print(f"Saved P matrices (binary) as {args.out}.K{args.K}.s{args.seed}.file{{1..{len(Z_list)}}}.P.bin")
 		else: # Single file (chromosome)
 			P.tofile(f"{args.out}.K{args.K}.s{args.seed}.P.bin")
 			print(f"Saved P matrix (binary) as {args.out}.K{args.K}.s{args.seed}.P.bin")
 
 	# Print elapsed time for computation
-	t_tot = time()-start
+	t_tot = time() - start
 	t_min = int(t_tot//60)
 	t_sec = int(t_tot - t_min*60)
 	print(f"\nTotal elapsed time: {t_min}m{t_sec}s")

@@ -12,15 +12,13 @@ from time import time
 ##### hapla struct #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.22.1)")
+	print("hapla by Jonas Meisner (v0.23.0)")
 	print(f"hapla struct using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 
 	# Check input
-	assert (args.filelist is not None) or (args.clusters is not None), \
-		"No input data (--filelist or --clusters)!"
-	assert (args.grm or (args.pca is not None)), \
-		"No analysis selected (--grm, --pca)!"
+	assert (args.filelist is not None) or (args.clusters is not None), "No input data (--filelist or --clusters)!"
+	assert (args.grm or (args.pca is not None)), "No analysis selected (--grm, --pca)!"
 	if args.pca is not None:
 		assert args.pca > 0, "Please select a valid number of eigenvectors!"
 	assert args.threads > 0, "Please select a valid number of threads!"
@@ -65,8 +63,7 @@ def main(args):
 					w_list = [W]
 				else: # Loop files
 					t_ids = np.genfromtxt(f"{z}.ids", dtype=np.str_)
-					assert np.sum(z_ids != t_ids) == 0, \
-						"Samples don't match across files!"
+					assert np.sum(z_ids != t_ids) == 0, "Samples don't match across files!"
 					k_tmp = np.genfromtxt(f"{z}.win", dtype=np.uint8, usecols=[5])
 					k_vec = np.append(k_vec, k_tmp)
 					W += k_tmp.shape[0]
@@ -210,8 +207,7 @@ def main(args):
 		# Randomized SVD
 		print(f"Computing randomized SVD, extracting {args.pca} eigenvectors.")
 		rng = np.random.default_rng(args.seed)
-		U, S, V = functions.randomizedSVD(Z_agg, p_vec, a_vec, args.pca, args.batch, \
-			args.power, rng)
+		U, S, V = functions.randomizedSVD(Z_agg, p_vec, a_vec, args.pca, args.batch, args.power, rng)
 		print(".\n")
 
 		# Save matrices
@@ -225,8 +221,7 @@ def main(args):
 				fam = np.hstack((np.zeros((N, 1), dtype=np.uint8), z_ids))
 			V = np.hstack((fam, np.round(V, 7)))
 			h = ["#FID", "IID"] + [f"PC{k}" for k in range(1, args.pca+1)]
-			np.savetxt(f"{args.out}.eigenvecs", V, fmt="%s", delimiter="\t", \
-				comments="", header="\t".join(h))
+			np.savetxt(f"{args.out}.eigenvecs", V, fmt="%s", delimiter="\t", comments="", header="\t".join(h))
 			print(f"Saved eigenvectors as {args.out}.eigenvecs")
 		np.savetxt(f"{args.out}.eigenvals", (S*S)/float(M), fmt="%.7f")
 		print(f"Saved eigenvalues as {args.out}.eigenvals")
@@ -237,7 +232,7 @@ def main(args):
 		del z_ids, Z_agg, p_vec, a_vec, U, S, V, h, fam
 
 	# Print elapsed time for computation
-	t_tot = time()-start
+	t_tot = time() - start
 	t_min = int(t_tot//60)
 	t_sec = int(t_tot - t_min*60)
 	print(f"Total elapsed time: {t_min}m{t_sec}s")

@@ -12,33 +12,28 @@ from time import time
 ##### hapla cluster #####
 def main(args):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.22.1)")
+	print("hapla by Jonas Meisner (v0.23.0)")
 	print(f"hapla cluster using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 
 	# Check input
-	assert args.vcf is not None, \
-		"No phased genotype file (--bcf or --vcf)!"
+	assert args.vcf is not None, "No phased genotype file (--bcf or --vcf)!"
 	assert os.path.isfile(f"{args.vcf}"), "VCF/BCF file doesn't exist!"
-	assert os.path.isfile(f"{args.vcf}.csi") or os.path.isfile(f"{args.vcf}.tbi"), \
-		"VCF/BCF index doesn't exist!"
+	assert os.path.isfile(f"{args.vcf}.csi") or os.path.isfile(f"{args.vcf}.tbi"), "VCF/BCF index doesn't exist!"
 	assert args.threads > 0, "Please select a valid number of threads!"
 	assert args.min_freq > 0.0, "Invalid haplotype cluster frequency!"
 	if args.min_mac is not None:
 		assert args.min_mac > 1, "Please select a valid MAC threshold!"
 	assert args.max_iterations > 0, "Please select a valid number of iterations!"
-	assert (args.lmbda > 0.0) and (args.lmbda < 1.0), \
-		"Please select a valid lambda value!"
-	assert (args.max_clusters > 1) and (args.max_clusters <= 256), \
-		"Max allowed clusters exceeded!"
+	assert (args.lmbda > 0.0) and (args.lmbda < 1.0), "Please select a valid lambda value!"
+	assert (args.max_clusters > 1) and (args.max_clusters <= 256), "Max allowed clusters exceeded!"
 	if args.size is not None:
 		assert args.size > 0, "Invalid window size!"
 		if args.step is not None:
 			if args.size == 1:
 				args.step = None
 			else:
-				assert (args.step <= args.size) and (args.step > 0), \
-					"Invalid step size for sliding window chosen!"
+				assert (args.step <= args.size) and (args.step > 0), "Invalid step size for sliding window chosen!"
 	else:
 		assert args.windows is not None, "No window option (--size or --windows)!"
 	start = time()
@@ -92,7 +87,7 @@ def main(args):
 		v_vec[j] = variant.POS
 	chrom = variant.CHROM # Extract chromosome information
 	del V, v_file
-	t_par = time()-start
+	t_par = time() - start
 	print(f"\rLoaded phased genotype data: {N} haplotypes and {M} SNPs.")
 
 	# Set up windows
@@ -141,10 +136,13 @@ def main(args):
 
 	# Optional containers
 	if args.medians:
-		N_arr = np.array([], dtype=np.uint32)
-		with open(f"{args.out}.bcm", "wb") as f:
+		N_arr = np.array([], dtype=np.uint32) # Haplotype cluster sizes
+		L = np.zeros((args.max_clusters, args.max_clusters), dtype=np.float32) # Log-likelihoods
+		with open(f"{args.out}.bcm", "wb") as f: # Medians file
 			np.array([7, 9, 13], dtype=np.uint8).tofile(f)
-		np.savetxt(f"{args.out}.wix", w_vec[:-1], fmt="%i")
+		with open(f"{args.out}.blk", "wb") as f: # Log-likelihoods file
+			np.array([7, 9, 13], dtype=np.uint8).tofile(f)
+		np.savetxt(f"{args.out}.wix", w_vec[:-1], fmt="%i") # Window lengths
 
 	# Clustering using PDC-DP-Medians
 	for w in np.arange(W):
@@ -235,15 +233,18 @@ def main(args):
 
 		# Fix cluster median and cluster assignment order
 		cluster_cy.medianFix(R, z_vec, n_vec, K, U)
-		cluster_cy.assignFix(Z, z_vec, p_vec, d_vec, w)
+		cluster_cy.assignFix(Z, z_vec, p_vec, d_vec, np.uint32(w))
 		K = np.sum(n_vec > 0, dtype=np.uint32)
 		k_vec[w] = K
 
 		# Generate optional saves (medians)
 		if args.medians:
+			cluster_cy.estimateLoglike(R, C, n_vec, L, K)
 			N_arr = np.append(N_arr, n_vec[:K])
 			with open(f"{args.out}.bcm", "ab") as f:
 				R[:K].tofile(f)
+			with open(f"{args.out}.blk", "ab") as f:
+				L[:K,:K].tofile(f)
 
 		# Reset arrays
 		cluster_cy.resetArrays(c_vec, n_vec, p_vec, d_vec, u_vec)
@@ -289,6 +290,7 @@ def main(args):
 		np.savetxt(f"{args.out}.hcc", N_arr, fmt="%i")
 		print(f"Saved haplotype cluster medians in binary format:\n" + \
 			f"- {args.out}.bcm\n" + \
+			f"- {args.out}.blk\n" + \
 			f"- {args.out}.wix\n" + \
 			f"- {args.out}.hcc\n")
 		del N_arr
@@ -345,7 +347,7 @@ def main(args):
 	t_min = int(t_par//60)
 	t_sec = int(t_par - t_min*60)
 	print(f"Total parsing time: {t_min}m{t_sec}s")
-	t_tot = time()-start
+	t_tot = time() - start
 	t_min = int(t_tot//60)
 	t_sec = int(t_tot - t_min*60)
 	print(f"Total elapsed time: {t_min}m{t_sec}s")
