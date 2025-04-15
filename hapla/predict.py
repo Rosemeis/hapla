@@ -7,12 +7,15 @@ __author__ = "Jonas Meisner"
 
 # Libraries
 import os
+from datetime import datetime
 from time import time
 
+VERSION = "0.24.0"
+
 ##### hapla predict #####
-def main(args):
+def main(args, deaf):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.23.0)")
+	print(f"hapla by Jonas Meisner (v{VERSION})")
 	print(f"hapla predict using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 	
@@ -37,6 +40,22 @@ def main(args):
 	os.environ["NUMEXPR_MAX_THREADS"] = str(args.threads)
 	os.environ["OPENBLAS_NUM_THREADS"] = str(args.threads)
 	os.environ["OPENBLAS_MAX_THREADS"] = str(args.threads)
+
+	# Create log-file of used arguments
+	full = vars(args)
+	with open(f"{args.out}.log", "w") as log:
+		log.write(f"hapla v{VERSION}\n")
+		log.write("hapla predict\n")
+		log.write(f"Time: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n")
+		log.write(f"Directory: {os.getcwd()}\n")
+		log.write("Options:\n")
+		for key in full:
+			if full[key] != deaf[key]:
+				if type(full[key]) is bool:
+					log.write(f"\t--{key}\n")
+				else:
+					log.write(f"\t--{key} {full[key]}\n")
+	del full, deaf
 
 	# Import numerical libraries and cython functions
 	import numpy as np

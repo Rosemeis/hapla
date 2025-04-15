@@ -7,12 +7,15 @@ __author__ = "Jonas Meisner"
 
 # Libraries
 import os
+from datetime import datetime
 from time import time
 
+VERSION = "0.24.0"
+
 ##### hapla struct #####
-def main(args):
+def main(args, deaf):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.23.0)")
+	print(f"hapla by Jonas Meisner (v{VERSION})")
 	print(f"hapla struct using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 
@@ -26,6 +29,22 @@ def main(args):
 	assert args.power > 0, "Please select a valid number of power iterations!"
 	assert args.seed >= 0, "Please select a valid seed!"
 	start = time()
+
+	# Create log-file of used arguments
+	full = vars(args)
+	with open(f"{args.out}.log", "w") as log:
+		log.write(f"hapla v{VERSION}\n")
+		log.write("hapla struct\n")
+		log.write(f"Time: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n")
+		log.write(f"Directory: {os.getcwd()}\n")
+		log.write("Options:\n")
+		for key in full:
+			if full[key] != deaf[key]:
+				if type(full[key]) is bool:
+					log.write(f"\t--{key}\n")
+				else:
+					log.write(f"\t--{key} {full[key]}\n")
+	del full, deaf
 
 	# Control threads of external numerical libraries
 	os.environ["MKL_NUM_THREADS"] = str(args.threads)

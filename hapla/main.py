@@ -47,6 +47,10 @@ def main():
 		help="Use sample list as family ID (PLINK 1.9 compatibility)")
 	parser_cluster.add_argument("--memory", action="store_true",
 		help="Store haplotypes in 1-bit matrix")
+	parser_cluster.add_argument("--fast", action="store_true",
+		help="Utilize fast heuristic clustering mode")
+	parser_cluster.add_argument("--fast-count", type=int, default=2,
+		metavar="INT", help="Number of consecutive singletons for break")
 
 	# hapla struct
 	parser_struct = subparsers.add_parser("struct")
@@ -156,7 +160,8 @@ def main():
 			sys.exit()
 		else:
 			from hapla import cluster
-			cluster.main(args)
+			deaf = vars(parser_cluster.parse_args([]))
+			cluster.main(args, deaf)
 	
 	# hapla struct
 	if sys.argv[1] == "struct":
@@ -165,7 +170,8 @@ def main():
 			sys.exit()
 		else:
 			from hapla import struct
-			struct.main(args)
+			deaf = vars(parser_struct.parse_args([]))
+			struct.main(args, deaf)
 
 	# hapla predict
 	if sys.argv[1] == "predict":
@@ -174,7 +180,8 @@ def main():
 			sys.exit()
 		else:
 			from hapla import predict
-			predict.main(args)
+			deaf = vars(parser_predict.parse_args([]))
+			predict.main(args, deaf)
 
 	# hapla admix
 	if sys.argv[1] == "admix":
@@ -183,7 +190,8 @@ def main():
 			sys.exit()
 		else:
 			from hapla import admix
-			admix.main(args)
+			deaf = vars(parser_admix.parse_args([]))
+			admix.main(args, deaf)
 
 	# hapla fatash
 	if sys.argv[1] == "fatash":
@@ -192,7 +200,8 @@ def main():
 			sys.exit()
 		else:
 			from hapla import fatash
-			fatash.main(args)
+			deaf = vars(parser_fatash.parse_args([]))
+			fatash.main(args, deaf)
 
 
 

@@ -7,12 +7,15 @@ __author__ = "Jonas Meisner"
 
 # Libraries
 import os
+from datetime import datetime
 from time import time
 
+VERSION = "0.24.0"
+
 ##### hapla cluster #####
-def main(args):
+def main(args, deaf):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.23.0)")
+	print(f"hapla by Jonas Meisner (v{VERSION})")
 	print(f"hapla cluster using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 
@@ -36,8 +39,32 @@ def main(args):
 				assert (args.step <= args.size) and (args.step > 0), "Invalid step size for sliding window chosen!"
 	else:
 		assert args.windows is not None, "No window option (--size or --windows)!"
+	if args.fast:
+		print("Utilizing fast heuristic mode.")
+		args.lmbda = 1e-9
 	start = time()
 
+	# Create log-file of used arguments
+	full = vars(args)
+	mand = ["lmbda"]
+	if args.min_mac is None:
+		mand.append("min_freq")
+	with open(f"{args.out}.log", "w") as log:
+		log.write(f"hapla v{VERSION}\n")
+		log.write("hapla cluster\n")
+		log.write(f"Time: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n")
+		log.write(f"Directory: {os.getcwd()}\n")
+		log.write("Options:\n")
+		for key in full:
+			if full[key] != deaf[key]:
+				if type(full[key]) is bool:
+					log.write(f"\t--{key}\n")
+				else:
+					log.write(f"\t--{key} {full[key]}\n")
+			elif key in mand:
+				log.write(f"\t--{key} {full[key]}\n")
+	del full, deaf, mand
+	
 	# Control threads of external numerical libraries
 	os.environ["MKL_NUM_THREADS"] = str(args.threads)
 	os.environ["MKL_MAX_THREADS"] = str(args.threads)
@@ -132,7 +159,7 @@ def main(args):
 		X = np.zeros((N, args.size), dtype=np.uint8) # Haplotypes
 		R = np.zeros((args.max_clusters, args.size), dtype=np.uint8) # Medians
 		C = np.zeros((args.max_clusters, args.size), dtype=np.uint32) # Means
-		c_lim = np.uint32(args.lmbda*float(X.shape[1])) # SNP-based threshold
+		c_lim = np.uint32(ceil(args.lmbda*float(X.shape[1]))) # SNP-based threshold
 
 	# Optional containers
 	if args.medians:
@@ -156,7 +183,7 @@ def main(args):
 			X = np.zeros((N, w_vec[w+1]-S), dtype=np.uint8)
 			R = np.zeros((args.max_clusters, X.shape[1]), dtype=np.uint8)
 			C = np.zeros((args.max_clusters, X.shape[1]), dtype=np.uint32)
-			c_lim = np.uint32(args.lmbda*float(X.shape[1]))
+			c_lim = np.uint32(ceil(args.lmbda*float(X.shape[1])))
 
 		# Prepare last window
 		if w == (W-1):
@@ -165,7 +192,7 @@ def main(args):
 			X = np.zeros((N, M-S), dtype=np.uint8)
 			R = np.zeros((args.max_clusters, X.shape[1]), dtype=np.uint8)
 			C = np.zeros((args.max_clusters, X.shape[1]), dtype=np.uint32)
-			c_lim = np.uint32(args.lmbda*float(X.shape[1]))
+			c_lim = np.uint32(ceil(args.lmbda*float(X.shape[1])))
 
 		# Load haplotype window
 		if args.memory:
@@ -189,12 +216,20 @@ def main(args):
 			# Check for convergence
 			if it > 0:
 				if cluster_cy.countDist(z_vec, z_tmp, U) == 0:
-					if K > 1:
+					if K > 1: # Converged
 						break
 					else: # Make sure two haplotype clusters are generated
 						print(", No diversity (K=1)! Adding extra cluster.")
 						cluster_cy.genClust(X, R, C, z_vec, c_vec, n_vec, u_vec, U, K)
 						K += 1
+				elif args.fast: # Fast mode
+					if K > max(1, args.fast_count):
+						if cluster_cy.checkFast(n_vec, args.fast_count, K): # Fast mode convergence
+							while cluster_cy.countDist(z_vec, z_tmp, U) != 0:
+								cluster_cy.marginalMedians(R, C, n_vec, K)
+								cluster_cy.assignClust(X, R, C, z_vec, c_vec, n_vec, n_tmp, u_vec, U, K)
+								cluster_cy.updateN(n_vec, n_tmp, K)
+							break
 			else:
 				memoryview(z_tmp)[:] = memoryview(z_vec)
 
@@ -282,13 +317,15 @@ def main(args):
 		Z.tofile(f) # Save haplotype cluster assignments to binary file format
 	np.savetxt(f"{args.out}.ids", s_list, fmt="%s")
 	np.savetxt(f"{args.out}.win", w_mat, fmt="%s", delimiter="\t", comments="", header="\t".join(h_win))
-	print("\rSaved haplotype clusters in binary format:\n" + \
+	print("Saved haplotype clusters in binary format:\n" + \
 		f"- {args.out}.bca\n" + \
 		f"- {args.out}.ids\n" + \
 		f"- {args.out}.win\n")
-	if args.medians: # Save haplotype cluster medians to binary file format
+
+	 # Save haplotype cluster medians to binary file format
+	if args.medians:
 		np.savetxt(f"{args.out}.hcc", N_arr, fmt="%i")
-		print(f"Saved haplotype cluster medians in binary format:\n" + \
+		print("Saved haplotype cluster medians in binary format:\n" + \
 			f"- {args.out}.bcm\n" + \
 			f"- {args.out}.blk\n" + \
 			f"- {args.out}.wix\n" + \

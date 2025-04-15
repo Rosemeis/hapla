@@ -1,18 +1,21 @@
 """
 hapla.
-Ancestry estimation using fastmixture mini-batch EM algorithm.
+Ancestry estimation using accelerated EM algorithm.
 """
 
 __author__ = "Jonas Meisner"
 
 # Libraries
 import os
+from datetime import datetime
 from time import time
 
+VERSION = "0.24.0"
+
 ##### hapla admix #####
-def main(args):
+def main(args, deaf):
 	print("-----------------------------------")
-	print("hapla by Jonas Meisner (v0.23.0)")
+	print(f"hapla by Jonas Meisner (v{VERSION})")
 	print(f"hapla admix using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 
@@ -25,6 +28,25 @@ def main(args):
 	assert args.tole >= 0.0, "Please select a valid tolerance!"
 	assert args.check > 0, "Please select a valid value for convergence check!"
 	start = time()
+
+	# Create log-file of used arguments
+	full = vars(args)
+	mand = ["seed"]
+	with open(f"{args.out}.K{args.K}.s{args.seed}.log", "w") as log:
+		log.write(f"hapla v{VERSION}\n")
+		log.write("hapla admix\n")
+		log.write(f"Time: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n")
+		log.write(f"Directory: {os.getcwd()}\n")
+		log.write("Options:\n")
+		for key in full:
+			if full[key] != deaf[key]:
+				if type(full[key]) is bool:
+					log.write(f"\t--{key}\n")
+				else:
+					log.write(f"\t--{key} {full[key]}\n")
+			elif key in mand:
+				log.write(f"\t--{key} {full[key]}\n")
+	del full, deaf, mand
 
 	# Control threads of external numerical libraries
 	os.environ["MKL_NUM_THREADS"] = str(args.threads)
@@ -101,7 +123,7 @@ def main(args):
 	M = np.sum(k_vec, dtype=np.uint32)
 
 	# Print information
-	print(f"\rLoaded haplotype cluster assignments:\n" + \
+	print("\rLoaded haplotype cluster assignments:\n" + \
 		f"- {N} samples\n" + \
 		f"- {W} windows\n" + \
 		f"- {M} clusters\n")
