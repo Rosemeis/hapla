@@ -10,7 +10,7 @@ import os
 from datetime import datetime
 from time import time
 
-VERSION = "0.24.0"
+VERSION = "0.24.1"
 
 ##### hapla admix #####
 def main(args, deaf):
@@ -191,11 +191,12 @@ def main(args, deaf):
 			for z in np.arange(len(Z_list)):
 				p_num = np.sum(k_vec[w_cnt:(w_cnt + w_vec[z])], dtype=np.uint32)*args.K
 				P[c_cnt:(c_cnt + p_num)].tofile(
-					f"{args.out}.K{args.K}.s{args.seed}.file{z+1}.P.bin"
+					f"{args.out}.K{args.K}.s{args.seed}.{args.prefix}{z+1}.P.bin"
 				)
 				w_cnt += w_vec[z]
 				c_cnt += p_num
-			print(f"Saved P matrices (binary) as {args.out}.K{args.K}.s{args.seed}.file{{1..{len(Z_list)}}}.P.bin")
+			print("Saved P matrices (binary) as " + \
+		 		f"{args.out}.K{args.K}.s{args.seed}.{args.prefix}{{1..{len(Z_list)}}}.P.bin")
 		else: # Single file (chromosome)
 			P.tofile(f"{args.out}.K{args.K}.s{args.seed}.P.bin")
 			print(f"Saved P matrix (binary) as {args.out}.K{args.K}.s{args.seed}.P.bin")
@@ -205,6 +206,19 @@ def main(args, deaf):
 	t_min = int(t_tot//60)
 	t_sec = int(t_tot - t_min*60)
 	print(f"\nTotal elapsed time: {t_min}m{t_sec}s")
+
+	# Write to log-file
+	with open(f"{args.out}.K{args.K}.s{args.seed}.log", "a") as log:
+		log.write(f"\nFinal log-likelihood: {L_cur:.1f}\n")
+		log.write(f"Converged in {it+1} iterations.\n")
+		log.write(f"\nSaved Q matrix as {args.out}.K{args.K}.s{args.seed}.Q\n")
+		if not args.no_freq:
+			if args.filelist is not None:
+				log.write("Saved P matrices (binary) as " + \
+			  		f"{args.out}.K{args.K}.s{args.seed}.{args.prefix}{{1..{len(Z_list)}}}.P.bin\n")
+			else:
+				log.write(f"Saved P matrix (binary) as {args.out}.K{args.K}.s{args.seed}.P.bin\n")
+		log.write(f"\nTotal elapsed time: {t_min}m{t_sec}s\n")
 
 
 

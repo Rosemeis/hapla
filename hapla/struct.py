@@ -10,7 +10,7 @@ import os
 from datetime import datetime
 from time import time
 
-VERSION = "0.24.0"
+VERSION = "0.24.1"
 
 ##### hapla struct #####
 def main(args, deaf):
@@ -241,7 +241,7 @@ def main(args, deaf):
 			V = np.hstack((fam, np.round(V, 7)))
 			h = ["#FID", "IID"] + [f"PC{k}" for k in range(1, args.pca+1)]
 			np.savetxt(f"{args.out}.eigenvecs", V, fmt="%s", delimiter="\t", comments="", header="\t".join(h))
-			print(f"Saved eigenvectors as {args.out}.eigenvecs")
+		print(f"Saved eigenvectors as {args.out}.eigenvecs")
 		np.savetxt(f"{args.out}.eigenvals", (S*S)/float(M), fmt="%.7f")
 		print(f"Saved eigenvalues as {args.out}.eigenvals")
 		if args.loadings:
@@ -255,6 +255,20 @@ def main(args, deaf):
 	t_min = int(t_tot//60)
 	t_sec = int(t_tot - t_min*60)
 	print(f"Total elapsed time: {t_min}m{t_sec}s")
+
+	# Write to log-file
+	with open(f"{args.out}.log", "a") as log:
+		if args.grm:
+			log.write("\nSaved genome-wide relationship matrix in GCTA format:\n" + \
+				f"- {args.out}.grm.bin\n" + \
+				f"- {args.out}.grm.N.bin\n" + \
+				f"- {args.out}.grm.id\n")
+		if args.pca is not None:
+			log.write(f"\nSaved eigenvectors as {args.out}.eigenvecs\n")
+			log.write(f"Saved eigenvalues as {args.out}.eigenvals\n")
+			if args.loadings:
+				log.write(f"Saved loadings as {args.out}.loadings\n")
+		log.write(f"\nTotal elapsed time: {t_min}m{t_sec}s\n")
 
 
 

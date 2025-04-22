@@ -47,10 +47,6 @@ def main():
 		help="Use sample list as family ID (PLINK 1.9 compatibility)")
 	parser_cluster.add_argument("--memory", action="store_true",
 		help="Store haplotypes in 1-bit matrix")
-	parser_cluster.add_argument("--fast", action="store_true",
-		help="Utilize fast heuristic clustering mode")
-	parser_cluster.add_argument("--fast-count", type=int, default=2,
-		metavar="INT", help="Number of consecutive singletons for break")
 
 	# hapla struct
 	parser_struct = subparsers.add_parser("struct")
@@ -122,6 +118,8 @@ def main():
 		help="Path to population assignment file")
 	parser_admix.add_argument("--no-freq", action="store_true",
 		help="Do not save haplotype cluster frequencies")
+	parser_admix.add_argument("--prefix", default="chr",
+		metavar="OUTPUT", help="Prefix for multiple haplotype cluster frequency files")
 
 	# hapla fatash
 	parser_fatash = subparsers.add_parser("fatash")
@@ -145,6 +143,8 @@ def main():
 		help="Perform Viterbi decoding")
 	parser_fatash.add_argument("--save-posterior", action="store_true",
 		help="Save posterior probabilities")
+	parser_fatash.add_argument("--prefix", default="chr",
+		metavar="OUTPUT", help="Prefix for multiple path files")
 
 	# Parse arguments
 	args = parser.parse_args()

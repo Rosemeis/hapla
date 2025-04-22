@@ -40,23 +40,6 @@ cpdef void centerZ(
 		for i in range(N):
 			Z_bat[j,i] = Z_agg[l,i] - u
 
-# Standardize permuted batch haplotype cluster assignment matrix
-cpdef void blockZ(
-		const uint8_t[:,::1] Z_agg, double[:,::1] Z_bat, const double[::1] p, const double[::1] a, 
-		const uint32_t[::1] s, const size_t m
-	) noexcept nogil:
-	cdef:
-		double d, u
-		size_t M = Z_bat.shape[0]
-		size_t N = Z_bat.shape[1]
-		size_t i, j, l
-	for j in prange(M):
-		l = s[m+j]
-		d = a[l]
-		u = 2.0*p[l]
-		for i in range(N):
-			Z_bat[j,i] = (Z_agg[l,i] - u)*d
-
 # Standardize batch haplotype cluster assignment matrix
 cpdef void batchZ(
 		const uint8_t[:,::1] Z_agg, double[:,::1] Z_bat, const double[::1] p, const double[::1] a, const size_t m

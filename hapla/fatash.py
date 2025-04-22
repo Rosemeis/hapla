@@ -10,7 +10,7 @@ import os
 from datetime import datetime
 from time import time
 
-VERSION = "0.24.0"
+VERSION = "0.24.1"
 
 ##### hapla fatash #####
 def main(args, deaf):
@@ -189,14 +189,14 @@ def main(args, deaf):
 			print("")
 		else:
 			if args.viterbi:
-				np.savetxt(f"{args.out}.file{z+1}.path", V, fmt="%i")
-				print(f"Saved Viterbi decoding as {args.out}.file{z+1}.path")
+				np.savetxt(f"{args.out}.{args.prefix}{z+1}.path", V, fmt="%i")
+				print(f"Saved Viterbi decoding as {args.out}.{args.prefix}{z+1}.path")
 			else:
-				np.savetxt(f"{args.out}.file{z+1}.path", L.argmax(axis=2), fmt="%i")
-				print(f"Saved posterior decoding as {args.out}.file{z+1}.path")
+				np.savetxt(f"{args.out}.{args.prefix}{z+1}.path", L.argmax(axis=2), fmt="%i")
+				print(f"Saved posterior decoding as {args.out}.{args.prefix}{z+1}.path")
 				if args.save_posterior:
-					L.tofile(f"{args.out}.file{z+1}.post.bin")
-					print(f"Saved posteriors (binary) as {args.out}.file{z+1}.post.bin")
+					L.tofile(f"{args.out}.{args.prefix}{z+1}.post.bin")
+					print(f"Saved posteriors (binary) as {args.out}.{args.prefix}{z+1}.post.bin")
 
 			# Print elapsed time of chromosome 
 			t_tmp = time()-s_tmp
@@ -214,6 +214,24 @@ def main(args, deaf):
 	t_min = int(t_tot//60)
 	t_sec = int(t_tot - t_min*60)
 	print(f"Total elapsed time: {t_min}m{t_sec}s")
+
+	# Write to log-file
+	with open(f"{args.out}.log", "a") as log:
+		if len(Z_list) == 1:
+			if args.viterbi:
+				log.write(f"\nSaved Viterbi decoding path as {args.out}.path\n")
+			else:
+				log.write(f"\nSaved posterior decoding path as {args.out}.path\n")
+				if args.save_posterior:
+					log.write(f"Saved posteriors as {args.out}.post.npy")
+		else:
+			if args.viterbi:
+				log.write(f"\nSaved Viterbi decoding path as {args.out}.{args.prefix}{{1..{len(Z_list)}}}.path\n")
+			else:
+				log.write(f"\nSaved posterior decoding path as {args.out}.{args.prefix}{{1..{len(Z_list)}}}.path\n")
+				if args.save_posterior:
+					log.write(f"Saved posteriors as {args.out}.{args.prefix}{{1..{len(Z_list)}}}.post.npy\n")
+		log.write(f"\nTotal elapsed time: {t_min}m{t_sec}s\n")
 
 
 

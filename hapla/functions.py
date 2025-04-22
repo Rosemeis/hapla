@@ -18,7 +18,7 @@ def randomizedSVD(Z_agg, p_vec, a_vec, K, batch, power, rng):
 	M, N = Z_agg.shape
 	W = ceil(M/batch)
 	a = 0.0
-	L = K + 10
+	L = max(K + 10, 20)
 	H = np.zeros((N, L))
 	X = np.zeros((batch, N))
 	A = rng.standard_normal(size=(M, L))

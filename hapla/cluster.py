@@ -10,7 +10,7 @@ import os
 from datetime import datetime
 from time import time
 
-VERSION = "0.24.0"
+VERSION = "0.24.1"
 
 ##### hapla cluster #####
 def main(args, deaf):
@@ -39,9 +39,6 @@ def main(args, deaf):
 				assert (args.step <= args.size) and (args.step > 0), "Invalid step size for sliding window chosen!"
 	else:
 		assert args.windows is not None, "No window option (--size or --windows)!"
-	if args.fast:
-		print("Utilizing fast heuristic mode.")
-		args.lmbda = 1e-9
 	start = time()
 
 	# Create log-file of used arguments
@@ -222,14 +219,6 @@ def main(args, deaf):
 						print(", No diversity (K=1)! Adding extra cluster.")
 						cluster_cy.genClust(X, R, C, z_vec, c_vec, n_vec, u_vec, U, K)
 						K += 1
-				elif args.fast: # Fast mode
-					if K > max(1, args.fast_count):
-						if cluster_cy.checkFast(n_vec, args.fast_count, K): # Fast mode convergence
-							while cluster_cy.countDist(z_vec, z_tmp, U) != 0:
-								cluster_cy.marginalMedians(R, C, n_vec, K)
-								cluster_cy.assignClust(X, R, C, z_vec, c_vec, n_vec, n_tmp, u_vec, U, K)
-								cluster_cy.updateN(n_vec, n_tmp, K)
-							break
 			else:
 				memoryview(z_tmp)[:] = memoryview(z_vec)
 
@@ -388,6 +377,25 @@ def main(args, deaf):
 	t_min = int(t_tot//60)
 	t_sec = int(t_tot - t_min*60)
 	print(f"Total elapsed time: {t_min}m{t_sec}s")
+
+	# Write to log-file
+	with open(f"{args.out}.log", "a") as log:
+		log.write("\nSaved haplotype clusters in binary format:\n"
+			f"- {args.out}.bca\n" + \
+			f"- {args.out}.ids\n" + \
+			f"- {args.out}.win\n")
+		if args.medians:
+			log.write("\nSaved haplotype cluster medians in binary format:\n" + \
+				f"- {args.out}.bcm\n" + \
+				f"- {args.out}.blk\n" + \
+				f"- {args.out}.wix\n" + \
+				f"- {args.out}.hcc\n")
+		if args.plink:
+			log.write("\nSaved haplotype clusters in binary PLINK format:\n" + \
+				f"- {args.out}.bed\n" + \
+				f"- {args.out}.bim\n" + \
+				f"- {args.out}.fam\n")
+		log.write(f"\nTotal elapsed time: {t_min}m{t_sec}s\n")
 
 
 

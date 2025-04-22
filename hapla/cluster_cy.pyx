@@ -197,19 +197,6 @@ cpdef uint32_t countDist(
 	) noexcept nogil:
 	return _hammingCheck(&z_vec[0], &z_tmp[0], U)
 
-# Fast mode convergence check
-cpdef bint checkFast(
-		uint32_t[::1] n_vec, const size_t lim, const size_t K
-	) noexcept nogil:
-	cdef:
-		size_t k = K - 1
-		size_t L = k - lim
-	while k > L:
-		if n_vec[k] > 1:
-			return False
-		k -= 1
-	return True
-
 # Set singleton clusters to zero
 cpdef void setZero(
 		uint32_t[::1] n_vec, const size_t lim, const size_t K

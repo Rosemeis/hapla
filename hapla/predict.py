@@ -10,7 +10,7 @@ import os
 from datetime import datetime
 from time import time
 
-VERSION = "0.24.0"
+VERSION = "0.24.1"
 
 ##### hapla predict #####
 def main(args, deaf):
@@ -212,6 +212,19 @@ def main(args, deaf):
 	t_min = int(t_tot//60)
 	t_sec = int(t_tot - t_min*60)
 	print(f"Total elapsed time: {t_min}m{t_sec}s")
+
+	# Write to log-file
+	with open(f"{args.out}.log", "a") as log:
+		log.write("\nSaved haplotype clusters in binary hapla format:\n" + \
+			f"- {args.out}.bca\n" + \
+			f"- {args.out}.ids\n" + \
+			f"- {args.out}.win\n")
+		if args.plink:
+			log.write("\nSaved haplotype cluster alleles in binary PLINK format:\n" + \
+				f"- {args.out}.bed\n" + \
+				f"- {args.out}.bim\n" + \
+				f"- {args.out}.fam\n")
+		log.write(f"\nTotal elapsed time: {t_min}m{t_sec}s\n")
 
 
 
