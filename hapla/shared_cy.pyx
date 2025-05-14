@@ -11,14 +11,15 @@ cpdef void haplotypeAggregate(
 		const uint32_t[::1] c_vec
 	) noexcept nogil:
 	cdef:
-		size_t W = Z.shape[0]
-		size_t N = Z.shape[1]
-		size_t c, i, l, s, w
+		uint32_t W = Z.shape[0]
+		uint32_t N = Z.shape[1]
+		uint32_t s
 		double d = 1.0/<double>N
+		size_t c, i, l, w
 	for w in prange(W):
-		s = <size_t>c_vec[w]
+		s = c_vec[w]
 		for c in range(k_vec[w]):
-			l = s + c
+			l = s+c
 			for i in range(N):
 				if Z[w,i] == c:
 					Z_agg[l,i//2] += 1
@@ -30,9 +31,9 @@ cpdef void centerZ(
 		const uint8_t[:,::1] Z_agg, float[:,::1] Z_bat, const double[::1] p, const size_t m
 	) noexcept nogil:
 	cdef:
+		uint32_t M = Z_bat.shape[0]
+		uint32_t N = Z_bat.shape[1]
 		float u
-		size_t M = Z_bat.shape[0]
-		size_t N = Z_bat.shape[1]
 		size_t i, j, l
 	for j in prange(M):
 		l = m+j
@@ -45,9 +46,9 @@ cpdef void batchZ(
 		const uint8_t[:,::1] Z_agg, double[:,::1] Z_bat, const double[::1] p, const double[::1] a, const size_t m
 	) noexcept nogil:
 	cdef:
+		uint32_t M = Z_bat.shape[0]
+		uint32_t N = Z_bat.shape[1]
 		double d, u
-		size_t M = Z_bat.shape[0]
-		size_t N = Z_bat.shape[1]
 		size_t i, j, l
 	for j in prange(M):
 		l = m+j
@@ -61,11 +62,11 @@ cpdef void batchZ(
 ### hapla predict
 # Calculate Hamming distance
 cdef inline uint32_t hammingPred(
-		const uint8_t* X, const uint8_t* R, const size_t M
+		const uint8_t* X, const uint8_t* R, const uint32_t M
 	) noexcept nogil:
 	cdef:
-		size_t j
 		uint32_t dist = 0
+		size_t j
 	for j in range(M):
 		if X[j] != R[j] and X[j] != 9: # Ignore missing
 			dist += 1
@@ -73,21 +74,20 @@ cdef inline uint32_t hammingPred(
 
 # Haplotype cluster assignment based on pre-estimated medians
 cpdef void predictCluster(
-		uint8_t[:,::1] X, const uint8_t[:,::1] R, uint8_t[:,::1] Z, const uint32_t[::1] n_vec, const size_t K, 
-		const size_t w
+		uint8_t[:,::1] X, const uint8_t[:,::1] R, uint8_t[:,::1] Z, const uint32_t K, const uint32_t w
 	) noexcept nogil:
 	cdef:
+		uint8_t* h
+		uint32_t N = X.shape[0]
+		uint32_t M = X.shape[1]
 		size_t c, d, i, k, z
-		size_t N = X.shape[0]
-		size_t M = X.shape[1]
-		uint8_t* xi
 	for i in prange(N):
-		xi = &X[i,0]
+		h = &X[i,0]
 		z = 0
-		c = hammingPred(xi, &R[0,0], M)
+		c = hammingPred(h, &R[0,0], M)
 		for k in range(1, K):
-			d = hammingPred(xi, &R[k,0], M)
-			if d < c or (d == c and n_vec[k] > n_vec[z]):
+			d = hammingPred(h, &R[k,0], M)
+			if d <= c:
 				z = k
 				c = d
 		Z[w,i] = <uint8_t>z

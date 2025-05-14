@@ -1,4 +1,4 @@
-# hapla (v0.24.1)
+# hapla (v0.25.0)
 ***hapla*** is a framework for performing window-based haplotype clustering in phased genotype data. The inferred haplotype cluster alleles can be used to infer fine-scale population structure, perform polygenic prediction and haplotype cluster based association studies.
 
 ### Citation
@@ -104,7 +104,6 @@ hapla cluster --bcf ref.chr1.bcf --size 8 --threads 64 --out ref.chr1 --medians
 #	- ref.chr1.bcm
 #	- ref.chr1.blk
 #	- ref.chr1.wix
-#	- ref.chr1.hcc
 
 # Predict assignments in a set of new haplotypes using haplotype cluster medians
 hapla predict --bcf new.chr1.bcf  --ref ref.chr1 --threads 64 --out new.chr1
@@ -113,7 +112,7 @@ hapla predict --bcf new.chr1.bcf  --ref ref.chr1 --threads 64 --out new.chr1
 #	- new.chr1.ids
 #	- new.chr1.win
 ```
-Using `--medians` in `hapla cluster` outputs four extra files. A **.bcm**-file (binary cluster medians), which stores the cluster medians as *unsigned char*s, a **.blk**-file, which stores pairwise log-likelihoods between the cluster medians, a **.wix**-file with window index information, and a **.hcc**-file with haplotype cluster counts. The files are needed to predict haplotype clusters in a new set of haplotypes.
+Using `--medians` in `hapla cluster` outputs four extra files. A **.bcm**-file (binary cluster medians), which stores the cluster medians as *unsigned char*s, a **.blk**-file, which stores pairwise log-likelihoods between the cluster medians, a **.wix**-file with window index information. The files are needed to predict haplotype clusters in a new set of haplotypes.
 
 ### Ancestry estimation
 ***hapla admix***\
@@ -129,7 +128,7 @@ hapla admix --clusters hapla.chr1 --K 3 --seed 1 --threads 64 --out hapla.chr1
 hapla admix --filelist hapla.filelist --K 3 --seed 1 --threads 64 --out hapla
 # Saves Q matrix in text-format and separate binary files of P matrices
 #	- hapla.K3.s1.Q
-#	- hapla.K3.s1.file{1..22}.P.bin
+#	- hapla.K3.s1.chr{1..22}.P.bin
 ```
 
 ### Local ancestry inference
@@ -142,8 +141,8 @@ hapla fatash --clusters hapla.chr1 --qfile hapla.chr1.K3.s1.Q --pfile hapla.chr1
 #	- hapla.chr1.path
 
 # Infer local ancestry tracts using filelist with all chromosomes (Viterbi decoding)
-for c in {1..22}; do echo "hapla.chr1.K3.s1.file${c}.P.bin" >> hapla.K3.s1.pfilelist; done
+for c in {1..22}; do echo "hapla.K3.s1.chr${c}.P.bin" >> hapla.K3.s1.pfilelist; done
 hapla fatash --filelist hapla.filelist --qfile hapla.K3.s1.Q --pfilelist hapla.K3.s1.pfilelist --threads 16 --out hapla --viterbi
 # Saves Viterbi decoding paths in text-files
-#	- hapla.file{1..22}.path
+#	- hapla.chr{1..22}.path
 ```

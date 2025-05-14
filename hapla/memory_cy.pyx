@@ -5,10 +5,10 @@ from libc.stdint cimport uint8_t, int16_t, uint32_t
 ##### Cython memory efficient functions #####
 # Read variant from VCF/BCF into 1-bit integer format
 cpdef void readBit(
-		uint8_t[::1] G, const int16_t[:,::1] V, const size_t N
+		uint8_t[::1] G, const int16_t[:,::1] V, const uint32_t N
 	) noexcept nogil:
 	cdef:
-		size_t B = G.shape[0]
+		uint32_t B = G.shape[0]
 		size_t i = 0
 		size_t b, bit
 	for b in range(B):
@@ -25,10 +25,10 @@ cpdef void readBit(
 
 # Read variant from VCF/BCF into 2-bit integer format
 cpdef void predBit(
-		uint8_t[::1] G, const int16_t[:,::1] V, const size_t N
+		uint8_t[::1] G, const int16_t[:,::1] V, const uint32_t N
 	) noexcept nogil:
 	cdef:
-		size_t B = G.shape[0]
+		uint32_t B = G.shape[0]
 		size_t i = 0
 		size_t b, bit
 	for b in range(B):
@@ -55,17 +55,17 @@ cpdef void convertBit(
 		uint32_t[::1] a_tmp, uint32_t[::1] b_tmp, uint32_t[::1] d_tmp, uint32_t[::1] e_tmp, const size_t S
 	) noexcept nogil:
 	cdef:
-		size_t B = G.shape[1]
-		size_t M = H.shape[0]
-		size_t N = H.shape[1]
-		size_t b, h, i, j, k, s, u, v, bit
 		uint8_t mask = 1
 		uint8_t g, byte
+		uint32_t B = G.shape[1]
+		uint32_t M = H.shape[0]
+		uint32_t N = H.shape[1]
 		uint32_t f, l, p, q
+		size_t b, h, i, j, k, s, u, v, bit
 	# Populate haplotype matrix and cluster mean
 	for j in range(M):
 		h = 0
-		s = S + j
+		s = S+j
 		C[0,j] = 0
 		for b in range(B):
 			byte = G[s,b]
@@ -110,13 +110,13 @@ cpdef uint32_t uniqueBit(
 		uint32_t[::1] u_vec
 	) noexcept nogil:
 	cdef:
-		size_t N = X.shape[0]
-		size_t M = X.shape[1]
+		uint32_t N = X.shape[0]
+		uint32_t M = X.shape[1]
 		size_t u = 0
 		size_t h, i, j
 	for i in range(N):
 		if d_vec[i] != 0:
-			h = p_vec[i]
+			h = <size_t>p_vec[i]
 			for j in range(M):
 				X[u,j] = H[j,h]
 			u += 1
@@ -130,14 +130,14 @@ cpdef void predictBit(
 	cdef:
 		uint8_t[4] recode = [0, 9, 9, 1]
 		uint8_t mask = 3
-		uint8_t i, s, byte
-		size_t B = G.shape[1]
-		size_t N = X.shape[0]
-		size_t M = X.shape[1]
-		size_t b, j, bit
+		uint8_t i, byte
+		uint32_t B = G.shape[1]
+		uint32_t N = X.shape[0]
+		uint32_t M = X.shape[1]
+		size_t b, j, s, bit
 	for j in range(M):
 		i = 0
-		s = m + j
+		s = m+j
 		for b in range(B):
 			byte = G[s,b]
 			for bit in range(4):

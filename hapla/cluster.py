@@ -1,6 +1,6 @@
 """
 hapla.
-Haplotype clustering using K-Medians with delayed cluster creation.
+Haplotype clustering using DP-Medians with delayed cluster creation.
 """
 
 __author__ = "Jonas Meisner"
@@ -10,7 +10,7 @@ import os
 from datetime import datetime
 from time import time
 
-VERSION = "0.24.1"
+VERSION = "0.25.0"
 
 ##### hapla cluster #####
 def main(args, deaf):
@@ -142,8 +142,9 @@ def main(args, deaf):
 	c_vec = np.zeros(N, dtype=np.uint32) # Cost vector
 	u_vec = np.zeros(N, dtype=np.uint32) # Count of unique haplotypes
 	d_vec = np.zeros(N, dtype=np.uint32) # Divergence vector (suffix array)
-	p_vec = np.arange(N, dtype=np.uint32) # Prefix vector (suffix array)
 	n_vec = np.zeros(args.max_clusters, dtype=np.uint32) # Size vector
+	p_vec = np.arange(N, dtype=np.uint32) # Prefix vector (suffix array)
+	i_vec = np.arange(args.max_iterations) # Iteration vector
 	z_tmp = np.zeros_like(z_vec) # Help vector (clustering)
 	a_tmp = np.zeros_like(p_vec) # Help vector (suffix array)
 	b_tmp = np.zeros_like(p_vec) # Help vector (suffix array)
@@ -160,7 +161,6 @@ def main(args, deaf):
 
 	# Optional containers
 	if args.medians:
-		N_arr = np.array([], dtype=np.uint32) # Haplotype cluster sizes
 		L = np.zeros((args.max_clusters, args.max_clusters), dtype=np.float32) # Log-likelihoods
 		with open(f"{args.out}.bcm", "wb") as f: # Medians file
 			np.array([7, 9, 13], dtype=np.uint8).tofile(f)
@@ -205,7 +205,7 @@ def main(args, deaf):
 		cluster_cy.marginalMedians(R, C, n_vec, K)
 
 		# Perform PDC-DP-Medians
-		for it in np.arange(args.max_iterations):
+		for it in i_vec:
 			cluster_cy.assignClust(X, R, C, z_vec, c_vec, n_vec, n_tmp, u_vec, U, K)
 			cluster_cy.updateN(n_vec, n_tmp, K)
 			K += cluster_cy.checkClust(X, R, C, z_vec, c_vec, n_vec, u_vec, c_lim, U, K)
@@ -227,14 +227,8 @@ def main(args, deaf):
 
 		# Iterative re-clustering of haplotypes
 		if K > 2:
-			# Set singleton clusters to zero from right hand side
-			cluster_cy.setZero(n_vec, N_mac-1, K)
-			cluster_cy.marginalMedians(R, C, n_vec, K)
-			cluster_cy.assignClust(X, R, C, z_vec, c_vec, n_vec, n_tmp, u_vec, U, K)
-			cluster_cy.updateN(n_vec, n_tmp, K)
-			K_tmp = np.sum(n_vec > 0, dtype=np.uint32)
-
 			# Remove smallest clusters iterativly
+			K_tmp = np.sum(n_vec > 0, dtype=np.uint32)
 			while K_tmp > 2:
 				# Re-assign haplotypes
 				cluster_cy.marginalMedians(R, C, n_vec, K)
@@ -256,7 +250,7 @@ def main(args, deaf):
 				cluster_cy.updateN(n_vec, n_tmp, K)
 
 		# Fix cluster median and cluster assignment order
-		cluster_cy.medianFix(R, z_vec, n_vec, K, U)
+		cluster_cy.medianFix(R, C, z_vec, n_vec, K, U)
 		cluster_cy.assignFix(Z, z_vec, p_vec, d_vec, np.uint32(w))
 		K = np.sum(n_vec > 0, dtype=np.uint32)
 		k_vec[w] = K
@@ -264,7 +258,6 @@ def main(args, deaf):
 		# Generate optional saves (medians)
 		if args.medians:
 			cluster_cy.estimateLoglike(R, C, L, n_vec, K)
-			N_arr = np.append(N_arr, n_vec[:K])
 			with open(f"{args.out}.bcm", "ab") as f:
 				R[:K].tofile(f)
 			with open(f"{args.out}.blk", "ab") as f:
@@ -274,7 +267,7 @@ def main(args, deaf):
 		cluster_cy.resetArrays(c_vec, n_vec, p_vec, d_vec, u_vec)
 
 	# Release memory
-	del G, X, C, z_vec, c_vec, z_tmp, p_vec, d_vec, n_vec, u_vec, a_tmp, b_tmp, d_tmp, e_tmp, n_tmp
+	del G, X, C, z_vec, c_vec, u_vec, d_vec, n_vec, p_vec, i_vec, z_tmp, a_tmp, b_tmp, d_tmp, e_tmp, n_tmp
 	if args.memory:
 		del H
 	print(".\n")
@@ -313,13 +306,10 @@ def main(args, deaf):
 
 	 # Save haplotype cluster medians to binary file format
 	if args.medians:
-		np.savetxt(f"{args.out}.hcc", N_arr, fmt="%i")
 		print("Saved haplotype cluster medians in binary format:\n" + \
 			f"- {args.out}.bcm\n" + \
 			f"- {args.out}.blk\n" + \
-			f"- {args.out}.wix\n" + \
-			f"- {args.out}.hcc\n")
-		del N_arr
+			f"- {args.out}.wix\n")
 	del e_vec, w_mat
 
 	# Save haplotype cluster assignments in binary PLINK format
@@ -388,8 +378,7 @@ def main(args, deaf):
 			log.write("\nSaved haplotype cluster medians in binary format:\n" + \
 				f"- {args.out}.bcm\n" + \
 				f"- {args.out}.blk\n" + \
-				f"- {args.out}.wix\n" + \
-				f"- {args.out}.hcc\n")
+				f"- {args.out}.wix\n")
 		if args.plink:
 			log.write("\nSaved haplotype clusters in binary PLINK format:\n" + \
 				f"- {args.out}.bed\n" + \

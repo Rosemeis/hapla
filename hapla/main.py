@@ -17,8 +17,8 @@ def main():
 	### Commands
 	# hapla cluster
 	parser_cluster = subparsers.add_parser("cluster")
-	parser_cluster.add_argument("-g", "--vcf", "--bcf", metavar="FILE",
-		help="Input phased genotype file in VCF/BCF format")
+	parser_cluster.add_argument("-g", "--vcf", "--bcf",
+		metavar="FILE", help="Input phased genotype file in VCF/BCF format")
 	parser_cluster.add_argument("-f", "--size", type=int,
 		metavar="INT", help="Use fixed window size")
 	parser_cluster.add_argument("-w", "--windows", metavar="FILE",
@@ -31,12 +31,12 @@ def main():
 		metavar="INT", help="Number of threads (1)")
 	parser_cluster.add_argument("-o", "--out", default="hapla.cluster",
 		metavar="OUTPUT", help="Output prefix")
-	parser_cluster.add_argument("--min-freq", type=float, default=0.01,
-		metavar="FLOAT", help="Minimum haplotype cluster frequency (0.01)")
+	parser_cluster.add_argument("--min-freq", type=float, default=0.05,
+		metavar="FLOAT", help="Minimum haplotype cluster frequency (0.05)")
 	parser_cluster.add_argument("--min-mac", type=int,
 		metavar="INT", help="Minimum haplotype cluster allele count")
-	parser_cluster.add_argument("--max-clusters", type=int, default=128,
-		metavar="INT", help="Maximum number of haplotype clusters per window (128)")
+	parser_cluster.add_argument("--max-clusters", type=int, default=64,
+		metavar="INT", help="Maximum number of haplotype clusters per window (64)")
 	parser_cluster.add_argument("--max-iterations", type=int, default=500,
 		metavar="INT", help="Maximum number of iterations (500)")
 	parser_cluster.add_argument("--medians", action="store_true",
@@ -50,8 +50,8 @@ def main():
 
 	# hapla struct
 	parser_struct = subparsers.add_parser("struct")
-	parser_struct.add_argument("-f", "--filelist", metavar="FILE",
-		help="Filelist with paths to haplotype cluster alleles files")
+	parser_struct.add_argument("-f", "--filelist",
+		metavar="FILE", help="Filelist with paths to haplotype cluster alleles files")
 	parser_struct.add_argument("-z", "--clusters", metavar="FILE",
 		help="Path to a single haplotype cluster alleles file")
 	parser_struct.add_argument("-t", "--threads", type=int, default=1,
@@ -79,8 +79,8 @@ def main():
 
 	# hapla predict
 	parser_predict = subparsers.add_parser("predict")
-	parser_predict.add_argument("-g", "--vcf", "--bcf", metavar="FILE",
-		help="Input phased genotype file in VCF/BCF format")
+	parser_predict.add_argument("-g", "--vcf", "--bcf",
+		metavar="FILE", help="Input phased genotype file in VCF/BCF format")
 	parser_predict.add_argument("-r", "--ref", metavar="FILE",
 		help="Input reference prefix of pre-estimated cluster medians")
 	parser_predict.add_argument("-t", "--threads", type=int, default=1,
@@ -96,10 +96,10 @@ def main():
 
 	# hapla admix
 	parser_admix = subparsers.add_parser("admix")
-	parser_admix.add_argument("-f", "--filelist", metavar="FILE",
-		help="Filelist with paths to haplotype cluster alleles files")
-	parser_admix.add_argument("-z", "--clusters", metavar="FILE",
-		help="Path to a single haplotype cluster alleles file")
+	parser_admix.add_argument("-f", "--filelist",
+		metavar="FILE", help="Filelist with paths to haplotype cluster alleles files")
+	parser_admix.add_argument("-z", "--clusters",
+		metavar="FILE", help="Path to a single haplotype cluster alleles file")
 	parser_admix.add_argument("-k", "--K", type=int,
 		metavar="INT", help="Number of ancestral components")
 	parser_admix.add_argument("-t", "--threads", type=int, default=1,
@@ -110,12 +110,14 @@ def main():
 		metavar="INT", help="Random seed (42)")
 	parser_admix.add_argument("--iter", type=int, default=1000,
 		metavar="INT", help="Maximum number of iterations (1000)")
-	parser_admix.add_argument("--tole", type=float, default=1.0,
-		metavar="FLOAT", help="Tolerance in log-likelihood between iterations (1.0)")
-	parser_admix.add_argument("--check", type=int, default=10,
-		metavar="INT", help="Check for convergence every c-th iteration (10)")
-	parser_admix.add_argument("--supervised", metavar="FILE",
-		help="Path to population assignment file")
+	parser_admix.add_argument("--tole", type=float, default=0.5,
+		metavar="FLOAT", help="Tolerance in log-likelihood between iterations (0.5)")
+	parser_admix.add_argument("--batches", type=int, default=32,
+		metavar="INT", help="Number of initial mini-batches (32)")
+	parser_admix.add_argument("--check", type=int, default=5,
+		metavar="INT", help="Check for convergence every c-th iteration (5)")
+	parser_admix.add_argument("--supervised",
+		metavar="FILE", help="Path to population assignment file")
 	parser_admix.add_argument("--no-freq", action="store_true",
 		help="Do not save haplotype cluster frequencies")
 	parser_admix.add_argument("--prefix", default="chr",
@@ -123,22 +125,24 @@ def main():
 
 	# hapla fatash
 	parser_fatash = subparsers.add_parser("fatash")
-	parser_fatash.add_argument("-f", "--filelist", metavar="FILE",
-		help="Filelist with paths to haplotype cluster alleles files")
-	parser_fatash.add_argument("-z", "--clusters", metavar="FILE",
-		help="Path to a single haplotype cluster alleles file")
-	parser_fatash.add_argument("-e", "--pfilelist", metavar="FILE",
-		help="Filelist with paths to haplotype cluster frequencies files")
-	parser_fatash.add_argument("-p", "--pfile", metavar="FILE",
-		help="Path to file with haplotype cluster frequencies")
-	parser_fatash.add_argument("-q", "--qfile", metavar="FILE",
-		help="Path to file with admixture proportions")
+	parser_fatash.add_argument("-f", "--filelist",
+		metavar="FILE", help="Filelist with paths to haplotype cluster alleles files")
+	parser_fatash.add_argument("-z", "--clusters",
+		metavar="FILE", help="Path to a single haplotype cluster alleles file")
+	parser_fatash.add_argument("-e", "--pfilelist",
+		metavar="FILE", help="Filelist with paths to haplotype cluster frequencies files")
+	parser_fatash.add_argument("-p", "--pfile", 
+		metavar="FILE", help="Path to file with haplotype cluster frequencies")
+	parser_fatash.add_argument("-q", "--qfile", 
+		metavar="FILE", help="Path to file with admixture proportions")
 	parser_fatash.add_argument("-t", "--threads", type=int, default=1,
 		metavar="INT", help="Number of threads (1)")
 	parser_fatash.add_argument("-o", "--out", default="hapla.fatash",
 		metavar="OUTPUT", help="Output prefix")
-	parser_fatash.add_argument("--alpha", type=float, default=1e-8,
-		metavar="FLOAT", help="Set fixed alpha rate (1e-8)")
+	parser_fatash.add_argument("--alpha", type=float, default=1.0,
+		metavar="FLOAT", help="Set fixed alpha rate (1.0)")
+	parser_fatash.add_argument("--medians", action="store_true",
+		help="Utilize haplotype cluster probabilities")
 	parser_fatash.add_argument("--viterbi", action="store_true",
 		help="Perform Viterbi decoding")
 	parser_fatash.add_argument("--save-posterior", action="store_true",

@@ -7,7 +7,7 @@ from libc.stdlib cimport malloc, free
 ##### Cython functions for reading genotype files #####
 # Read variant from VCF/BCF into 8-bit integer format
 cpdef void readVar(
-		uint8_t[::1] G, const int16_t[:,::1] V, const size_t N
+		uint8_t[::1] G, const int16_t[:,::1] V, const uint32_t N
 	) noexcept nogil:
 	cdef size_t i
 	for i in range(N):
@@ -16,7 +16,7 @@ cpdef void readVar(
 
 # Read variant from VCF/BCF into 8-bit integer format with missing option
 cpdef void predVar(
-		uint8_t[::1] G, const int16_t[:,::1] V, const size_t N
+		uint8_t[::1] G, const int16_t[:,::1] V, const uint32_t N
 	) noexcept nogil:
 	cdef size_t i
 	for i in range(N):
@@ -26,15 +26,15 @@ cpdef void predVar(
 # Initialize cluster mean and suffix arrays
 cpdef void convertHap(
 		const uint8_t[:,::1] G, uint32_t[:,::1] C, uint32_t[::1] p_vec, uint32_t[::1] d_vec, uint32_t[::1] a_tmp, 
-		uint32_t[::1] b_tmp, uint32_t[::1] d_tmp, uint32_t[::1] e_tmp, const size_t S
+		uint32_t[::1] b_tmp, uint32_t[::1] d_tmp, uint32_t[::1] e_tmp, const uint32_t S
 	) noexcept nogil:
 	cdef:
-		size_t M = C.shape[1]
-		size_t N = G.shape[1]
-		size_t i, j, k, s, u, v
+		uint32_t M = C.shape[1]
+		uint32_t N = G.shape[1]
 		uint32_t f, l, p, q
+		size_t i, j, k, s, u, v
 	for j in range(M):
-		s = S + j
+		s = <size_t>S + j
 		u = v = 0
 		p = q = <uint32_t>j + 1
 		C[0,j] = 0
@@ -72,8 +72,8 @@ cpdef uint32_t uniqueHap(
 		uint32_t[::1] u_vec, const size_t S
 	) noexcept nogil:
 	cdef:
-		size_t N = X.shape[0]
-		size_t M = X.shape[1]
+		uint32_t N = X.shape[0]
+		uint32_t M = X.shape[1]
 		size_t u = 0
 		size_t h, i, j
 	for i in range(N):
@@ -90,8 +90,8 @@ cpdef void predictHap(
 		const uint8_t[:,::1] G, uint8_t[:,::1] X, const size_t S
 	) noexcept nogil:
 	cdef:
-		size_t N = X.shape[0]
-		size_t M = X.shape[1]
+		uint32_t N = X.shape[0]
+		uint32_t M = X.shape[1]
 		size_t i, j
 	for i in range(N):
 		for j in range(M):
@@ -103,18 +103,17 @@ cpdef void convertPlink(
 		const uint32_t[::1] c_vec, const uint32_t[::1] b_vec
 	) noexcept nogil:
 	cdef:
-		size_t W = Z.shape[0]
-		size_t N = Z.shape[1]//2
-		size_t B = Z_bin.shape[1]
-		size_t b, c, i, j, l, n, s, w, bit
 		uint8_t* z_vec
+		uint32_t W = Z.shape[0]
+		uint32_t N = Z.shape[1]//2
+		uint32_t B = Z_bin.shape[1]
+		size_t b, c, i, j, l, n, s, w, bit
 	with nogil, parallel():
 		z_vec = <uint8_t*>malloc(sizeof(uint8_t)*N)
 		for w in prange(W):
 			s = <size_t>c_vec[w]
 			for c in range(k_vec[w]):
 				# Create haplotype cluster alleles
-				l = s + c
 				for i in range(0, 2*N, 2):
 					n = i//2
 					z_vec[n] = 0
@@ -125,6 +124,7 @@ cpdef void convertPlink(
 
 				# Save in 2-bit form with bit-wise operations
 				j = 0
+				l = s+c
 				for b in range(B):
 					for bit in range(0, 8, 2):
 						if z_vec[j] == 0:
@@ -149,17 +149,17 @@ cpdef void phenoPlink(
 		const uint8_t[:,::1] G_mat, double[:,::1] G, const uint32_t[::1] c
 	) noexcept nogil:
 	cdef:
-		size_t M = G.shape[0]
-		size_t N = G.shape[1]
-		size_t B = G_mat.shape[1]
-		size_t b, i, j, bytepart
 		uint8_t[4] recode = [2, 9, 1, 0]
 		uint8_t mask = 3
 		uint8_t byte
+		uint32_t M = G.shape[0]
+		uint32_t N = G.shape[1]
+		uint32_t B = G_mat.shape[1]
+		size_t b, i, j, bytepart
 	for j in range(M):
 		i = 0
 		for b in range(B):
-			byte = G_mat[<size_t>c[j],b]
+			byte = G_mat[c[j],b]
 			for bytepart in range(4):
 				G[j,i] = <double>recode[byte & mask]
 				byte = byte >> 2

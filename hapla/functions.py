@@ -90,3 +90,23 @@ def quasi(Z, P0, Q0, P_tmp, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, y):
 	admix_cy.alphaQ(Q0, Q1, Q2)
 	if y is not None:
 		admix_cy.superQ(Q0, y)
+
+# Batch accelerated update for ancestry estimation
+def batQuasi(Z, P0, Q0, P_tmp, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, s_bat, y):
+	# 1st EM step
+	admix_cy.accelBatchP(Z, P0, P1, Q0, P_tmp, Q_tmp, k_vec, c_vec, s_bat)
+	admix_cy.accelQ(Q0, Q1, Q_tmp, s_bat.shape[0])
+	if y is not None:
+		admix_cy.superQ(Q1, y)
+
+	# 2nd EM step
+	admix_cy.accelBatchP(Z, P1, P2, Q1, P_tmp, Q_tmp, k_vec, c_vec, s_bat)
+	admix_cy.accelQ(Q1, Q2, Q_tmp, s_bat.shape[0])
+	if y is not None:
+		admix_cy.superQ(Q2, y)
+
+	# Acceleation update
+	admix_cy.alphaBatchP(P0, P1, P2, k_vec, c_vec, s_bat, Q0.shape[1])
+	admix_cy.alphaQ(Q0, Q1, Q2)
+	if y is not None:
+		admix_cy.superQ(Q0, y)

@@ -10,7 +10,7 @@ import os
 from datetime import datetime
 from time import time
 
-VERSION = "0.24.1"
+VERSION = "0.25.0"
 
 ##### hapla struct #####
 def main(args, deaf):
@@ -116,14 +116,14 @@ def main(args, deaf):
 			# Load haplotype cluster assignment file
 			with open(f"{Z_list[z]}.bca", "rb") as f:
 				# Check magic numbers
-				m_vec = np.fromfile(f, dtype=np.uint8, count=3)
-				assert np.allclose(m_vec, np.array([7, 9, 13], dtype=np.uint8)), \
+				magic = np.fromfile(f, dtype=np.uint8, count=3)
+				assert np.allclose(magic, np.array([7, 9, 13], dtype=np.uint8)), \
 					"Magic number doesn't match file format!"
 				
 				# Add haplotype cluster assignments to container
 				Z_tmp = np.fromfile(f, dtype=np.uint8)
 				Z_tmp.shape = (w_vec[z], 2*N)
-			del m_vec
+			del magic
 
 			# File setup
 			k_tmp = k_vec[K:(K + w_vec[z])]
@@ -194,8 +194,8 @@ def main(args, deaf):
 		for z in np.arange(len(Z_list)):
 			with open(f"{Z_list[z]}.bca", "rb") as f:
 				# Check magic numbers
-				m_vec = np.fromfile(f, dtype=np.uint8, count=3)
-				assert np.allclose(m_vec, np.array([7, 9, 13], dtype=np.uint8)), \
+				magic = np.fromfile(f, dtype=np.uint8, count=3)
+				assert np.allclose(magic, np.array([7, 9, 13], dtype=np.uint8)), \
 					"Magic number doesn't match file format!"
 				
 				# Add haplotype cluster assignments to container
@@ -204,7 +204,7 @@ def main(args, deaf):
 				Z[B:(B + w_vec[z]),:] = z_tmp
 				B += w_vec[z]
 			print(f"\rParsed file {z+1}/{len(Z_list)}", end="")
-		del m_vec, z_tmp
+		del magic, z_tmp
 
 		# Count haplotype cluster alleles
 		M = np.sum(k_vec, dtype=np.uint32)

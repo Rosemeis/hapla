@@ -10,7 +10,7 @@ import os
 from datetime import datetime
 from time import time
 
-VERSION = "0.24.1"
+VERSION = "0.25.0"
 
 ##### hapla predict #####
 def main(args, deaf):
@@ -27,7 +27,6 @@ def main(args, deaf):
 	assert os.path.isfile(f"{args.ref}.bcm"), "bcm file doesn't exist!"
 	assert os.path.isfile(f"{args.ref}.win"), "win file doesn't exist!"
 	assert os.path.isfile(f"{args.ref}.wix"), "wix file doesn't exist!"
-	assert os.path.isfile(f"{args.ref}.hcc"), "hcc file doesn't exist!"
 	assert args.threads > 0, "Please select a valid number of threads!"
 	start = time()
 
@@ -106,15 +105,14 @@ def main(args, deaf):
 	# Haplotype cluster medians
 	with open(f"{args.ref}.bcm", "rb") as f:
 		# Check magic numbers
-		m_vec = np.fromfile(f, dtype=np.uint8, count=3)
-		assert np.allclose(m_vec, np.array([7, 9, 13], dtype=np.uint8)), "Magic number doesn't match file format!"
+		magic = np.fromfile(f, dtype=np.uint8, count=3)
+		assert np.allclose(magic, np.array([7, 9, 13], dtype=np.uint8)), "Magic number doesn't match file format!"
 		R_arr = np.fromfile(f, dtype=np.uint8)
 		
 	# Load window setup files
 	w_vec = np.genfromtxt(f"{args.ref}.wix", dtype=np.uint32)
-	N_arr = np.genfromtxt(f"{args.ref}.hcc", dtype=np.uint32)
 	assert np.allclose(v_vec[w_vec], s_vec), "SNP set doesn't match!"
-	del v_vec
+	del v_vec, magic
 
 	# Containers
 	Z = np.zeros((W, N), dtype=np.uint8) # Haplotype cluster alleles
@@ -131,7 +129,6 @@ def main(args, deaf):
 		# Load haplotype window
 		R_mat = R_arr[B:(B + k_win*b_win)]
 		R_mat.shape = (k_win, b_win)
-		n_vec = N_arr[K:(K + k_win)]
 		X = np.zeros((N, R_mat.shape[1]), dtype=np.uint8)
 		if args.memory:
 			memory_cy.predictBit(G, X, w_vec[w])
@@ -139,12 +136,12 @@ def main(args, deaf):
 			reader_cy.predictHap(G, X, w_vec[w])
 		
 		# Cluster assignment
-		shared_cy.predictCluster(X, R_mat, Z, n_vec, k_vec[w], w)
+		shared_cy.predictCluster(X, R_mat, Z, k_vec[w], w)
 
 		# Update counter
 		B += k_win*b_win
 		K += k_win
-	del G, X, R_mat, R_arr, N_arr, n_vec, w_vec
+	del G, X, R_mat, R_arr, w_vec
 	print(".\n")
 
 	# Save hapla output and print info

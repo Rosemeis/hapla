@@ -10,7 +10,7 @@ import os
 from datetime import datetime
 from time import time
 
-VERSION = "0.24.1"
+VERSION = "0.25.0"
 
 ##### hapla admix #####
 def main(args, deaf):
@@ -26,12 +26,13 @@ def main(args, deaf):
 	assert args.seed >= 0, "Please select a valid seed!"
 	assert args.iter > 0, "Please select a valid number of iterations!"
 	assert args.tole >= 0.0, "Please select a valid tolerance!"
+	assert args.batches > 0, "Please select a valid number of mini-batches!"
 	assert args.check > 0, "Please select a valid value for convergence check!"
 	start = time()
 
 	# Create log-file of used arguments
 	full = vars(args)
-	mand = ["seed"]
+	mand = ["seed", "batches"]
 	with open(f"{args.out}.K{args.K}.s{args.seed}.log", "w") as log:
 		log.write(f"hapla v{VERSION}\n")
 		log.write("hapla admix\n")
@@ -60,6 +61,7 @@ def main(args, deaf):
 
 	# Import numerical libraries and cython functions
 	import numpy as np
+	from math import ceil
 	from hapla import functions
 	from hapla import admix_cy
 
@@ -108,8 +110,8 @@ def main(args, deaf):
 	for z in np.arange(len(Z_list)):
 		with open(f"{Z_list[z]}.bca", "rb") as f:
 			# Check magic numbers
-			m_vec = np.fromfile(f, dtype=np.uint8, count=3)
-			assert np.allclose(m_vec, np.array([7, 9, 13], dtype=np.uint8)), "Magic number doesn't match file format!"
+			magic = np.fromfile(f, dtype=np.uint8, count=3)
+			assert np.allclose(magic, np.array([7, 9, 13], dtype=np.uint8)), "Magic number doesn't match file format!"
 			
 			# Add haplotype cluster assignments to container
 			z_tmp = np.fromfile(f, dtype=np.uint8)
@@ -117,7 +119,7 @@ def main(args, deaf):
 			Z[B:(B + w_vec[z]),:] = z_tmp
 			B += w_vec[z]
 		print(f"\rParsed file {z+1}/{len(Z_list)}", end="")
-	del m_vec, z_tmp
+	del magic, z_tmp
 
 	# Count haplotype cluster alleles
 	M = np.sum(k_vec, dtype=np.uint32)
@@ -132,7 +134,7 @@ def main(args, deaf):
 	# Initialize parameters randomly
 	rng = np.random.default_rng(args.seed)
 	P = rng.random(size=(M*args.K)).clip(min=1e-5, max=1-(1e-5))
-	Q = rng.random(size=(N, args.K)).clip(min=1e-5, max=1-(1e-5))
+	Q = rng.random(size=(2*N, args.K)).clip(min=1e-5, max=1-(1e-5))
 	Q /= np.sum(Q, axis=1, keepdims=True)
 	admix_cy.createP(P, k_vec, c_vec, args.K)
 
@@ -144,6 +146,7 @@ def main(args, deaf):
 		assert np.max(y) <= args.K, "Wrong number of ancestral sources!"
 		assert np.min(y) >= 0, "Wrong format in population assignments!"
 		print(f"{np.sum(y > 0)}/{N} samples with fixed ancestry.")
+		y = np.repeat(y, 2) # Repeat the vector easy computations
 		admix_cy.superQ(Q, y)
 	else:
 		y = None
@@ -161,29 +164,60 @@ def main(args, deaf):
 	print(f"Initial log-like: {L_pre:.1f}\n")
 
 	# Prime iterations
-	for _ in np.arange(3):
-		functions.steps(Z, P, Q, P_tmp, Q_tmp, k_vec, c_vec, y)
+	functions.steps(Z, P, Q, P_tmp, Q_tmp, k_vec, c_vec, y)
+	functions.quasi(Z, P, Q, P_tmp, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, y)
+	functions.steps(Z, P, Q, P_tmp, Q_tmp, k_vec, c_vec, y)
+
+	# Set up mini-batch parameters
+	if args.batches > 1:
+		L_bat = L_pre
+		s_win = np.arange(W, dtype=np.uint32)
+		W_bat = ceil(W/args.batches)
+		print("Mini-batch accelerated EM algorithm.")
+	else:
+		print(f"Accelerated EM algorithm.")
 
 	# Accelerated EM algorithm
 	ts = time()
-	print(f"Accelerated EM algorithm.")
-	for it in np.arange(args.iter):
-		functions.quasi(Z, P, Q, P_tmp, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, y)
-		functions.steps(Z, P, Q, P_tmp, Q_tmp, k_vec, c_vec, y)
+	for it in range(args.iter):
+		if args.batches > 1: # Quasi-Newton mini-batch updates
+			rng.shuffle(s_win) # Shuffle window order
+			for b in np.arange(args.batches):
+				s_bat = s_win[(b*W_bat):min((b+1)*W_bat, M)]
+				functions.batQuasi(Z, P, Q, P_tmp, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, s_bat, y)
+			functions.quasi(Z, P, Q, P_tmp, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, y)
+		else: # Full updates
+			functions.quasi(Z, P, Q, P_tmp, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, y)
+			functions.steps(Z, P, Q, P_tmp, Q_tmp, k_vec, c_vec, y)
 
 		# Log-likelihood convergence check
 		if ((it+1) % args.check) == 0:
 			L_cur = admix_cy.loglike(Z, P, Q, k_vec, c_vec)
 			print(f"({it+1})\tLog-like: {L_cur:.1f}\t({time()-ts:.1f}s)", flush=True)
-			if (abs(L_cur - L_pre) < args.tole):
-				print("Converged!")
-				print(f"Final log-likelihood: {L_cur:.1f}")
-				break
-			L_pre = L_cur
+			if args.batches > 1:
+				if (L_cur < L_bat) or (abs(L_cur - L_bat) < args.tole):
+					args.batches = args.batches//2 # Halve number of batches
+					if args.batches > 1:
+						print(f"Halving mini-batches to {args.batches}.")
+						L_bat = float('-inf')
+						W_bat = ceil(W/args.batches)
+					else: # Turn off mini-batch acceleration
+						print("Running standard updates.")
+					L_pre = L_cur
+				else:
+					L_bat = L_cur
+			else: # Check for convergence
+				if (abs(L_cur - L_pre) < args.tole):
+					print("Converged!")
+					print(f"Final log-likelihood: {L_cur:.1f}")
+					break
+				L_pre = L_cur
 			ts = time()
 
 	# Save output
-	np.savetxt(f"{args.out}.K{args.K}.s{args.seed}.Q", Q, fmt="%.6f")
+	Q_fin = np.zeros((N, args.K)) # Final ancestry proportions
+	admix_cy.convertQ(Q, Q_fin) # Average contribution from two haplotypes
+	np.savetxt(f"{args.out}.K{args.K}.s{args.seed}.Q", Q_fin, fmt="%.6f")
 	print(f"Saved Q matrix as {args.out}.K{args.K}.s{args.seed}.Q")
 	if not args.no_freq:
 		if args.filelist is not None: # Save P file for each file (chromosome)
