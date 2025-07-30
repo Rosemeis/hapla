@@ -35,10 +35,10 @@ def main():
 		metavar="FLOAT", help="Minimum haplotype cluster frequency (0.05)")
 	parser_cluster.add_argument("--min-mac", type=int,
 		metavar="INT", help="Minimum haplotype cluster allele count")
-	parser_cluster.add_argument("--max-clusters", type=int, default=64,
-		metavar="INT", help="Maximum number of haplotype clusters per window (64)")
-	parser_cluster.add_argument("--max-iterations", type=int, default=500,
-		metavar="INT", help="Maximum number of iterations (500)")
+	parser_cluster.add_argument("--max-clusters", type=int, default=256,
+		metavar="INT", help="Maximum number of haplotype clusters per window (256)")
+	parser_cluster.add_argument("--max-iterations", type=int, default=1000,
+		metavar="INT", help="Maximum number of iterations (1000)")
 	parser_cluster.add_argument("--medians", action="store_true",
 		help="Save haplotype cluster medians")
 	parser_cluster.add_argument("--plink", action="store_true",
@@ -60,8 +60,8 @@ def main():
 		metavar="OUTPUT", help="Output prefix")
 	parser_struct.add_argument("--grm", action="store_true",
 		help="Estimate genome-wide relationship matrix (GRM)")
-	parser_struct.add_argument("--batch", type=int, default=8192,
-		metavar="INT", help="Number of cluster alleles in batches (8192)")
+	parser_struct.add_argument("--chunk", type=int, default=4096,
+		metavar="INT", help="Number of cluster alleles in batches (4096)")
 	parser_struct.add_argument("--power", type=int, default=11,
 		metavar="INT", help="Number of power iterations to perform (11)")
 	parser_struct.add_argument("--no-centering", action="store_true",
@@ -110,16 +110,30 @@ def main():
 		metavar="INT", help="Random seed (42)")
 	parser_admix.add_argument("--iter", type=int, default=1000,
 		metavar="INT", help="Maximum number of iterations (1000)")
-	parser_admix.add_argument("--tole", type=float, default=0.5,
-		metavar="FLOAT", help="Tolerance in log-likelihood between iterations (0.5)")
-	parser_admix.add_argument("--batches", type=int, default=32,
-		metavar="INT", help="Number of initial mini-batches (32)")
+	parser_admix.add_argument("--tole", type=float, default=1e-9,
+		metavar="FLOAT", help="Tolerance in scaled log-likelihood units (1e-9)")
+	parser_admix.add_argument("--batches", type=int, default=16,
+		metavar="INT", help="Number of initial mini-batches (16)")
 	parser_admix.add_argument("--check", type=int, default=5,
-		metavar="INT", help="Check for convergence every c-th iteration (5)")
+		metavar="INT", help="Number of iterations between convergence checks (5)")
 	parser_admix.add_argument("--supervised",
 		metavar="FILE", help="Path to population assignment file")
-	parser_admix.add_argument("--no-freq", action="store_true",
+	parser_admix.add_argument("--projection",
+		metavar="FILE", help="Path to ancestral haplotype cluster allele frequencies file")
+	parser_admix.add_argument("--chunk", type=int, default=4096,
+		metavar="INT", help="Number of expected cluster alleles in batches (4096)")
+	parser_admix.add_argument("--power", type=int, default=11,
+		metavar="INT", help="Number of power iterations to perform (11)")
+	parser_admix.add_argument("--als-iter", metavar="INT", type=int, default=1000,
+		help="Maximum number of iterations in ALS (1000)")
+	parser_admix.add_argument("--als-tole", metavar="FLOAT", type=float, default=1e-4,
+		help="Tolerance for RMSE of P between iterations (1e-4)")
+	parser_admix.add_argument("--subsampling", metavar="INT", type=int, default=3,
+		help="Subsampling factor for ALS/SVD initialization (3)")
+	parser_admix.add_argument("--no-freqs", action="store_true",
 		help="Do not save haplotype cluster frequencies")
+	parser_admix.add_argument("--random-init", action="store_true",
+		help="Random initialization of parameters")
 	parser_admix.add_argument("--prefix", default="chr",
 		metavar="OUTPUT", help="Prefix for multiple haplotype cluster frequency files")
 

@@ -10,7 +10,7 @@ import os
 from datetime import datetime
 from time import time
 
-VERSION = "0.25.0"
+VERSION = "0.30.0"
 
 ##### hapla struct #####
 def main(args, deaf):
@@ -25,7 +25,7 @@ def main(args, deaf):
 	if args.pca is not None:
 		assert args.pca > 0, "Please select a valid number of eigenvectors!"
 	assert args.threads > 0, "Please select a valid number of threads!"
-	assert args.batch > 0, "Please select a valid batch size!"
+	assert args.chunk > 0, "Please select a valid chunk size!"
 	assert args.power > 0, "Please select a valid number of power iterations!"
 	assert args.seed >= 0, "Please select a valid seed!"
 	start = time()
@@ -76,30 +76,32 @@ def main(args, deaf):
 				assert os.path.isfile(f"{z}.win"), "win file doesn't exist!"
 				if W == 0: # First file
 					z_ids = np.genfromtxt(f"{z}.ids", dtype=np.str_)
-					k_vec = np.genfromtxt(f"{z}.win", dtype=np.uint8, usecols=[5])
+					k_vec = np.genfromtxt(f"{z}.win", dtype=np.uint32, usecols=[5])
 					N = z_ids.shape[0]
 					W = k_vec.shape[0]
 					w_list = [W]
 				else: # Loop files
 					t_ids = np.genfromtxt(f"{z}.ids", dtype=np.str_)
 					assert np.sum(z_ids != t_ids) == 0, "Samples don't match across files!"
-					k_tmp = np.genfromtxt(f"{z}.win", dtype=np.uint8, usecols=[5])
+					k_tmp = np.genfromtxt(f"{z}.win", dtype=np.uint32, usecols=[5])
 					k_vec = np.append(k_vec, k_tmp)
 					W += k_tmp.shape[0]
 					w_list.append(k_tmp.shape[0])
+		F = len(Z_list)
 		w_vec = np.array(w_list, dtype=np.uint32)
 		del t_ids, k_tmp, w_list
 	else: # Single file (chromosome)
+		F = 1
 		Z_list = [args.clusters]
 		assert os.path.isfile(f"{Z_list[0]}.bca"), "bca file doesn't exist!"
 		assert os.path.isfile(f"{Z_list[0]}.ids"), "ids file doesn't exist!"
 		assert os.path.isfile(f"{Z_list[0]}.win"), "win file doesn't exist!"
 		z_ids = np.genfromtxt(f"{Z_list[0]}.ids", dtype=np.str_)
-		k_vec = np.genfromtxt(f"{Z_list[0]}.win", dtype=np.uint8, usecols=[5])
+		k_vec = np.genfromtxt(f"{Z_list[0]}.win", dtype=np.uint32, usecols=[5])
 		N = z_ids.shape[0]
 		W = k_vec.shape[0]
 		w_vec = np.array([W], dtype=np.uint32)
-	print(f"Parsing {len(Z_list)} file(s).")
+	print(f"Parsing {F} file(s).")
 	
 	# Estimate genome-wide relationship matrix
 	if args.grm:
@@ -108,9 +110,9 @@ def main(args, deaf):
 		K = 0
 		D = 0.0
 		G = np.zeros((N, N), dtype=np.float32)
-		for z in np.arange(len(Z_list)): # Loop through files
+		for z in np.arange(F): # Loop through files
 			# Print information
-			s_beg = f"Processing file {z+1}/{len(Z_list)}"
+			s_beg = f"Processing file {z+1}/{F}"
 			print(f"\r{s_beg: <{len(s_pre)}}", end="")
 
 			# Load haplotype cluster assignment file
@@ -132,29 +134,29 @@ def main(args, deaf):
 
 			# Aggregate alleles and estimate cluster frequencies
 			Z_agg = np.zeros((M, N), dtype=np.uint8)
-			p_tmp = np.zeros(M)
+			p_tmp = np.zeros(M, dtype=np.float32)
 			shared_cy.haplotypeAggregate(Z_tmp, Z_agg, p_tmp, k_tmp, c_tmp)
 			del Z_tmp, k_tmp, c_tmp
 
 			# Setup GRM part settings
-			B = ceil(M/args.batch) # Number of batches
-			Z_bat = np.zeros((args.batch, N), dtype=np.float32)
+			B = ceil(M/args.chunk) # Number of chunks
+			X = np.zeros((args.chunk, N), dtype=np.float32)
 
-			# Estimate GRM part in batches
+			# Estimate GRM part in chunks
 			for b in np.arange(B):
-				s_bat = f"{s_beg}. Batch {b+1}/{B}"
+				s_bat = f"{s_beg}. Chunk {b+1}/{B}"
 				print(f"\r{s_bat}", end="") # Print information
-				M_b = b*args.batch
-				if b == (B-1): # Last batch
-					Z_bat = np.zeros((M - M_b, N), dtype=np.float32)
-				shared_cy.centerZ(Z_agg, Z_bat, p_tmp, M_b)
+				M_b = b*args.chunk
+				if b == (B-1): # Last chunk
+					X = np.zeros((M - M_b, N), dtype=np.float32)
+				shared_cy.centerZ(Z_agg, X, p_tmp, M_b)
 
-				# Aggregate across batches
-				G += np.dot(Z_bat.T, Z_bat)
+				# Aggregate across chunks
+				G += np.dot(X.T, X)
 			K += w_vec[z]
 			D += np.sum(p_tmp*(1.0 - p_tmp), dtype=float)
 			s_pre = s_bat
-			del p_tmp, Z_agg, Z_bat
+			del p_tmp, Z_agg, X
 		G *= (1.0/(2.0*D))
 		print(".\n")
 		
@@ -191,7 +193,7 @@ def main(args, deaf):
 		# Load haplotype cluster assignments from binary hapla format
 		B = 0
 		Z = np.zeros((W, 2*N), dtype=np.uint8)
-		for z in np.arange(len(Z_list)):
+		for z in np.arange(F):
 			with open(f"{Z_list[z]}.bca", "rb") as f:
 				# Check magic numbers
 				magic = np.fromfile(f, dtype=np.uint8, count=3)
@@ -203,7 +205,7 @@ def main(args, deaf):
 				z_tmp.shape = (w_vec[z], 2*N)
 				Z[B:(B + w_vec[z]),:] = z_tmp
 				B += w_vec[z]
-			print(f"\rParsed file {z+1}/{len(Z_list)}", end="")
+			print(f"\rParsed file {z+1}/{F}", end="")
 		del magic, z_tmp
 
 		# Count haplotype cluster alleles
@@ -217,7 +219,7 @@ def main(args, deaf):
 		
 		# Populate full matrix and estimate cluster frequencies
 		Z_agg = np.zeros((M, N), dtype=np.uint8)
-		p_vec = np.zeros(M)
+		p_vec = np.zeros(M, dtype=np.float32)
 		c_vec = np.insert(np.cumsum(k_vec[:-1], dtype=np.uint32), 0, 0)
 		shared_cy.haplotypeAggregate(Z, Z_agg, p_vec, k_vec, c_vec)
 		del Z, k_vec, c_vec
@@ -226,7 +228,7 @@ def main(args, deaf):
 		# Randomized SVD
 		print(f"Computing randomized SVD, extracting {args.pca} eigenvectors.")
 		rng = np.random.default_rng(args.seed)
-		U, S, V = functions.randomizedSVD(Z_agg, p_vec, a_vec, args.pca, args.batch, args.power, rng)
+		U, S, V = functions.randomizedSVD(Z_agg, p_vec, a_vec, args.pca, args.chunk, args.power, rng)
 		print(".\n")
 
 		# Save matrices

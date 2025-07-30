@@ -1,6 +1,6 @@
 """
 hapla.
-Haplotype clustering using DP-Medians with delayed cluster creation.
+Haplotype clustering using PDC-DP-Medians.
 """
 
 __author__ = "Jonas Meisner"
@@ -10,7 +10,7 @@ import os
 from datetime import datetime
 from time import time
 
-VERSION = "0.25.0"
+VERSION = "0.30.0"
 
 ##### hapla cluster #####
 def main(args, deaf):
@@ -90,9 +90,9 @@ def main(args, deaf):
 
 	# Set haplotype cluster size threshold
 	if args.min_mac is not None:
-		N_mac = args.min_mac
+		N_mac = np.uint32(args.min_mac)
 	else:
-		N_mac = ceil(N*args.min_freq)
+		N_mac = np.uint32(ceil(N*args.min_freq))
 
 	# Allocate arrays
 	if args.memory:
@@ -138,7 +138,7 @@ def main(args, deaf):
 	# Containers
 	Z = np.zeros((W, N), dtype=np.uint8) # Chromosome-based cluster assignments
 	z_vec = np.zeros(N, dtype=np.uint8) # Window-based cluster assignments 
-	k_vec = np.zeros(W, dtype=np.uint8) # Number of clusters in windows
+	k_vec = np.zeros(W, dtype=np.uint32) # Number of clusters in windows
 	c_vec = np.zeros(N, dtype=np.uint32) # Cost vector
 	u_vec = np.zeros(N, dtype=np.uint32) # Count of unique haplotypes
 	d_vec = np.zeros(N, dtype=np.uint32) # Divergence vector (suffix array)
@@ -171,13 +171,13 @@ def main(args, deaf):
 	# Clustering using PDC-DP-Medians
 	for w in np.arange(W):
 		S = w_vec[w]
-		print(f"\rWindow {w+1}/{W}", end="")
+		print(f"\rWindow {w + 1}/{W}", end="")
 
 		# Prepare containers if window indices provided
 		if args.size is None:
 			if args.memory:
-				H = np.zeros((w_vec[w+1]-S, N), dtype=np.uint8)
-			X = np.zeros((N, w_vec[w+1]-S), dtype=np.uint8)
+				H = np.zeros((w_vec[w + 1] - S, N), dtype=np.uint8)
+			X = np.zeros((N, w_vec[w + 1] - S), dtype=np.uint8)
 			R = np.zeros((args.max_clusters, X.shape[1]), dtype=np.uint8)
 			C = np.zeros((args.max_clusters, X.shape[1]), dtype=np.uint32)
 			c_lim = np.uint32(ceil(args.lmbda*float(X.shape[1])))
@@ -185,8 +185,8 @@ def main(args, deaf):
 		# Prepare last window
 		if w == (W-1):
 			if args.memory:
-				H = np.zeros((M-S, N), dtype=np.uint8)
-			X = np.zeros((N, M-S), dtype=np.uint8)
+				H = np.zeros((M - S, N), dtype=np.uint8)
+			X = np.zeros((N, M - S), dtype=np.uint8)
 			R = np.zeros((args.max_clusters, X.shape[1]), dtype=np.uint8)
 			C = np.zeros((args.max_clusters, X.shape[1]), dtype=np.uint32)
 			c_lim = np.uint32(ceil(args.lmbda*float(X.shape[1])))
@@ -251,7 +251,7 @@ def main(args, deaf):
 
 		# Fix cluster median and cluster assignment order
 		cluster_cy.medianFix(R, C, z_vec, n_vec, K, U)
-		cluster_cy.assignFix(Z, z_vec, p_vec, d_vec, np.uint32(w))
+		cluster_cy.assignFix(Z, z_vec, p_vec, d_vec, w)
 		K = np.sum(n_vec > 0, dtype=np.uint32)
 		k_vec[w] = K
 

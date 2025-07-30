@@ -3,84 +3,148 @@ cimport numpy as np
 from cython.parallel import prange
 from libc.stdint cimport uint8_t, uint32_t
 
+ctypedef uint8_t u8
+ctypedef uint32_t u32
+ctypedef float f32
+
+
 ##### hapla - analyses on haplotype cluster assignments #####
-### hapla struct
-# Extract aggregated haplotype cluster counts
-cpdef void haplotypeAggregate(
-		const uint8_t[:,::1] Z, uint8_t[:,::1] Z_agg, double[::1] p, const uint8_t[::1] k_vec, 
-		const uint32_t[::1] c_vec
+### Inline functions
+# Center function
+cdef inline void _center(
+		const u8* z, f32* x, const f32 u, const Py_ssize_t N
 	) noexcept nogil:
 	cdef:
-		uint32_t W = Z.shape[0]
-		uint32_t N = Z.shape[1]
-		uint32_t s
-		double d = 1.0/<double>N
-		size_t c, i, l, w
-	for w in prange(W):
-		s = c_vec[w]
-		for c in range(k_vec[w]):
-			l = s+c
-			for i in range(N):
-				if Z[w,i] == c:
-					Z_agg[l,i//2] += 1
-					p[l] += 1.0
-			p[l] *= d
+		size_t i
+	for i in range(N):
+		x[i] = <f32>z[i] - u
 
-# Center batch haplotype cluster assignment matrix
-cpdef void centerZ(
-		const uint8_t[:,::1] Z_agg, float[:,::1] Z_bat, const double[::1] p, const size_t m
+# Standardize function
+cdef inline void _standardize(
+		const u8* z, f32* x, const f32 u, const f32 a, const Py_ssize_t N
 	) noexcept nogil:
 	cdef:
-		uint32_t M = Z_bat.shape[0]
-		uint32_t N = Z_bat.shape[1]
-		float u
-		size_t i, j, l
-	for j in prange(M):
-		l = m+j
-		u = 2.0*<float>p[l]
-		for i in range(N):
-			Z_bat[j,i] = Z_agg[l,i] - u
+		size_t i
+	for i in range(N):
+		x[i] = (<f32>z[i] - u)*a
 
-# Standardize batch haplotype cluster assignment matrix
-cpdef void batchZ(
-		const uint8_t[:,::1] Z_agg, double[:,::1] Z_bat, const double[::1] p, const double[::1] a, const size_t m
-	) noexcept nogil:
-	cdef:
-		uint32_t M = Z_bat.shape[0]
-		uint32_t N = Z_bat.shape[1]
-		double d, u
-		size_t i, j, l
-	for j in prange(M):
-		l = m+j
-		d = a[l]
-		u = 2.0*p[l]
-		for i in range(N):
-			Z_bat[j,i] = (Z_agg[l,i] - u)*d
-
-
-
-### hapla predict
 # Calculate Hamming distance
-cdef inline uint32_t hammingPred(
-		const uint8_t* X, const uint8_t* R, const uint32_t M
+cdef inline u32 hammingPred(
+		const u8* X, const u8* R, const Py_ssize_t M
 	) noexcept nogil:
 	cdef:
-		uint32_t dist = 0
 		size_t j
+		u32 dist = 0
 	for j in range(M):
 		if X[j] != R[j] and X[j] != 9: # Ignore missing
 			dist += 1
 	return dist
 
-# Haplotype cluster assignment based on pre-estimated medians
-cpdef void predictCluster(
-		uint8_t[:,::1] X, const uint8_t[:,::1] R, uint8_t[:,::1] Z, const uint32_t K, const uint32_t w
+
+
+### hapla struct
+# Extract aggregated haplotype cluster counts
+cpdef void haplotypeAggregate(
+		u8[:,::1] Z, u8[:,::1] Z_agg, f32[::1] p, const u32[::1] k_vec, const u32[::1] c_vec
 	) noexcept nogil:
 	cdef:
-		uint8_t* h
-		uint32_t N = X.shape[0]
-		uint32_t M = X.shape[1]
+		Py_ssize_t W = Z.shape[0]
+		Py_ssize_t N = Z.shape[1]
+		size_t c, i, l, s, w
+		u8* z
+		f32 d = 1.0/<f32>N
+	for w in prange(W, schedule='guided'):
+		s = c_vec[w]
+		for c in range(k_vec[w]):
+			l = s + c
+			z = &Z_agg[l,0]
+			for i in range(N):
+				z[i//2] += 1 if Z[w,i] == c else 0
+				p[l] += 1.0 if Z[w,i] == c else 0.0
+			p[l] *= d
+
+# Center expanded batch haplotype cluster assignment matrix
+cpdef void centerZ(
+		u8[:,::1] Z_agg, f32[:,::1] X, const f32[::1] p, const int S
+	) noexcept nogil:
+	cdef:
+		Py_ssize_t M = X.shape[0]
+		Py_ssize_t N = X.shape[1]
+		size_t j, l
+		f32 u
+	for j in prange(M, schedule='guided'):
+		l = S + j
+		u = 2.0*p[l]
+		_center(&Z_agg[l,0], &X[j,0], u, N)
+
+# Standardize expanded chunk of haplotype cluster assignment matrix
+cpdef void chunkZ(
+		u8[:,::1] Z_agg, f32[:,::1] X, const f32[::1] p, const f32[::1] a
+	) noexcept nogil:
+	cdef:
+		Py_ssize_t M = X.shape[0]
+		Py_ssize_t N = X.shape[1]
+		size_t j
+		f32 d, u
+	for j in prange(M, schedule='guided'):
+		u = 2.0*p[j]
+		_standardize(&Z_agg[j,0], &X[j,0], u, a[j], N)
+
+
+
+### hapla admix
+# Estimate haplotype cluster frequencies
+cpdef void estimateFreq(
+		u8[:,::1] Z, f32[::1] p, const u32[::1] k_vec, const u32[::1] c_vec
+	) noexcept nogil:
+	cdef:
+		Py_ssize_t W = Z.shape[0]
+		Py_ssize_t N = Z.shape[1]
+		size_t c, i, l, s, w
+		u8* z
+		f32 d = 1.0/<f32>N
+	for w in prange(W, schedule='guided'):
+		s = c_vec[w]
+		z = &Z[w,0]
+		for c in range(k_vec[w]):
+			l = s + c
+			for i in range(N):
+				p[l] += 1.0 if z[i] == c else 0.0
+			p[l] *= d
+
+# Center batch haplotype cluster assignment matrix
+cpdef void centerC(
+		u8[:,::1] Z, f32[:,::1] X, const f32[::1] p, const u32[::1] k_vec, const u32[::1] c_vec
+	) noexcept nogil:
+	cdef:
+		Py_ssize_t W = Z.shape[0]
+		Py_ssize_t N = Z.shape[1]
+		size_t c, i, l, s, w
+		u8* z
+		f32 u
+		f32* x
+	for w in prange(W, schedule='guided'):
+		s = c_vec[w] - c_vec[0]
+		z = &Z[w,0]
+		for c in range(k_vec[w]):
+			l = s + c
+			u = p[l]
+			x = &X[l,0]
+			for i in range(N):
+				x[i] = 1.0 - u if z[i] == c else -u
+
+
+
+### hapla predict
+# Haplotype cluster assignment based on pre-estimated medians
+cpdef void predictCluster(
+		u8[:,::1] X, const u8[:,::1] R, u8[:,::1] Z, const u32 K, const int w
+	) noexcept nogil:
+	cdef:
+		Py_ssize_t N = X.shape[0]
+		Py_ssize_t M = X.shape[1]
 		size_t c, d, i, k, z
+		u8* h
 	for i in prange(N):
 		h = &X[i,0]
 		z = 0
@@ -90,4 +154,4 @@ cpdef void predictCluster(
 			if d <= c:
 				z = k
 				c = d
-		Z[w,i] = <uint8_t>z
+		Z[w,i] = z

@@ -1,6 +1,6 @@
 """
 hapla.
-Infer local ancestry tracts.
+Infer local ancestry tracts using a hidden Markov model.
 """
 
 __author__ = "Jonas Meisner"
@@ -10,7 +10,7 @@ import os
 from datetime import datetime
 from time import time
 
-VERSION = "0.25.0"
+VERSION = "0.30.0"
 
 ##### hapla fatash #####
 def main(args, deaf):
@@ -80,7 +80,7 @@ def main(args, deaf):
 				if len(Z_list) == 1: # First file
 					z_ids = np.genfromtxt(f"{z}.ids", dtype=np.str_)
 					w_tmp = np.genfromtxt(f"{z}.win", dtype=int, usecols=[1,2,5])
-					k_vec = w_tmp[:,2].astype(np.uint8)
+					k_vec = w_tmp[:,2].astype(np.uint32)
 					m_vec = (w_tmp[:,1] - w_tmp[:,0]).astype(float)/2.0
 					N = 2*z_ids.shape[0]
 					w_list = [k_vec.shape[0]]
@@ -88,12 +88,14 @@ def main(args, deaf):
 					t_ids = np.genfromtxt(f"{z}.ids", dtype=np.str_)
 					assert np.sum(z_ids != t_ids) == 0, "Samples do not match across files!"
 					w_tmp = np.genfromtxt(f"{z}.win", dtype=int, usecols=[1,2,5])
-					k_vec = np.append(k_vec, w_tmp[:,2].astype(np.uint8))
+					k_vec = np.append(k_vec, w_tmp[:,2].astype(np.uint32))
 					m_vec = np.append(m_vec, (w_tmp[:,1] - w_tmp[:,0]).astype(float)/2.0)
 					w_list.append(w_tmp.shape[0])
+		F = len(Z_list)
 		w_vec = np.array(w_list, dtype=np.uint32)
 		del z_ids, t_ids, w_tmp, w_list
 	else: # Single file (chromosome)
+		F = 1
 		Z_list = [args.clusters]
 		assert os.path.isfile(f"{Z_list[0]}.bca"), "bca file doesn't exist!"
 		assert os.path.isfile(f"{Z_list[0]}.ids"), "ids file doesn't exist!"
@@ -101,12 +103,12 @@ def main(args, deaf):
 		if args.medians:
 			assert os.path.isfile(f"{Z_list[0]}.blk"), "blk file doesn't exist!"
 		w_tmp = np.genfromtxt(f"{Z_list[0]}.win", dtype=int, usecols=[1,2,5])
-		k_vec = w_tmp[:,2].astype(np.uint8)
+		k_vec = w_tmp[:,2].astype(np.uint32)
 		m_vec = (w_tmp[:,1] - w_tmp[:,0]).astype(float)/2.0
 		w_vec = np.array([k_vec.shape[0]], dtype=np.uint32)
 		N = 2*np.genfromtxt(f"{Z_list[0]}.ids", dtype=np.str_).shape[0]
 		del w_tmp
-	print(f"Parsing {len(Z_list)} file(s).")
+	print(f"Parsing {F} file(s).")
 
 	# Load Q matrix
 	Q = np.genfromtxt(args.qfile, dtype=float)
@@ -117,22 +119,23 @@ def main(args, deaf):
 	v = np.zeros(K)
 
 	# Prepare list of P files
-	if args.pfilelist is not None:
+	if F > 1:
 		w_cnt = 0
 		P_list = []
 		with open(args.pfilelist) as f:
-			for p_file in f:
+			for p, p_file in enumerate(f):
+				assert os.path.isfile(p_file.strip("\n")), f"The {p + 1}/{F} matrix file doesn't exist!"
 				P_list.append(p_file.strip("\n"))
-		assert len(P_list) == len(Z_list), "Number of files doesn't match!"
+		assert len(P_list) == F, "Number of files doesn't match!"
 
 	# Loop over chromosomes
 	print(f"Inferring local ancestry tracts with {K} ancestral sources.\n")
-	for z in np.arange(len(Z_list)): # Loop through files
-		print(f"Processing file {z+1}/{len(Z_list)}")
+	for z in np.arange(F): # Loop through files
+		print(f"Processing file {z + 1}/{F}")
 		s_tmp = time()
 
 		# Load P matrix file
-		if len(Z_list) > 1:
+		if F > 1:
 			P_tmp = np.fromfile(P_list[z], dtype=float)
 			m_tmp = m_vec[w_cnt:(w_cnt + w_vec[z])]
 			k_tmp = k_vec[w_cnt:(w_cnt + w_vec[z])]
@@ -144,7 +147,6 @@ def main(args, deaf):
 		c_tmp = np.insert(np.cumsum(k_tmp[:-1]*K, dtype=np.uint32), 0, 0)
 		p_num = np.sum(k_tmp, dtype=int)*K
 		assert P_tmp.shape[0] == p_num, "Number of clusters doesn't match!"
-		assert (P_tmp.shape[0] % K) == 0, "Parameters don't match!"
 
 		# Load haplotype cluster assignment file
 		with open(f"{Z_list[z]}.bca", "rb") as f:
@@ -187,25 +189,41 @@ def main(args, deaf):
 			# Normalize log-likelihoods
 			x_tmp = np.insert(np.cumsum(k_tmp[:-1]*k_tmp[:-1], dtype=np.uint32), 0, 0)
 			fatash_cy.createLikes(L_tmp, k_tmp, x_tmp)
-			fatash_cy.softEmissions(E, Z_tmp, P_tmp, L_tmp, k_tmp, c_tmp, x_tmp)
+			fatash_cy.softEmissions(Z_tmp, E, P_tmp, L_tmp, k_tmp, c_tmp, x_tmp)
 			del x_tmp
 		else:
-			fatash_cy.hardEmissions(E, Z_tmp, P_tmp, k_tmp, c_tmp)
+			fatash_cy.hardEmissions(Z_tmp, E, P_tmp, c_tmp)
 		fatash_cy.calcDistances(d, m_tmp)
 		del Z_tmp, P_tmp, k_tmp, c_tmp
 
 		# HMM for each haplotype
 		for i in np.arange(N):
 			print(f"\rHaplotype {i+1}/{N}", end="")
-			fatash_cy.calcTransition(T, Q[i,:], d, args.alpha)
+			fatash_cy.calcTransition(T, Q[i], d, args.alpha)
 			if args.viterbi: # Compute Viterbi and decoding
-				fatash_cy.viterbi(E[i,:,:], Q_log[i,:], T, A, I, V[i,:])
+				fatash_cy.viterbi(E[i], Q_log[i], T, A, I, V[i])
 			else: # Compute posterior probabilities
-				fatash_cy.calcFwdBwd(E[i,:,:], L[i,:,:], Q_log[i,:], T, A, B, v)
+				fatash_cy.calcFwdBwd(E[i], L[i], Q_log[i], T, A, B, v)
 		print(".")
 
 		# Save matrices
-		if len(Z_list) == 1:
+		if F > 1:
+			if args.viterbi:
+				np.savetxt(f"{args.out}.{args.prefix}{z + 1}.path", V, fmt="%i")
+				print(f"Saved Viterbi decoding as {args.out}.{args.prefix}{z + 1}.path")
+			else:
+				np.savetxt(f"{args.out}.{args.prefix}{z + 1}.path", L.argmax(axis=2), fmt="%i")
+				print(f"Saved posterior decoding as {args.out}.{args.prefix}{z + 1}.path")
+				if args.save_posterior:
+					L.tofile(f"{args.out}.{args.prefix}{z + 1}.post.bin")
+					print(f"Saved posteriors (binary) as {args.out}.{args.prefix}{z + 1}.post.bin")
+
+			# Print elapsed time of chromosome 
+			t_tmp = time() - s_tmp
+			t_min = int(t_tmp//60)
+			t_sec = int(t_tmp - t_min*60)
+			print(f"Elapsed time: {t_min}m{t_sec}s\n")
+		else:
 			if args.viterbi:
 				np.savetxt(f"{args.out}.path", V, fmt="%i")
 				print(f"Saved Viterbi decoding path as {args.out}.path")
@@ -216,22 +234,6 @@ def main(args, deaf):
 					np.save(f"{args.out}.post", L)
 					print(f"Saved posteriors as {args.out}.post.npy")
 			print("")
-		else:
-			if args.viterbi:
-				np.savetxt(f"{args.out}.{args.prefix}{z+1}.path", V, fmt="%i")
-				print(f"Saved Viterbi decoding as {args.out}.{args.prefix}{z+1}.path")
-			else:
-				np.savetxt(f"{args.out}.{args.prefix}{z+1}.path", L.argmax(axis=2), fmt="%i")
-				print(f"Saved posterior decoding as {args.out}.{args.prefix}{z+1}.path")
-				if args.save_posterior:
-					L.tofile(f"{args.out}.{args.prefix}{z+1}.post.bin")
-					print(f"Saved posteriors (binary) as {args.out}.{args.prefix}{z+1}.post.bin")
-
-			# Print elapsed time of chromosome 
-			t_tmp = time()-s_tmp
-			t_min = int(t_tmp//60)
-			t_sec = int(t_tmp - t_min*60)
-			print(f"Elapsed time: {t_min}m{t_sec}s\n")
 		del E, T, A, d
 		if args.viterbi:
 			del I, V
@@ -246,20 +248,20 @@ def main(args, deaf):
 
 	# Write to log-file
 	with open(f"{args.out}.log", "a") as log:
-		if len(Z_list) == 1:
-			if args.viterbi:
-				log.write(f"\nSaved Viterbi decoding path as {args.out}.path\n")
-			else:
-				log.write(f"\nSaved posterior decoding path as {args.out}.path\n")
-				if args.save_posterior:
-					log.write(f"Saved posteriors as {args.out}.post.npy")
-		else:
+		if F > 1:
 			if args.viterbi:
 				log.write(f"\nSaved Viterbi decoding path as {args.out}.{args.prefix}{{1..{len(Z_list)}}}.path\n")
 			else:
 				log.write(f"\nSaved posterior decoding path as {args.out}.{args.prefix}{{1..{len(Z_list)}}}.path\n")
 				if args.save_posterior:
 					log.write(f"Saved posteriors as {args.out}.{args.prefix}{{1..{len(Z_list)}}}.post.npy\n")
+		else:
+			if args.viterbi:
+				log.write(f"\nSaved Viterbi decoding path as {args.out}.path\n")
+			else:
+				log.write(f"\nSaved posterior decoding path as {args.out}.path\n")
+				if args.save_posterior:
+					log.write(f"Saved posteriors as {args.out}.post.npy")
 		log.write(f"\nTotal elapsed time: {t_min}m{t_sec}s\n")
 
 

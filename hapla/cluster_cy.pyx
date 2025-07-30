@@ -2,100 +2,101 @@
 cimport numpy as np
 cimport openmp as omp
 from cython.parallel import parallel, prange
-from libc.math cimport fmaxf, fminf, log, log1p
+from libc.math cimport fmaxf, fminf, log
 from libc.stdint cimport uint8_t, uint32_t
 from libc.stdlib cimport calloc, free
 
-cdef float PRO_MIN = 1e-5
-cdef float PRO_MAX = 1.0-(1e-5)
+ctypedef uint8_t u8
+ctypedef uint32_t u32
+ctypedef float f32
+
+cdef f32 PRO_MIN = 1e-5
+cdef f32 PRO_MAX = 1.0-(1e-5)
+
 
 ##### hapla - haplotype clustering #####
 ### Inline functions
 # Inner function for marginal medians and variance
 cdef inline void _marginal(
-		uint8_t* r, uint32_t* c, const uint32_t n, const uint32_t M
+		u8* r, u32* c, const u32 n, const Py_ssize_t M
 	) noexcept nogil:
 	cdef:
 		size_t j
 	for j in range(M):
-		r[j] = c[j] > n
+		r[j] = 1 if c[j] > n else 0
 		c[j] = 0
 
 # Calculate Hamming distance
-cdef inline uint32_t _hammingDist(
-		const uint8_t* h, const uint8_t* r, const uint32_t M
+cdef inline u32 _hammingDist(
+		const u8* h, const u8* r, const Py_ssize_t M
 	) noexcept nogil:
 	cdef:
-		uint32_t dist = 0
 		size_t j
+		u32 dist = 0
 	for j in range(M):
-		if h[j] != r[j]:
-			dist += 1
+		dist += 1 if h[j] != r[j] else 0
 	return dist
 
 # Calculate Hamming distance and change assignments
-cdef inline uint32_t _hammingCheck(
-		const uint8_t* z_vec, uint8_t* z_pre, const uint32_t U
+cdef inline u32 _hammingCheck(
+		const u8* z_vec, u8* z_pre, const Py_ssize_t U
 	) noexcept nogil:
 	cdef:
-		uint32_t dist = 0
 		size_t i
+		u8 z1, z2
+		u32 dist = 0
 	for i in range(U):
-		if z_vec[i] != z_pre[i]:
-			z_pre[i] = z_vec[i]
-			dist += 1
+		z1 = z_pre[i]
+		z2 = z_vec[i]
+		z_pre[i] = z2 if z1 != z2 else z1
+		dist += 1 if z1 != z2 else 0
 	return dist
 
 # Add haplotype contribution to frequency vector
 cdef inline void _addHaplo(
-		const uint8_t* h, uint32_t* c, const uint32_t u, const uint32_t M
+		const u8* h, u32* c, const u32 u, const Py_ssize_t M
 	) noexcept nogil:
-	cdef size_t j
+	cdef:
+		size_t j
 	for j in range(M):
-		if h[j]:
-			c[j] += u
+		c[j] += u if h[j] == 1 else 0
 
 # Update cluster information
 cdef inline void _updateClust(
-		const uint8_t* X, uint8_t* R, uint32_t* A, uint32_t* B, const uint32_t u, const uint32_t M
+		const u8* X, u8* R, u32* A, u32* B, const u32 u, const Py_ssize_t M
 	) noexcept nogil:
 	cdef:
 		size_t j
+		u8 x
 	for j in range(M):
-		R[j] = X[j]
-		if X[j]:
-			A[j] = u
-			B[j] -= u
-		else:
-			A[j] = 0
-
-# Truncate parameters to domain
-cdef inline float _project(
-		const float a
-	) noexcept nogil:
-	return fminf(fmaxf(a, PRO_MIN), PRO_MAX)
+		x = X[j]
+		R[j] = x
+		A[j] = u if x == 1 else 0
+		B[j] -= u if x == 1 else 0
 
 # Estimate log-likelihood between cluster medians based on frequencies
-cdef inline float _logLike(
-		const uint8_t* r, const uint32_t* c, const float n, const uint32_t M
+cdef inline f32 _logLike(
+		const u8* r, const u32* c, const f32 n, const Py_ssize_t M
 	) noexcept nogil:
 	cdef:
-		float s = 0.0
-		float d, p
 		size_t j
+		f32 s = 0.0
+		f32 d, f, p
 	for j in range(M):
-		d = <float>r[j]
-		p = _project(<float>c[j]*n)
-		s += d*log(p) + (1.0 - d)*log1p(-p)
+		d = <f32>r[j]
+		f = <f32>c[j]*n
+		p = PRO_MIN if f < PRO_MIN else (PRO_MAX if f > PRO_MAX else f)
+		s += d*log(p) + (1.0 - d)*log(1.0 - p)
 	return s
+
 
 ### Standard functions
 # Compute marginal medians and cluster variances
 cpdef void marginalMedians(
-		uint8_t[:,::1] R, uint32_t[:,::1] C, const uint32_t[::1] n_vec, const uint32_t K
+		u8[:,::1] R, u32[:,::1] C, const u32[::1] n_vec, const Py_ssize_t K
 	) noexcept nogil:
 	cdef:
-		uint32_t M = R.shape[1]
+		Py_ssize_t M = R.shape[1]
 		size_t k
 	for k in range(K):
 		if n_vec[k] > 0:
@@ -103,32 +104,32 @@ cpdef void marginalMedians(
 
 # Compute distances and perform cluster assignment
 cpdef void assignClust(
-		uint8_t[:,::1] X, const uint8_t[:,::1] R, uint32_t[:,::1] C, uint8_t[::1] z_vec, uint32_t[::1] c_vec,
-		const uint32_t[::1] n_vec, uint32_t[::1] n_tmp, const uint32_t[::1] u_vec, const uint32_t U, const uint32_t K
+		u8[:,::1] X, const u8[:,::1] R, u32[:,::1] C, u8[::1] z_vec, u32[::1] c_vec, const u32[::1] n_vec, 
+		u32[::1] n_tmp, const u32[::1] u_vec, const Py_ssize_t U, const Py_ssize_t K
 	) noexcept nogil:
 	cdef:
-		uint8_t* h
-		uint32_t M = X.shape[1]
-		uint32_t c, d, u
-		uint32_t* C_thr
-		uint32_t* n_thr
+		Py_ssize_t M = X.shape[1]
 		size_t i, k, x, y, z
+		u8* h
+		u32 c, d, u
+		u32* n_thr
+		u32* C_thr
 		omp.omp_lock_t mutex
 	omp.omp_init_lock(&mutex)
 	with nogil, parallel():
-		C_thr = <uint32_t*>calloc(K*M, sizeof(uint32_t))
-		n_thr = <uint32_t*>calloc(K, sizeof(uint32_t))
-		for i in prange(U):
+		n_thr = <u32*>calloc(K, sizeof(u32))
+		C_thr = <u32*>calloc(K*M, sizeof(u32))
+		for i in prange(U, schedule='guided'):
 			h = &X[i,0]
 			z = 0
-			c = M+1
+			c = M + 1
 			for k in range(K):
 				if n_vec[k] > 0:
 					d = _hammingDist(h, &R[k,0], M)
 					if d <= c:
 						z = k
 						c = d
-			z_vec[i] = <uint8_t>z
+			z_vec[i] = z
 			c_vec[i] = c
 
 			# Add individual contributions to temporary arrays
@@ -144,38 +145,39 @@ cpdef void assignClust(
 				for y in range(M):
 					C[x,y] += C_thr[x*M + y]
 		omp.omp_unset_lock(&mutex)
-		free(C_thr)
 		free(n_thr)
+		free(C_thr)
 	omp.omp_destroy_lock(&mutex)
 
 # Copy and reset size of clusters
 cpdef void updateN(
-		uint32_t[::1] n_vec, uint32_t[::1] n_tmp, const uint32_t K
+		u32[::1] n_vec, u32[::1] n_tmp, const Py_ssize_t K
 	) noexcept nogil:
-	cdef size_t k
+	cdef:
+		size_t k
 	for k in range(K):
 		n_vec[k] = n_tmp[k]
 		n_tmp[k] = 0
 
 # Check and generate new cluster
-cpdef uint32_t checkClust(
-		const uint8_t[:,::1] X, uint8_t[:,::1] R, uint32_t[:,::1] C, uint8_t[::1] z_vec, const uint32_t[::1] c_vec,
-		uint32_t[::1] n_vec, const uint32_t[::1] u_vec, const uint32_t c_lim, const uint32_t U, const uint32_t K
+cpdef u32 checkClust(
+		const u8[:,::1] X, u8[:,::1] R, u32[:,::1] C, u8[::1] z_vec, const u32[::1] c_vec, u32[::1] n_vec, 
+		const u32[::1] u_vec, const u32 c_lim, const Py_ssize_t U, const Py_ssize_t K
 	) noexcept nogil:
 	cdef:
-		uint32_t M = X.shape[1]
-		uint32_t L = R.shape[0]
-		uint32_t c_max = c_vec[0]
-		uint32_t u
+		Py_ssize_t M = X.shape[1]
+		Py_ssize_t L = R.shape[0]
 		size_t c_arg = 0
 		size_t i, z
+		u32 c_max = c_vec[0]
+		u32 u
 	for i in range(1, U): # Find extreme point
 		if c_vec[i] > c_max:
 			c_arg = i
 			c_max = c_vec[i]
 	if c_max >= c_lim and K < L:
 		u = u_vec[c_arg]
-		z = <size_t>z_vec[c_arg]
+		z = z_vec[c_arg]
 		_updateClust(&X[c_arg,0], &R[K,0], &C[K,0], &C[z,0], u, M)
 		n_vec[K] = u
 		n_vec[z] -= u
@@ -186,40 +188,40 @@ cpdef uint32_t checkClust(
 
 # Generate new cluster from no check
 cpdef void genClust(
-		const uint8_t[:,::1] X, uint8_t[:,::1] R, uint32_t[:,::1] C, uint8_t[::1] z_vec, const uint32_t[::1] c_vec,
-		uint32_t[::1] n_vec, const uint32_t[::1] u_vec, const uint32_t U, const uint32_t K
+		const u8[:,::1] X, u8[:,::1] R, u32[:,::1] C, u8[::1] z_vec, const u32[::1] c_vec, u32[::1] n_vec, 
+		const u32[::1] u_vec, const Py_ssize_t U, const Py_ssize_t K
 	) noexcept nogil:
 	cdef:
-		uint32_t M = X.shape[1]
-		uint32_t c_max = c_vec[0]
-		uint32_t u
+		Py_ssize_t M = X.shape[1]
 		size_t c_arg = 0
 		size_t i, z
+		u32 c_max = c_vec[0]
+		u32 u
 	for i in range(1, U): # Find extreme point
 		if c_vec[i] > c_max:
 			c_arg = i
 			c_max = c_vec[i]
 	u = u_vec[c_arg]
-	z = <size_t>z_vec[c_arg]
+	z = z_vec[c_arg]
 	_updateClust(&X[c_arg,0], &R[K,0], &C[K,0], &C[z,0], u, M)
 	n_vec[K] = u
 	n_vec[z] -= u
 	z_vec[c_arg] = K
 	
 # Convergence check through hamming distance
-cpdef uint32_t countDist(
-		const uint8_t[::1] z_vec, uint8_t[::1] z_tmp, const uint32_t U
+cpdef u32 countDist(
+		const u8[::1] z_vec, u8[::1] z_tmp, const Py_ssize_t U
 	) noexcept nogil:
 	return _hammingCheck(&z_vec[0], &z_tmp[0], U)
 
 # Find non-zero cluster with least assignments
-cpdef uint32_t findZero(
-		uint32_t[::1] n_vec, const uint32_t N, const uint32_t mac, const uint32_t K
+cpdef u32 findZero(
+		u32[::1] n_vec, const u32 N, const u32 mac, const Py_ssize_t K
 	) noexcept nogil:
 	cdef:
-		uint32_t minI = K-1
-		uint32_t minN = N+1
 		size_t k
+		u32 minI = K - 1
+		u32 minN = N + 1
 	for k in range(K, -1, -1):
 		if n_vec[k] > 0 and n_vec[k] < minN:
 			minI = k
@@ -232,13 +234,13 @@ cpdef uint32_t findZero(
 
 # Fix index of medians
 cpdef void medianFix(
-		uint8_t[:,::1] R, uint32_t[:,::1] C, uint8_t[::1] z_vec, uint32_t[::1] n_vec, const uint32_t K, 
-		const uint32_t U
+		u8[:,::1] R, u32[:,::1] C, u8[::1] z_vec, u32[::1] n_vec, const Py_ssize_t K, const Py_ssize_t U
 	) noexcept nogil:
 	cdef:
-		uint32_t M = R.shape[1]
+		Py_ssize_t M = R.shape[1]
 		size_t c = 0
 		size_t i, j, k
+		u8 z
 	for k in range(K):
 		if n_vec[k] > 0:
 			if k != c:
@@ -246,53 +248,50 @@ cpdef void medianFix(
 					R[c,j] = R[k,j]
 					C[c,j] = C[k,j]
 				for i in range(U):
-					if z_vec[i] == k:
-						z_vec[i] = <uint8_t>c
+					z = z_vec[i]
+					z_vec[i] = c if z == k else z
 				n_vec[c] = n_vec[k]
 				n_vec[k] = 0
 			c += 1
 
 # Fix haplotype cluster assignments
 cpdef void assignFix(
-		uint8_t[:,::1] Z, const uint8_t[::1] z_vec, const uint32_t[::1] p_vec, const uint32_t[::1] d_vec, 
-		const uint32_t w
+		u8[:,::1] Z, const u8[::1] z_vec, const u32[::1] p_vec, const u32[::1] d_vec, const size_t w
 	) noexcept nogil:
 	cdef:
-		uint8_t z = z_vec[0]
-		uint32_t N = Z.shape[1]
-		size_t l = <size_t>w
+		Py_ssize_t N = Z.shape[1]
 		size_t u = 0
 		size_t i
+		u8 z = z_vec[0]
 	for i in range(N):
 		if d_vec[i] != 0:
 			z = z_vec[u]
 			u += 1
-		Z[l,<size_t>p_vec[i]] = z
+		Z[w,p_vec[i]] = z
 
 # Reset arrays for next iteration
 cpdef void resetArrays(
-		uint32_t[::1] c_vec, uint32_t[::1] n_vec, uint32_t[::1] p_vec, uint32_t[::1] d_vec, 
-		uint32_t[::1] u_vec
+		u32[::1] c_vec, u32[::1] n_vec, u32[::1] p_vec, u32[::1] d_vec, u32[::1] u_vec
 	) noexcept nogil:
 	cdef:
-		uint32_t N = c_vec.shape[0]
-		uint32_t K = n_vec.shape[0]
+		Py_ssize_t N = c_vec.shape[0]
+		Py_ssize_t K = n_vec.shape[0]
 		size_t i, k
 	for k in range(K):
 		n_vec[k] = 0
 	for i in range(N):
 		c_vec[i] = 0
-		p_vec[i] = <uint32_t>i
+		p_vec[i] = i
 		d_vec[i] = 0
 		u_vec[i] = 0
 
 # Estimate log-likelihoods between cluster medians
 cpdef void estimateLoglike(
-		uint8_t[:,::1] R, uint32_t[:,::1] C, float[:,::1] L, uint32_t[::1] n_vec, uint32_t K
+		u8[:,::1] R, u32[:,::1] C, f32[:,::1] L, u32[::1] n_vec, Py_ssize_t K
 	) noexcept nogil:
 	cdef:
-		uint32_t M = R.shape[1]
+		Py_ssize_t M = R.shape[1]
 		size_t k1, k2
 	for k1 in range(K):
 		for k2 in range(K):
-			L[k1,k2] = _logLike(&R[k1,0], &C[k2,0], 1.0/<float>n_vec[k2], M)
+			L[k1,k2] = _logLike(&R[k1,0], &C[k2,0], 1.0/<f32>n_vec[k2], M)

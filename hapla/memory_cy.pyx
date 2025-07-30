@@ -2,13 +2,18 @@
 cimport numpy as np
 from libc.stdint cimport uint8_t, int16_t, uint32_t
 
+ctypedef uint8_t u8
+ctypedef uint32_t u32
+ctypedef int16_t i16
+
+
 ##### Cython memory efficient functions #####
 # Read variant from VCF/BCF into 1-bit integer format
 cpdef void readBit(
-		uint8_t[::1] G, const int16_t[:,::1] V, const uint32_t N
+		u8[::1] G, const i16[:,::1] V, const Py_ssize_t N
 	) noexcept nogil:
 	cdef:
-		uint32_t B = G.shape[0]
+		Py_ssize_t B = G.shape[0]
 		size_t i = 0
 		size_t b, bit
 	for b in range(B):
@@ -25,10 +30,10 @@ cpdef void readBit(
 
 # Read variant from VCF/BCF into 2-bit integer format
 cpdef void predBit(
-		uint8_t[::1] G, const int16_t[:,::1] V, const uint32_t N
+		u8[::1] G, const i16[:,::1] V, const Py_ssize_t N
 	) noexcept nogil:
 	cdef:
-		uint32_t B = G.shape[0]
+		Py_ssize_t B = G.shape[0]
 		size_t i = 0
 		size_t b, bit
 	for b in range(B):
@@ -51,21 +56,21 @@ cpdef void predBit(
 
 # Convert 1-bit into full array and initialize cluster mean
 cpdef void convertBit(
-		const uint8_t[:,::1] G, uint8_t[:,::1] H, uint32_t[:,::1] C, uint32_t[::1] p_vec, uint32_t[::1] d_vec, \
-		uint32_t[::1] a_tmp, uint32_t[::1] b_tmp, uint32_t[::1] d_tmp, uint32_t[::1] e_tmp, const size_t S
+		const u8[:,::1] G, u8[:,::1] H, u32[:,::1] C, u32[::1] p_vec, u32[::1] d_vec, u32[::1] a_tmp, u32[::1] b_tmp, 
+		u32[::1] d_tmp, u32[::1] e_tmp, const u32 S
 	) noexcept nogil:
 	cdef:
-		uint8_t mask = 1
-		uint8_t g, byte
-		uint32_t B = G.shape[1]
-		uint32_t M = H.shape[0]
-		uint32_t N = H.shape[1]
-		uint32_t f, l, p, q
+		Py_ssize_t B = G.shape[1]
+		Py_ssize_t M = H.shape[0]
+		Py_ssize_t N = H.shape[1]
 		size_t b, h, i, j, k, s, u, v, bit
+		u8 mask = 1
+		u8 g, byte
+		u32 f, l, p, q
 	# Populate haplotype matrix and cluster mean
 	for j in range(M):
 		h = 0
-		s = S+j
+		s = S + j
 		C[0,j] = 0
 		for b in range(B):
 			byte = G[s,b]
@@ -79,7 +84,7 @@ cpdef void convertBit(
 	
 		# Populate suffix arrays
 		u = v = 0
-		p = q = <uint32_t>j + 1
+		p = q = j + 1
 		for i in range(N):
 			f = p_vec[i]
 			l = d_vec[i]
@@ -101,43 +106,42 @@ cpdef void convertBit(
 			p_vec[k] = a_tmp[k]
 			d_vec[k] = d_tmp[k]
 		for k in range(v):
-			p_vec[u+k] = b_tmp[k]
-			d_vec[u+k] = e_tmp[k]
+			p_vec[u + k] = b_tmp[k]
+			d_vec[u + k] = e_tmp[k]
 
 # Extract unique haplotypes from suffix arrays
-cpdef uint32_t uniqueBit(
-		const uint8_t[:,::1] H, uint8_t[:,::1] X, const uint32_t[::1] p_vec, const uint32_t[::1] d_vec, 
-		uint32_t[::1] u_vec
+cpdef u32 uniqueBit(
+		const u8[:,::1] H, u8[:,::1] X, const u32[::1] p_vec, const u32[::1] d_vec, u32[::1] u_vec
 	) noexcept nogil:
 	cdef:
-		uint32_t N = X.shape[0]
-		uint32_t M = X.shape[1]
+		Py_ssize_t N = X.shape[0]
+		Py_ssize_t M = X.shape[1]
 		size_t u = 0
 		size_t h, i, j
 	for i in range(N):
 		if d_vec[i] != 0:
-			h = <size_t>p_vec[i]
+			h = p_vec[i]
 			for j in range(M):
 				X[u,j] = H[j,h]
 			u += 1
-		u_vec[u-1] += 1
+		u_vec[u - 1] += 1
 	return u
 
 # Convert 2-bit into full array for predicting target clusters
 cpdef void predictBit(
-		const uint8_t[:,::1] G, uint8_t[:,::1] X, const size_t m
+		const u8[:,::1] G, u8[:,::1] X, const u32 S
 	) noexcept nogil:
 	cdef:
-		uint8_t[4] recode = [0, 9, 9, 1]
-		uint8_t mask = 3
-		uint8_t i, byte
-		uint32_t B = G.shape[1]
-		uint32_t N = X.shape[0]
-		uint32_t M = X.shape[1]
+		Py_ssize_t B = G.shape[1]
+		Py_ssize_t N = X.shape[0]
+		Py_ssize_t M = X.shape[1]
 		size_t b, j, s, bit
+		u8[4] recode = [0, 9, 9, 1]
+		u8 mask = 3
+		u8 i, byte
 	for j in range(M):
 		i = 0
-		s = m+j
+		s = S + j
 		for b in range(B):
 			byte = G[s,b]
 			for bit in range(4):

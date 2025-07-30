@@ -6,7 +6,7 @@ extensions = [
 	Extension(
 		"hapla.reader_cy",
 		["hapla/reader_cy.pyx"],
-		extra_compile_args=['-fopenmp', '-O3', '-ffast-math', '-march=native'],
+		extra_compile_args=['-fopenmp', '-Ofast', '-fno-signed-zeros', '-frename-registers', '-march=native'],
 		extra_link_args=['-fopenmp', '-lm'],
 		include_dirs=[numpy.get_include()],
 		define_macros=[('NPY_NO_DEPRECATED_API', 'NPY_1_7_API_VERSION')]
@@ -14,7 +14,7 @@ extensions = [
 	Extension(
 		"hapla.cluster_cy",
 		["hapla/cluster_cy.pyx"],
-		extra_compile_args=['-fopenmp', '-O3', '-ffast-math', '-march=native'],
+		extra_compile_args=['-fopenmp', '-Ofast', '-fno-signed-zeros', '-frename-registers', '-march=native'],
 		extra_link_args=['-fopenmp', '-lm'],
 		include_dirs=[numpy.get_include()],
 		define_macros=[('NPY_NO_DEPRECATED_API', 'NPY_1_7_API_VERSION')]
@@ -22,7 +22,7 @@ extensions = [
 	Extension(
 		"hapla.shared_cy",
 		["hapla/shared_cy.pyx"],
-		extra_compile_args=['-fopenmp', '-O3', '-ffast-math', '-march=native'],
+		extra_compile_args=['-fopenmp', '-Ofast', '-fno-signed-zeros', '-frename-registers', '-march=native'],
 		extra_link_args=['-fopenmp', '-lm'],
 		include_dirs=[numpy.get_include()],
 		define_macros=[('NPY_NO_DEPRECATED_API', 'NPY_1_7_API_VERSION')]
@@ -30,7 +30,7 @@ extensions = [
 	Extension(
 		"hapla.memory_cy",
 		["hapla/memory_cy.pyx"],
-		extra_compile_args=['-fopenmp', '-O3', '-ffast-math', '-march=native'],
+		extra_compile_args=['-fopenmp', '-Ofast', '-fno-signed-zeros', '-frename-registers', '-march=native'],
 		extra_link_args=['-fopenmp', '-lm'],
 		include_dirs=[numpy.get_include()],
 		define_macros=[('NPY_NO_DEPRECATED_API', 'NPY_1_7_API_VERSION')]
@@ -38,7 +38,7 @@ extensions = [
 	Extension(
 		"hapla.admix_cy",
 		["hapla/admix_cy.pyx"],
-		extra_compile_args=['-fopenmp', '-O3', '-ffast-math', '-march=native'],
+		extra_compile_args=['-fopenmp', '-Ofast', '-fno-signed-zeros', '-frename-registers', '-march=native'],
 		extra_link_args=['-fopenmp', '-lm'],
 		include_dirs=[numpy.get_include()],
 		define_macros=[('NPY_NO_DEPRECATED_API', 'NPY_1_7_API_VERSION')]
@@ -46,7 +46,7 @@ extensions = [
 	Extension(
 		"hapla.fatash_cy",
 		["hapla/fatash_cy.pyx"],
-		extra_compile_args=['-fopenmp', '-O3', '-ffast-math', '-march=native'],
+		extra_compile_args=['-fopenmp', '-Ofast', '-fno-signed-zeros', '-frename-registers', '-march=native'],
 		extra_link_args=['-fopenmp', '-lm'],
 		include_dirs=[numpy.get_include()],
 		define_macros=[('NPY_NO_DEPRECATED_API', 'NPY_1_7_API_VERSION')]
@@ -55,7 +55,7 @@ extensions = [
 
 setup(
 	name="hapla",
-	version="0.25.0",
+	version="0.30.0",
 	author="Jonas Meisner",
 	author_email="meisnerucph@gmail.com",
 	description="Framework for haplotype clustering in phased genotype data",

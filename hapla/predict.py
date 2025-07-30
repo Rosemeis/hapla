@@ -10,7 +10,7 @@ import os
 from datetime import datetime
 from time import time
 
-VERSION = "0.25.0"
+VERSION = "0.30.0"
 
 ##### hapla predict #####
 def main(args, deaf):
@@ -99,7 +99,7 @@ def main(args, deaf):
 	assert int(w_mat[-1,2]) == v_vec[-1], "Positions differ between files!"
 	s_vec = w_mat[:,1].astype(np.uint32)
 	b_vec = w_mat[:,4].astype(np.uint32)
-	k_vec = w_mat[:,5].astype(np.uint8)
+	k_vec = w_mat[:,5].astype(np.uint32)
 	W = k_vec.shape[0]
 
 	# Haplotype cluster medians
