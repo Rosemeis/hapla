@@ -70,7 +70,7 @@ cpdef void hardEmissions(
 
 # Calculate emission probabilities using cluster probabilities
 cpdef void softEmissions(
-		f64[:,:,::1] E, const u8[:,::1] Z, const f64[::1] P, f32[::1] L, const u32[::1] k_vec, const u32[::1] c_vec, 
+		const u8[:,::1] Z, f64[:,:,::1] E, const f64[::1] P, f32[::1] L, const u32[::1] k_vec, const u32[::1] c_vec, 
 		const u32[::1] x_vec
 	) noexcept nogil:
 	cdef:
@@ -94,54 +94,24 @@ cpdef void softEmissions(
 					E[i,w,k] += <f64>l[c]*p[k]
 				E[i,w,k] = log(E[i,w,k])
 
-# Calculate distances between windows
-cpdef void calcDistances(
-		f64[::1] d, const f64[::1] m_vec
-	) noexcept nogil:
-	cdef:
-		Py_ssize_t W = d.shape[0]
-		size_t w
-		f64 d_div, d_max, d_min
-	# Initial window distances
-	d[1] = <f64>(m_vec[1] - m_vec[0])
-	d_max = d[1]
-	d_min = d_max
-
-	# Loop through windows
-	for w in range(2, W):
-		d[w] = <f64>(m_vec[w] - m_vec[w - 1])
-		if d[w] > d_max:
-			d_max = d[w]
-		elif d[w] < d_min:
-			d_min = d[w]
-
-	# Min-max normalization
-	d_div = d_max - d_min
-	for w in range(1, W):
-		d[w] = (d[w] - d_min)/d_div
-
-# Calculate transition probabilities - T[w, k2, k1] = P(Z_{w} = k1 | Z_{w - 1} = k2)
+# Calculate transition probabilities - T[k2, k1] = P(Z_{w} = k1 | Z_{w - 1} = k2)
 cpdef void calcTransition(
-		f64[:,:,::1] T, const f64[::1] Q, const f64[::1] d, const f64 a
+		f64[:,::1] T, const f64[::1] Q, const f64 a
 	) noexcept nogil:
 	cdef:
-		Py_ssize_t W = T.shape[0]
-		Py_ssize_t K = T.shape[1]
-		size_t w, k1, k2
-		f64 e
-	for w in range(1, W):
-		e = exp(-a*d[w])
-		for k2 in range(K):
-			sumK = 0.0
-			for k1 in range(K):
-				if k2 == k1:
-					T[w,k2,k1] = (1.0 - e)*Q[k1] + e
-				else:
-					T[w,k2,k1] = (1.0 - e)*Q[k1]
+		Py_ssize_t K = T.shape[0]
+		size_t k1, k2
+		f64 e = exp(-a)
+	for k2 in range(K):
+		for k1 in range(K):
+			if k2 == k1:
+				T[k2,k1] = log((1.0 - e)*Q[k1] + e)
+			else:
+				T[k2,k1] = log((1.0 - e)*Q[k1])
 
 # Viterbi algorithm
 cpdef void viterbi(
-		const f64[:,::1] E, const f64[::1] Q_log, const f64[:,:,::1] T, f64[:,::1] A, u8[:,::1] I, u8[::1] V
+		const f64[:,::1] E, const f64[::1] Q_log, const f64[:,::1] T, f64[:,::1] A, u8[:,::1] I, u8[::1] V
 	) noexcept nogil:
 	cdef:
 		Py_ssize_t W = E.shape[0]
@@ -153,13 +123,14 @@ cpdef void viterbi(
 		A[0,k] = E[0,k] + Q_log[k]
 	for w in range(1, W):
 		for k1 in range(K):
-			A[w,k1] = A[w - 1,0] + T[w,0,k1] + E[w,k1]
+			A[w,k1] = A[w - 1,0] + T[0,k1]
 			I[w,k1] = 0
 			for k2 in range(1, K):
-				max_v = A[w - 1,k2] + T[w,k2,k1] + E[w,k1]
+				max_v = A[w - 1,k2] + T[k2,k1]
 				if max_v > A[w,k1]:
 					A[w,k1] = max_v
 					I[w,k1] = k2
+			A[w,k1] += E[w,k1]
 	
 	# Decode path
 	V[W - 1] = 0
@@ -173,7 +144,7 @@ cpdef void viterbi(
 
 # Forward-backward algorithm
 cpdef void calcFwdBwd(
-		const f64[:,::1] E, f64[:,::1] L, const f64[::1] Q_log, const f64[:,:,::1] T, f64[:,::1] A, f64[:,::1] B, 
+		const f64[:,::1] E, f64[:,::1] L, const f64[::1] Q_log, const f64[:,::1] T, f64[:,::1] A, f64[:,::1] B, 
 		f64[::1] v
 	) noexcept nogil:
 	cdef:
@@ -187,7 +158,7 @@ cpdef void calcFwdBwd(
 	for w in range(1, W):
 		for k1 in range(K):
 			for k2 in range(K):
-				v[k2] = A[w - 1,k2] + T[w,k2,k1]
+				v[k2] = A[w - 1,k2] + T[k2,k1]
 			A[w,k1] = _logsumexp(&v[0], K) + E[w,k1]
 	
 	# Forward log-likelihood
@@ -201,7 +172,7 @@ cpdef void calcFwdBwd(
 	for w in range(W - 2, -1, -1):
 		for k1 in range(K):
 			for k2 in range(K):
-				v[k2] = B[w + 1,k2] + E[w + 1,k2] + T[w + 1,k1,k2]
+				v[k2] = B[w + 1,k2] + E[w + 1,k2] + T[k1,k2]
 			B[w,k1] = _logsumexp(&v[0], K)
 
 	# Compute posterior probabilities

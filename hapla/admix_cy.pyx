@@ -43,12 +43,12 @@ cdef inline f64 _computeL(
 
 # Inner loop updates for temp P and Q
 cdef inline void _innerJ(
-		const f64* p, const f64* q, f64* p_tmp, f64* q_thr, const f64 h, const Py_ssize_t K
+		const f64* p, const f64* q, f64* p_thr, f64* q_thr, const f64 h, const Py_ssize_t K
 	) noexcept nogil:
 	cdef:
 		size_t k
 	for k in range(K):
-		p_tmp[k] += q[k]*h
+		p_thr[k] += q[k]*h
 		q_thr[k] += p[k]*h
 
 # Inner loop updates for temp Q
@@ -62,7 +62,7 @@ cdef inline void _innerQ(
 
 # Outer loop update for P
 cdef inline void _outerP(
-		f64* p, f64* p_tmp, f64* p_sum, const f64 S, const Py_ssize_t B, const Py_ssize_t K
+		f64* p, f64* p_thr, f64* p_sum, const f64 S, const Py_ssize_t B, const Py_ssize_t K
 	) noexcept nogil:
 	cdef:
 		size_t c, k
@@ -71,7 +71,7 @@ cdef inline void _outerP(
 		f64* p_t
 	for c in range(B):
 		p_c = &p[c*K]
-		p_t = &p_tmp[c*K]
+		p_t = &p_thr[c*K]
 		for k in range(K):
 			a = p_c[k]*p_t[k]*S
 			b = PRO_MIN if a < PRO_MIN else (PRO_MAX if a > PRO_MAX else a)
@@ -87,7 +87,7 @@ cdef inline void _outerP(
 
 # Outer loop accelerated update for P
 cdef inline void _outerAccelP(
-		f64* p, f64* p_new, f64* p_tmp, f64* p_sum, const f64 S, const Py_ssize_t B, const Py_ssize_t K
+		f64* p, f64* p_new, f64* p_thr, f64* p_sum, const f64 S, const Py_ssize_t B, const Py_ssize_t K
 	) noexcept nogil:
 	cdef:
 		size_t c, k
@@ -98,7 +98,7 @@ cdef inline void _outerAccelP(
 	for c in range(B):
 		p_c = &p[c*K]
 		p_n = &p_new[c*K]
-		p_t = &p_tmp[c*K]
+		p_t = &p_thr[c*K]
 		for k in range(K):
 			a = p_c[k]*p_t[k]*S
 			b = PRO_MIN if a < PRO_MIN else (PRO_MAX if a > PRO_MAX else a)
@@ -163,13 +163,13 @@ cdef inline f64 _qnC(
 	f = -(sum1/sum2)
 	return ACC_MIN if f < ACC_MIN else (ACC_MAX if f > ACC_MAX else f)
 
-# Estimate batch QN factor
+# Estimate batch QN factor for P
 cdef inline f64 _qnBatch(
 		f64* P0, f64* P1, f64* P2, const u32* k_vec, const u32* c_vec, const u32* s_bat, const Py_ssize_t W, 
 		const Py_ssize_t K
 	) noexcept nogil:
 	cdef:
-		size_t c, k, l, r, s, w
+		size_t c, l, r, w
 		f64 sum1 = 0.0
 		f64 sum2 = 0.0
 		f64 f, u, v
@@ -179,16 +179,14 @@ cdef inline f64 _qnBatch(
 	for w in prange(W, schedule='guided'):
 		r = s_bat[w]
 		l = c_vec[r]
-		for c in range(k_vec[r]):
-			s = l + c*K
-			p0 = &P0[s]
-			p1 = &P1[s]
-			p2 = &P2[s]
-			for k in range(K):
-				u = p1[k] - p0[k]
-				v = p2[k] - p1[k] - u
-				sum1 += u*u
-				sum2 += u*v
+		p0 = &P0[l]
+		p1 = &P1[l]
+		p2 = &P2[l]
+		for c in range(k_vec[r]*K):
+			u = p1[c] - p0[c]
+			v = p2[c] - p1[c] - u
+			sum1 += u*u
+			sum2 += u*v
 	f = -(sum1/sum2)
 	return ACC_MIN if f < ACC_MIN else (ACC_MAX if f > ACC_MAX else f)
 
@@ -305,8 +303,8 @@ cdef inline f32 _computeR(
 ### Update functions
 # Update P and Q temp arrays
 cpdef void updateP(
-		u8[:,::1] Z, f64[::1] P, const f64[:,::1] Q, f64[::1] P_tmp, f64[:,::1] Q_tmp, const u32[::1] k_vec, 
-		const u32[::1] c_vec
+		u8[:,::1] Z, f64[::1] P, const f64[:,::1] Q, f64[:,::1] Q_tmp, const u32[::1] k_vec, const u32[::1] c_vec, 
+		const u32 L
 	) noexcept nogil:
 	cdef:
 		Py_ssize_t W = Z.shape[0]
@@ -318,21 +316,23 @@ cpdef void updateP(
 		f64 h
 		f64* p
 		f64* p_sum
+		f64* p_thr
 		f64* q_thr
 		omp.omp_lock_t mutex
 	omp.omp_init_lock(&mutex)
 	with nogil, parallel():
 		p_sum = <f64*>calloc(K, sizeof(f64))
+		p_thr = <f64*>calloc(L*K, sizeof(f64))
 		q_thr = <f64*>calloc(N*K, sizeof(f64))
 		for w in prange(W, schedule='guided'):
 			l = c_vec[w]
 			B = k_vec[w]
 			for i in range(N):
-				s = l + Z[w,i]*K
-				p = &P[s]
+				s = Z[w,i]*K
+				p = &P[l + s]
 				h = _computeH(p, &Q[i,0], K)
-				_innerJ(p, &Q[i,0], &P_tmp[s], &q_thr[i*K], h, K)
-			_outerP(&P[l], &P_tmp[l], &p_sum[0], S, B, K)
+				_innerJ(p, &Q[i,0], &p_thr[s], &q_thr[i*K], h, K)
+			_outerP(&P[l], &p_thr[0], &p_sum[0], S, B, K)
 
 		# omp critical
 		omp.omp_set_lock(&mutex)
@@ -341,13 +341,14 @@ cpdef void updateP(
 				Q_tmp[x,y] += q_thr[x*K + y]
 		omp.omp_unset_lock(&mutex)
 		free(p_sum)
+		free(p_thr)
 		free(q_thr)
 	omp.omp_destroy_lock(&mutex)
 
 # Accelerated update P and Q temp arrays
 cpdef void accelP(
-		u8[:,::1] Z, f64[::1] P, f64[::1] P_new, const f64[:,::1] Q, f64[::1] P_tmp, f64[:,::1] Q_tmp, 
-		const u32[::1] k_vec, const u32[::1] c_vec
+		u8[:,::1] Z, f64[::1] P, f64[::1] P_new, const f64[:,::1] Q, f64[:,::1] Q_tmp, const u32[::1] k_vec, 
+		const u32[::1] c_vec, const u32 L
 	) noexcept nogil:
 	cdef:
 		Py_ssize_t W = Z.shape[0]
@@ -359,21 +360,23 @@ cpdef void accelP(
 		f64 h
 		f64* p
 		f64* p_sum
+		f64* p_thr
 		f64* q_thr
 		omp.omp_lock_t mutex
 	omp.omp_init_lock(&mutex)
 	with nogil, parallel():
 		p_sum = <f64*>calloc(K, sizeof(f64))
+		p_thr = <f64*>calloc(L*K, sizeof(f64))
 		q_thr = <f64*>calloc(N*K, sizeof(f64))
 		for w in prange(W, schedule='guided'):
 			l = c_vec[w]
 			B = k_vec[w]
 			for i in range(N):
-				s = l + Z[w,i]*K
-				p = &P[s]
+				s = Z[w,i]*K
+				p = &P[l + s]
 				h = _computeH(p, &Q[i,0], K)
-				_innerJ(p, &Q[i,0], &P_tmp[s], &q_thr[i*K], h, K)
-			_outerAccelP(&P[l], &P_new[l], &P_tmp[l], &p_sum[0], S, B, K)
+				_innerJ(p, &Q[i,0], &p_thr[s], &q_thr[i*K], h, K)
+			_outerAccelP(&P[l], &P_new[l], &p_thr[0], &p_sum[0], S, B, K)
 
 		# omp critical
 		omp.omp_set_lock(&mutex)
@@ -382,13 +385,14 @@ cpdef void accelP(
 				Q_tmp[x,y] += q_thr[x*K + y]
 		omp.omp_unset_lock(&mutex)
 		free(p_sum)
+		free(p_thr)
 		free(q_thr)
 	omp.omp_destroy_lock(&mutex)
 
 # Batch accelerated update P and Q temp arrays
 cpdef void accelBatchP(
-		u8[:,::1] Z, f64[::1] P, f64[::1] P_new, const f64[:,::1] Q, f64[::1] P_tmp, f64[:,::1] Q_tmp, 
-		const u32[::1] k_vec, const u32[::1] c_vec, const u32[::1] s_bat
+		u8[:,::1] Z, f64[::1] P, f64[::1] P_new, const f64[:,::1] Q, f64[:,::1] Q_tmp, const u32[::1] k_vec, 
+		const u32[::1] c_vec, const u32[::1] s_bat, const u32 L
 	) noexcept nogil:
 	cdef:
 		Py_ssize_t W = s_bat.shape[0]
@@ -400,22 +404,24 @@ cpdef void accelBatchP(
 		f64 h
 		f64* p
 		f64* p_sum
+		f64* p_thr
 		f64* q_thr
 		omp.omp_lock_t mutex
 	omp.omp_init_lock(&mutex)
 	with nogil, parallel():
 		p_sum = <f64*>calloc(K, sizeof(f64))
+		p_thr = <f64*>calloc(L*K, sizeof(f64))
 		q_thr = <f64*>calloc(N*K, sizeof(f64))
 		for w in prange(W, schedule='guided'):
 			r = s_bat[w]
 			l = c_vec[r]
 			B = k_vec[r]
 			for i in range(N):
-				s = l + Z[r,i]*K
-				p = &P[s]
+				s = Z[r,i]*K
+				p = &P[l + s]
 				h = _computeH(p, &Q[i,0], K)
-				_innerJ(p, &Q[i,0], &P_tmp[s], &q_thr[i*K], h, K)
-			_outerAccelP(&P[l], &P_new[l], &P_tmp[l], &p_sum[0], S, B, K)
+				_innerJ(p, &Q[i,0], &p_thr[s], &q_thr[i*K], h, K)
+			_outerAccelP(&P[l], &P_new[l], &p_thr[0], &p_sum[0], S, B, K)
 
 		# omp critical
 		omp.omp_set_lock(&mutex)
@@ -424,6 +430,7 @@ cpdef void accelBatchP(
 				Q_tmp[x,y] += q_thr[x*K + y]
 		omp.omp_unset_lock(&mutex)
 		free(p_sum)
+		free(p_thr)
 		free(q_thr)
 	omp.omp_destroy_lock(&mutex)
 

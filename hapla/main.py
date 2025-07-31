@@ -128,8 +128,8 @@ def main():
 		help="Maximum number of iterations in ALS (1000)")
 	parser_admix.add_argument("--als-tole", metavar="FLOAT", type=float, default=1e-4,
 		help="Tolerance for RMSE of P between iterations (1e-4)")
-	parser_admix.add_argument("--subsampling", metavar="INT", type=int, default=3,
-		help="Subsampling factor for ALS/SVD initialization (3)")
+	parser_admix.add_argument("--subsampling", metavar="INT", type=int, default=4,
+		help="Subsampling factor for ALS/SVD initialization (4)")
 	parser_admix.add_argument("--no-freqs", action="store_true",
 		help="Do not save haplotype cluster frequencies")
 	parser_admix.add_argument("--random-init", action="store_true",
@@ -153,8 +153,8 @@ def main():
 		metavar="INT", help="Number of threads (1)")
 	parser_fatash.add_argument("-o", "--out", default="hapla.fatash",
 		metavar="OUTPUT", help="Output prefix")
-	parser_fatash.add_argument("--alpha", type=float, default=1.0,
-		metavar="FLOAT", help="Set fixed alpha rate (1.0)")
+	parser_fatash.add_argument("--alpha", type=float, default=1e-7,
+		metavar="FLOAT", help="Set fixed alpha rate (1e-7)")
 	parser_fatash.add_argument("--medians", action="store_true",
 		help="Utilize haplotype cluster probabilities")
 	parser_fatash.add_argument("--viterbi", action="store_true",

@@ -64,22 +64,22 @@ def randomizedSVD(Z_agg, p_vec, a_vec, K, chunk, power, rng):
 
 ### hapla admix
 # Update for ancestry estimation
-def steps(Z, P, Q, P_tmp, Q_tmp, k_vec, c_vec, y):
-	admix_cy.updateP(Z, P, Q, P_tmp, Q_tmp, k_vec, c_vec)
+def steps(Z, P, Q, Q_tmp, k_vec, c_vec, y, L):
+	admix_cy.updateP(Z, P, Q, Q_tmp, k_vec, c_vec, L)
 	admix_cy.updateQ(Q, Q_tmp, Z.shape[0])
 	if y is not None:
 		admix_cy.superQ(Q, y)
 
 # Accelerated update for ancestry estimation
-def quasi(Z, P0, Q0, P_tmp, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, y):
+def quasi(Z, P0, Q0, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, y, L):
 	# 1st EM step
-	admix_cy.accelP(Z, P0, P1, Q0, P_tmp, Q_tmp, k_vec, c_vec)
+	admix_cy.accelP(Z, P0, P1, Q0, Q_tmp, k_vec, c_vec, L)
 	admix_cy.accelQ(Q0, Q1, Q_tmp, Z.shape[0])
 	if y is not None:
 		admix_cy.superQ(Q1, y)
 
 	# 2nd EM step
-	admix_cy.accelP(Z, P1, P2, Q1, P_tmp, Q_tmp, k_vec, c_vec)
+	admix_cy.accelP(Z, P1, P2, Q1, Q_tmp, k_vec, c_vec, L)
 	admix_cy.accelQ(Q1, Q2, Q_tmp, Z.shape[0])
 	if y is not None:
 		admix_cy.superQ(Q2, y)
@@ -91,15 +91,15 @@ def quasi(Z, P0, Q0, P_tmp, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, y):
 		admix_cy.superQ(Q0, y)
 
 # Batch accelerated update for ancestry estimation
-def batQuasi(Z, P0, Q0, P_tmp, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, s_bat, y):
+def batQuasi(Z, P0, Q0, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, s_bat, y, L):
 	# 1st EM step
-	admix_cy.accelBatchP(Z, P0, P1, Q0, P_tmp, Q_tmp, k_vec, c_vec, s_bat)
+	admix_cy.accelBatchP(Z, P0, P1, Q0, Q_tmp, k_vec, c_vec, s_bat, L)
 	admix_cy.accelQ(Q0, Q1, Q_tmp, s_bat.shape[0])
 	if y is not None:
 		admix_cy.superQ(Q1, y)
 
 	# 2nd EM step
-	admix_cy.accelBatchP(Z, P1, P2, Q1, P_tmp, Q_tmp, k_vec, c_vec, s_bat)
+	admix_cy.accelBatchP(Z, P1, P2, Q1, Q_tmp, k_vec, c_vec, s_bat, L)
 	admix_cy.accelQ(Q1, Q2, Q_tmp, s_bat.shape[0])
 	if y is not None:
 		admix_cy.superQ(Q2, y)

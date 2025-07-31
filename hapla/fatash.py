@@ -10,7 +10,7 @@ import os
 from datetime import datetime
 from time import time
 
-VERSION = "0.30.0"
+VERSION = "0.31.0"
 
 ##### hapla fatash #####
 def main(args, deaf):
@@ -81,7 +81,6 @@ def main(args, deaf):
 					z_ids = np.genfromtxt(f"{z}.ids", dtype=np.str_)
 					w_tmp = np.genfromtxt(f"{z}.win", dtype=int, usecols=[1,2,5])
 					k_vec = w_tmp[:,2].astype(np.uint32)
-					m_vec = (w_tmp[:,1] - w_tmp[:,0]).astype(float)/2.0
 					N = 2*z_ids.shape[0]
 					w_list = [k_vec.shape[0]]
 				else: # Loop files
@@ -89,7 +88,6 @@ def main(args, deaf):
 					assert np.sum(z_ids != t_ids) == 0, "Samples do not match across files!"
 					w_tmp = np.genfromtxt(f"{z}.win", dtype=int, usecols=[1,2,5])
 					k_vec = np.append(k_vec, w_tmp[:,2].astype(np.uint32))
-					m_vec = np.append(m_vec, (w_tmp[:,1] - w_tmp[:,0]).astype(float)/2.0)
 					w_list.append(w_tmp.shape[0])
 		F = len(Z_list)
 		w_vec = np.array(w_list, dtype=np.uint32)
@@ -104,7 +102,6 @@ def main(args, deaf):
 			assert os.path.isfile(f"{Z_list[0]}.blk"), "blk file doesn't exist!"
 		w_tmp = np.genfromtxt(f"{Z_list[0]}.win", dtype=int, usecols=[1,2,5])
 		k_vec = w_tmp[:,2].astype(np.uint32)
-		m_vec = (w_tmp[:,1] - w_tmp[:,0]).astype(float)/2.0
 		w_vec = np.array([k_vec.shape[0]], dtype=np.uint32)
 		N = 2*np.genfromtxt(f"{Z_list[0]}.ids", dtype=np.str_).shape[0]
 		del w_tmp
@@ -137,12 +134,10 @@ def main(args, deaf):
 		# Load P matrix file
 		if F > 1:
 			P_tmp = np.fromfile(P_list[z], dtype=float)
-			m_tmp = m_vec[w_cnt:(w_cnt + w_vec[z])]
 			k_tmp = k_vec[w_cnt:(w_cnt + w_vec[z])]
 			w_cnt += w_vec[z]
 		else:
 			P_tmp = np.fromfile(args.pfile, dtype=float)
-			m_tmp = m_vec
 			k_tmp = k_vec
 		c_tmp = np.insert(np.cumsum(k_tmp[:-1]*K, dtype=np.uint32), 0, 0)
 		p_num = np.sum(k_tmp, dtype=int)*K
@@ -174,9 +169,8 @@ def main(args, deaf):
 
 		# Containers
 		E = np.zeros((N, w_vec[z], K)) # Emission probabilities
-		T = np.zeros((w_vec[z], K, K)) # Transition probabilities
+		T = np.zeros((K, K)) # Transition probabilities
 		A = np.zeros((w_vec[z], K)) # Forward matrix
-		d = np.zeros(w_vec[z]) # Distance vector
 		if args.viterbi:
 			I = np.zeros((w_vec[z], K), dtype=np.uint8) # Index matrix
 			V = np.zeros((N, w_vec[z]), dtype=np.uint8) # Viterbi path
@@ -193,13 +187,12 @@ def main(args, deaf):
 			del x_tmp
 		else:
 			fatash_cy.hardEmissions(Z_tmp, E, P_tmp, c_tmp)
-		fatash_cy.calcDistances(d, m_tmp)
 		del Z_tmp, P_tmp, k_tmp, c_tmp
 
 		# HMM for each haplotype
 		for i in np.arange(N):
 			print(f"\rHaplotype {i+1}/{N}", end="")
-			fatash_cy.calcTransition(T, Q[i], d, args.alpha)
+			fatash_cy.calcTransition(T, Q[i], args.alpha)
 			if args.viterbi: # Compute Viterbi and decoding
 				fatash_cy.viterbi(E[i], Q_log[i], T, A, I, V[i])
 			else: # Compute posterior probabilities
@@ -234,7 +227,7 @@ def main(args, deaf):
 					np.save(f"{args.out}.post", L)
 					print(f"Saved posteriors as {args.out}.post.npy")
 			print("")
-		del E, T, A, d
+		del E, T, A
 		if args.viterbi:
 			del I, V
 		else:

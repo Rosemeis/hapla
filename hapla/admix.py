@@ -10,7 +10,7 @@ import os
 from datetime import datetime
 from time import time
 
-VERSION = "0.30.0"
+VERSION = "0.31.0"
 
 ##### hapla admix #####
 def main(args, deaf):
@@ -77,9 +77,8 @@ def main(args, deaf):
 	if args.filelist is not None:
 		W = 0 # Counter for windows
 		Z_list = [] # List of filenames
-		k_sec = np.array([], dtype=np.uint32) # Container for half of chromosomes
 		with open(args.filelist) as f:
-			for i, z_file in enumerate(f):
+			for z_file in f:
 				# Check input across files (chromosomes) and count windows
 				z = z_file.strip("\n")
 				Z_list.append(z)
@@ -96,20 +95,13 @@ def main(args, deaf):
 					t_ids = np.genfromtxt(f"{z}.ids", dtype=np.str_)
 					assert np.sum(z_ids != t_ids) == 0, "Samples don't match across files!"
 					k_tmp = np.genfromtxt(f"{z}.win", dtype=np.uint32, usecols=[5])
+					k_vec = np.append(k_vec, k_tmp)
 					W += k_tmp.shape[0]
 					w_list.append(k_tmp.shape[0])
-					if (i % 2) == 0:
-						k_vec = np.append(k_vec, k_tmp)
-					else:
-						k_sec = np.append(k_sec, k_tmp)
 		F = len(Z_list)
-		f_idx = np.append(np.arange(0, F, 2), np.arange(1, F, 2))
-		Z_list = [Z_list[z] for z in f_idx]
-		w_list = [w_list[z] for z in f_idx]
-		k_vec = np.append(k_vec, k_sec)
 		w_vec = np.array(w_list, dtype=np.uint32)
 		f_vec = np.insert(np.cumsum(w_vec, dtype=np.uint32), 0, 0)
-		del z_ids, t_ids, k_tmp, k_sec, w_list
+		del z_ids, t_ids, k_tmp, w_list
 	else: # Single file (chromosome)
 		F = 1
 		Z_list = [args.clusters]
@@ -189,7 +181,6 @@ def main(args, deaf):
 					assert os.path.isfile(p_file.strip("\n")), f"The {p + 1}/{F} matrix file doesn't exist!"
 					P_list.append(p_file.strip("\n"))
 			assert len(P_list) == F, "Number of files doesn't match!"
-			P_list = [P_list[p] for p in f_idx]
 
 			# Load in files to full matrix
 			P = np.zeros(M*args.K)
@@ -237,7 +228,7 @@ def main(args, deaf):
 				U, S, V = functions.centerSVD(Z, p_vec, k_vec, c_tmp, W, args.K, args.chunk, args.power, rng)
 				P, Q = functions.factorALS(U, S, V, p_vec, k_vec, c_tmp, args.als_iter, args.als_tole, rng)
 				del U
-			print(f"\rSVD/ALS initialization.\t({time() - ts:.1f}s)")
+			print(f"\rSVD/ALS initialization.\t\t({time() - ts:.1f}s)")
 			del p_vec, c_tmp, S, V
 		y = None
 
@@ -246,9 +237,9 @@ def main(args, deaf):
 	Q2 = np.zeros_like(Q)
 	Q_tmp = np.zeros_like(Q)
 	if args.projection is None:
+		L = np.max(k_vec) # Max clusters for inner dynamic arrays
 		P1 = np.zeros_like(P)
 		P2 = np.zeros_like(P)
-		P_tmp = np.zeros_like(P)
 
 	# Estimate initial log-likelihood
 	L_pre = admix_cy.loglike(Z, P, Q, c_vec)
@@ -258,14 +249,14 @@ def main(args, deaf):
 	ts = time()
 	print("Priming iteration.", end="", flush=True)
 	if args.projection is None:
-		functions.steps(Z, P, Q, P_tmp, Q_tmp, k_vec, c_vec, y)
-		functions.quasi(Z, P, Q, P_tmp, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, y)
-		functions.steps(Z, P, Q, P_tmp, Q_tmp, k_vec, c_vec, y)
+		functions.steps(Z, P, Q, Q_tmp, k_vec, c_vec, y, L)
+		functions.quasi(Z, P, Q, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, y, L)
+		functions.steps(Z, P, Q, Q_tmp, k_vec, c_vec, y, L)
 	else:
 		functions.proSteps(Z, P, Q, Q_tmp, k_vec, c_vec)
 		functions.proQuasi(Z, P, Q, Q_tmp, Q1, Q2, k_vec, c_vec)
 		functions.proSteps(Z, P, Q, Q_tmp, k_vec, c_vec)
-	print(f"\rPriming iteration.\t({time() - ts:.1f}s)\n")
+	print(f"\rPriming iteration.\t\t({time() - ts:.1f}s)\n")
 
 	# Set up mini-batch parameters
 	if args.batches > 1:
@@ -287,17 +278,17 @@ def main(args, deaf):
 				s_end = W if b == (args.batches - 1) else (b + 1)*W_bat
 				s_bat = s_win[s_beg:s_end]
 				if args.projection is None:
-					functions.batQuasi(Z, P, Q, P_tmp, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, s_bat, y)
+					functions.batQuasi(Z, P, Q, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, s_bat, y, L)
 				else:
 					functions.proBatch(Z, P, Q, Q_tmp, Q1, Q2, k_vec, c_vec, s_bat)
 			if args.projection is None:
-				functions.quasi(Z, P, Q, P_tmp, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, y)
+				functions.quasi(Z, P, Q, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, y, L)
 			else:
 				functions.proQuasi(Z, P, Q, Q_tmp, Q1, Q2, k_vec, c_vec)
 		else: # Full updates
 			if args.projection is None:
-				functions.quasi(Z, P, Q, P_tmp, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, y)
-				functions.steps(Z, P, Q, P_tmp, Q_tmp, k_vec, c_vec, y)
+				functions.quasi(Z, P, Q, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, y, L)
+				functions.steps(Z, P, Q, Q_tmp, k_vec, c_vec, y, L)
 			else:
 				functions.proSteps(Z, P, Q, Q_tmp, k_vec, c_vec)
 				functions.proQuasi(Z, P, Q, Q_tmp, Q1, Q2, k_vec, c_vec)
@@ -317,7 +308,7 @@ def main(args, deaf):
 						print("Running standard updates.")
 					L_pre = L_cur
 					if args.projection is None:
-						functions.quasi(Z, P, Q, P_tmp, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, y)
+						functions.quasi(Z, P, Q, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, y, L)
 					else:
 						functions.proQuasi(Z, P, Q, Q_tmp, Q1, Q2, k_vec, c_vec)
 				else:
@@ -338,9 +329,9 @@ def main(args, deaf):
 	print(f"Saved Q matrix as {args.out}.K{args.K}.s{args.seed}.Q")
 	if not args.no_freqs and (args.projection is None):
 		if F > 1: # Save P file for each file (chromosome)
-			for p in np.argsort(f_idx):
+			for p in np.arange(F):
 				P_tmp = P[c_vec[f_vec[p]]:c_vec[f_vec[p + 1]]]
-				P_tmp.tofile(f"{args.out}.K{args.K}.s{args.seed}.{args.prefix}{f_idx[p] + 1}.P.bin")
+				P_tmp.tofile(f"{args.out}.K{args.K}.s{args.seed}.{args.prefix}{p + 1}.P.bin")
 			with open(f"{args.out}.K{args.K}.s{args.seed}.pfilelist", "w") as f:
 				for p in np.arange(F):
 					f.write(f"{args.out}.K{args.K}.s{args.seed}.{args.prefix}{p + 1}.P.bin\n")
