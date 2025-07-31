@@ -12,9 +12,18 @@ ctypedef float f32
 ctypedef double f64
 
 cdef f64 PRO_MIN = 1e-5
-cdef f64 PRO_MAX = 1.0-(1e-5)
+cdef f64 PRO_MAX = 1.0 - (1e-5)
 cdef f64 ACC_MIN = 1.0
 cdef f64 ACC_MAX = 128.0
+cdef f32 FLT_MIN = 1e-5
+cdef f32 FLT_MAX = 1.0 - (1e-5)
+cdef inline f64 _fmax(f64 a, f64 b) noexcept nogil: return a if a > b else b
+cdef inline f64 _fmin(f64 a, f64 b) noexcept nogil: return a if a < b else b
+cdef inline f32 _fmaxf(f32 a, f32 b) noexcept nogil: return a if a > b else b
+cdef inline f32 _fminf(f32 a, f32 b) noexcept nogil: return a if a < b else b
+cdef inline f64 _clamp1(f64 a) noexcept nogil: return _fmax(PRO_MIN, _fmin(a, PRO_MAX))
+cdef inline f64 _clamp2(f64 a) noexcept nogil: return _fmax(ACC_MIN, _fmin(a, ACC_MAX))
+cdef inline f32 _clamp3(f32 a) noexcept nogil: return _fmaxf(FLT_MIN, _fminf(a, FLT_MAX))
 
 
 ##### hapla - ancestry estimation #####
@@ -74,7 +83,7 @@ cdef inline void _outerP(
 		p_t = &p_thr[c*K]
 		for k in range(K):
 			a = p_c[k]*p_t[k]*S
-			b = PRO_MIN if a < PRO_MIN else (PRO_MAX if a > PRO_MAX else a)
+			b = _clamp1(a)
 			p_sum[k] += b
 			p_c[k] = b
 			p_t[k] = 0.0
@@ -101,7 +110,7 @@ cdef inline void _outerAccelP(
 		p_t = &p_thr[c*K]
 		for k in range(K):
 			a = p_c[k]*p_t[k]*S
-			b = PRO_MIN if a < PRO_MIN else (PRO_MAX if a > PRO_MAX else a)
+			b = _clamp1(a)
 			p_sum[k] += b
 			p_n[k] = b
 			p_t[k] = 0.0
@@ -122,7 +131,7 @@ cdef inline void _outerQ(
 		f64 a, b
 	for k in range(K):
 		a = q[k]*q_tmp[k]*S
-		b = PRO_MIN if a < PRO_MIN else (PRO_MAX if a > PRO_MAX else a)
+		b = _clamp1(a)
 		sumQ += b
 		q[k] = b
 		q_tmp[k] = 0.0
@@ -139,7 +148,7 @@ cdef inline void _outerAccelQ(
 		f64 a, b
 	for k in range(K):
 		a = q[k]*q_tmp[k]*S
-		b = PRO_MIN if a < PRO_MIN else (PRO_MAX if a > PRO_MAX else a)
+		b = _clamp1(a)
 		sumQ += b
 		q_new[k] = b
 		q_tmp[k] = 0.0
@@ -161,7 +170,7 @@ cdef inline f64 _qnC(
 		sum1 += u*u
 		sum2 += u*v
 	f = -(sum1/sum2)
-	return ACC_MIN if f < ACC_MIN else (ACC_MAX if f > ACC_MAX else f)
+	return _clamp2(f)
 
 # Estimate batch QN factor for P
 cdef inline f64 _qnBatch(
@@ -188,7 +197,7 @@ cdef inline f64 _qnBatch(
 			sum1 += u*u
 			sum2 += u*v
 	f = -(sum1/sum2)
-	return ACC_MIN if f < ACC_MIN else (ACC_MAX if f > ACC_MAX else f)
+	return _clamp2(f)
 
 # Estimate QN jump in P
 cdef inline void _computeP(
@@ -206,7 +215,7 @@ cdef inline void _computeP(
 		p2 = &P2[c*K]
 		for k in range(K):
 			a = c2*p1[k] + c1*p2[k]
-			b = PRO_MIN if a < PRO_MIN else (PRO_MAX if a > PRO_MAX else a)
+			b = _clamp1(a)
 			p_sum[k] += b
 			p0[k] = b
 	for c in range(B):
@@ -226,7 +235,7 @@ cdef inline void _computeQ(
 		f64 a, b
 	for k in range(K):
 		a = c2*q1[k] + c1*q2[k]
-		b = PRO_MIN if a < PRO_MIN else (PRO_MAX if a > PRO_MAX else a)
+		b = _clamp1(a)
 		sumQ += b
 		q0[k] = b
 	for k in range(K):
@@ -242,7 +251,7 @@ cdef inline void _averageQ(
 		f64 a, b
 	for k in range(K):
 		a = (q1[k] + q2[k])/2.0
-		b = PRO_MIN if a < PRO_MIN else (PRO_MAX if a > PRO_MAX else a)
+		b = _clamp1(a)
 		sumQ += b
 		qf[k] = b
 	for k in range(K):
@@ -260,7 +269,7 @@ cdef inline void _projectP(
 		p_c = &p[c*K]
 		for k in range(K):
 			a = p_c[k]
-			b = PRO_MIN if a < PRO_MIN else (PRO_MAX if a > PRO_MAX else a)
+			b = _clamp3(a)
 			p_sum[k] += b
 			p_c[k] = b
 	for c in range(B):
@@ -280,7 +289,7 @@ cdef inline void _projectQ(
 		f32 a, b
 	for k in range(K):
 		a = q[k]
-		b = PRO_MIN if a < PRO_MIN else (PRO_MAX if a > PRO_MAX else a)
+		b = _clamp3(a)
 		sumQ += b
 		q[k] = b
 	for k in range(K):
@@ -647,7 +656,7 @@ cpdef void superP(
 					a = p[k]
 					if c_sum[k] > 0.0:
 						a = a/c_sum[k]
-					b = PRO_MIN if a < PRO_MIN else (PRO_MAX if a > PRO_MAX else a)
+					b = _clamp1(a)
 					p_sum[k] += b
 					p[k] = b
 			for c in range(B):
