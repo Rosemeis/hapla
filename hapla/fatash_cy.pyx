@@ -70,7 +70,7 @@ cpdef void hardEmissions(
 
 # Calculate emission probabilities using cluster probabilities
 cpdef void softEmissions(
-		const u8[:,::1] Z, f64[:,:,::1] E, const f64[::1] P, f32[::1] L, const u32[::1] k_vec, const u32[::1] c_vec, 
+		const u8[:,::1] Z, f64[:,:,::1] E, f64[::1] P, f32[::1] L, const u32[::1] k_vec, const u32[::1] c_vec, 
 		const u32[::1] x_vec
 	) noexcept nogil:
 	cdef:
