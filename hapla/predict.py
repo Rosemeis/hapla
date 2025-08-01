@@ -10,7 +10,7 @@ import os
 from datetime import datetime
 from time import time
 
-VERSION = "0.31.1"
+VERSION = "0.32.0"
 
 ##### hapla predict #####
 def main(args, deaf):

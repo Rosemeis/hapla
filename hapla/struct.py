@@ -10,7 +10,7 @@ import os
 from datetime import datetime
 from time import time
 
-VERSION = "0.31.1"
+VERSION = "0.32.0"
 
 ##### hapla struct #####
 def main(args, deaf):
@@ -112,7 +112,7 @@ def main(args, deaf):
 		G = np.zeros((N, N), dtype=np.float32)
 		for z in np.arange(F): # Loop through files
 			# Print information
-			s_beg = f"Processing file {z+1}/{F}"
+			s_beg = f"Processing file {z + 1}/{F}"
 			print(f"\r{s_beg: <{len(s_pre)}}", end="")
 
 			# Load haplotype cluster assignment file
@@ -129,7 +129,7 @@ def main(args, deaf):
 
 			# File setup
 			k_tmp = k_vec[K:(K + w_vec[z])]
-			c_tmp = np.insert(np.cumsum(k_tmp[:-1], dtype=np.uint32), 0, 0)
+			c_tmp = np.insert(np.cumsum(k_tmp, dtype=np.uint32), 0, 0)
 			M = np.sum(k_tmp, dtype=np.uint32)
 
 			# Aggregate alleles and estimate cluster frequencies
@@ -144,10 +144,10 @@ def main(args, deaf):
 
 			# Estimate GRM part in chunks
 			for b in np.arange(B):
-				s_bat = f"{s_beg}. Chunk {b+1}/{B}"
+				s_bat = f"{s_beg}. Chunk {b + 1}/{B}"
 				print(f"\r{s_bat}", end="") # Print information
 				M_b = b*args.chunk
-				if b == (B-1): # Last chunk
+				if b == (B - 1): # Last chunk
 					X = np.zeros((M - M_b, N), dtype=np.float32)
 				shared_cy.centerZ(Z_agg, X, p_tmp, M_b)
 
@@ -169,13 +169,13 @@ def main(args, deaf):
 			G -= u.reshape(N, 1)
 
 			# Gower centering
-			G *= float(N-1)/np.trace(G)
+			G *= float(N - 1)/np.trace(G)
 			del u
 
 		# Save matrix
 		G = G[np.tril_indices(N)]
 		G.tofile(f"{args.out}.grm.bin")
-		np.full(N*(N+1)//2, D, dtype=np.float32).tofile(f"{args.out}.grm.N.bin")
+		np.full(N*(N + 1)//2, D, dtype=np.float32).tofile(f"{args.out}.grm.N.bin")
 		z_ids = z_ids.reshape(-1, 1)
 		if args.duplicate_fid:
 			fam = z_ids.repeat(2, axis=1)
@@ -205,7 +205,7 @@ def main(args, deaf):
 				z_tmp.shape = (w_vec[z], 2*N)
 				Z[B:(B + w_vec[z]),:] = z_tmp
 				B += w_vec[z]
-			print(f"\rParsed file {z+1}/{F}", end="")
+			print(f"\rParsed file {z + 1}/{F}", end="")
 		del magic, z_tmp
 
 		# Count haplotype cluster alleles
@@ -217,23 +217,33 @@ def main(args, deaf):
 			f"- {W} windows\n" + \
 			f"- {M} clusters\n")
 		
-		# Populate full matrix and estimate cluster frequencies
-		Z_agg = np.zeros((M, N), dtype=np.uint8)
+		# Estimate cluster frequencies
 		p_vec = np.zeros(M, dtype=np.float32)
-		c_vec = np.insert(np.cumsum(k_vec[:-1], dtype=np.uint32), 0, 0)
-		shared_cy.haplotypeAggregate(Z, Z_agg, p_vec, k_vec, c_vec)
-		del Z, k_vec, c_vec
-		a_vec = 1.0/np.sqrt(2.0*p_vec*(1.0 - p_vec))
+		c_vec = np.insert(np.cumsum(k_vec, dtype=np.uint32), 0, 0)
 
 		# Randomized SVD
 		print(f"Computing randomized SVD, extracting {args.pca} eigenvectors.")
 		rng = np.random.default_rng(args.seed)
-		U, S, V = functions.randomizedSVD(Z_agg, p_vec, a_vec, args.pca, args.chunk, args.power, rng)
+		if args.memory:
+			# SVD with condensed data format
+			shared_cy.estimateFreq(Z, p_vec, k_vec, c_vec)
+			a_vec = 1.0/np.sqrt(2.0*p_vec*(1.0 - p_vec))
+			U, S, V = functions.memorySVD(Z, p_vec, a_vec, k_vec, c_vec, args.pca, args.chunk, args.power, rng)
+			del Z
+		else:
+			# SVD with expanded data format 
+			Z_agg = np.zeros((M, N), dtype=np.uint8)
+			shared_cy.haplotypeAggregate(Z, Z_agg, p_vec, k_vec, c_vec)
+			a_vec = 1.0/np.sqrt(2.0*p_vec*(1.0 - p_vec))
+			del Z, k_vec, c_vec
+			U, S, V = functions.randomizedSVD(Z_agg, p_vec, a_vec, args.pca, args.chunk, args.power, rng)
+			del Z_agg
+		del p_vec, a_vec
 		print(".\n")
 
 		# Save matrices
 		if args.raw: # Only eigenvectors
-			np.savetxt(f"{args.out}.eigenvecs", V, fmt="%.7f")
+			np.savetxt(f"{args.out}.eigenvecs", V, fmt="%.6f")
 		else: # Include FID and IID fields
 			z_ids = z_ids.reshape(-1, 1)
 			if args.duplicate_fid:
@@ -241,16 +251,15 @@ def main(args, deaf):
 			else:
 				fam = np.hstack((np.zeros((N, 1), dtype=np.uint8), z_ids))
 			V = np.hstack((fam, np.round(V, 7)))
-			h = ["#FID", "IID"] + [f"PC{k}" for k in range(1, args.pca+1)]
+			h = ["#FID", "IID"] + [f"PC{k}" for k in range(1, args.pca + 1)]
 			np.savetxt(f"{args.out}.eigenvecs", V, fmt="%s", delimiter="\t", comments="", header="\t".join(h))
 		print(f"Saved eigenvectors as {args.out}.eigenvecs")
-		np.savetxt(f"{args.out}.eigenvals", (S*S)/float(M), fmt="%.7f")
+		np.savetxt(f"{args.out}.eigenvals", (S*S)/float(M), fmt="%.6f")
 		print(f"Saved eigenvalues as {args.out}.eigenvals")
 		if args.loadings:
-			np.savetxt(f"{args.out}.loadings", U, fmt="%.7f")
+			np.savetxt(f"{args.out}.loadings", U, fmt="%.6f")
 			print(f"Saved loadings as {args.out}.loadings")
 		print("")
-		del z_ids, Z_agg, p_vec, a_vec, U, S, V, h, fam
 
 	# Print elapsed time for computation
 	t_tot = time() - start

@@ -63,6 +63,25 @@ cpdef void haplotypeAggregate(
 				p[l] += 1.0 if Z[w,i] == c else 0.0
 			p[l] *= d
 
+# Estimate haplotype cluster frequencies
+cpdef void estimateFreq(
+		u8[:,::1] Z, f32[::1] p, const u32[::1] k_vec, const u32[::1] c_vec
+	) noexcept nogil:
+	cdef:
+		Py_ssize_t W = Z.shape[0]
+		Py_ssize_t N = Z.shape[1]
+		size_t c, i, l, s, w
+		u8* z
+		f32 d = 1.0/<f32>N
+	for w in prange(W, schedule='guided'):
+		s = c_vec[w]
+		z = &Z[w,0]
+		for c in range(k_vec[w]):
+			l = s + c
+			for i in range(N):
+				p[l] += 1.0 if z[i] == c else 0.0
+			p[l] *= d
+
 # Center expanded batch haplotype cluster assignment matrix
 cpdef void centerZ(
 		u8[:,::1] Z_agg, f32[:,::1] X, const f32[::1] p, const int S
@@ -90,28 +109,43 @@ cpdef void chunkZ(
 		u = 2.0*p[j]
 		_standardize(&Z_agg[j,0], &X[j,0], u, a[j], N)
 
-
-
-### hapla admix
-# Estimate haplotype cluster frequencies
-cpdef void estimateFreq(
-		u8[:,::1] Z, f32[::1] p, const u32[::1] k_vec, const u32[::1] c_vec
+# Standardize 
+cpdef void memoryC(
+		u8[:,::1] Z, f32[:,::1] X, const f32[::1] p, const f32[::1] a, const u32[::1] k_vec, const u32[::1] c_vec
 	) noexcept nogil:
 	cdef:
 		Py_ssize_t W = Z.shape[0]
 		Py_ssize_t N = Z.shape[1]
 		size_t c, i, l, s, w
 		u8* z
-		f32 d = 1.0/<f32>N
+		f32 u, d
+		f32* x
 	for w in prange(W, schedule='guided'):
-		s = c_vec[w]
+		s = c_vec[w] - c_vec[0]
 		z = &Z[w,0]
 		for c in range(k_vec[w]):
 			l = s + c
+			u = p[l]
+			d = a[l]
+			x = &X[l,0]
 			for i in range(N):
-				p[l] += 1.0 if z[i] == c else 0.0
-			p[l] *= d
+				x[i//2] += (1.0 - u)*d if Z[w,i] == c else (0.0 - u)*d
 
+# Reset batch haplotype cluster assignment matrix
+cpdef void resetC(
+		f32[:,::1] X
+	) noexcept nogil:
+	cdef:
+		Py_ssize_t M = X.shape[0]
+		Py_ssize_t N = X.shape[1]
+		size_t i, j
+	for j in prange(M, schedule='guided'):
+		for i in range(N):
+			X[j,i] = 0.0
+
+
+
+### hapla admix
 # Center batch haplotype cluster assignment matrix
 cpdef void centerC(
 		u8[:,::1] Z, f32[:,::1] X, const f32[::1] p, const u32[::1] k_vec, const u32[::1] c_vec
@@ -131,7 +165,7 @@ cpdef void centerC(
 			u = p[l]
 			x = &X[l,0]
 			for i in range(N):
-				x[i] = 1.0 - u if z[i] == c else -u
+				x[i] = 1.0 - u if z[i] == c else (0.0 - u)
 
 
 

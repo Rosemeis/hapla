@@ -15,11 +15,11 @@ def eigSVD(H):
 		np.ascontiguousarray(V[:,::-1])
 
 # Randomized PCA with dynamic shift
-def randomizedSVD(Z_agg, p_vec, a_vec, K, chunk, power, rng):
+def randomizedSVD(Z_agg, p_vec, a_vec, D, chunk, power, rng):
 	M, N = Z_agg.shape
 	W = ceil(M/chunk)
 	a = 0.0
-	L = max(K + 10, 20)
+	L = max(D + 10, 20)
 	H = np.zeros((N, L), dtype=np.float32)
 	X = np.zeros((chunk, N), dtype=np.float32)
 	A = rng.standard_normal(size=(M, L), dtype=np.float32)
@@ -36,7 +36,7 @@ def randomizedSVD(Z_agg, p_vec, a_vec, K, chunk, power, rng):
 
 	# Power iterations
 	for p in np.arange(power):
-		print(f"\rPower iteration {p+1}/{power}", end="")
+		print(f"\rPower iteration {p + 1}/{power}", end="")
 		for w in np.arange(W):
 			M_w = w*chunk
 			M_e = min((w + 1)*chunk, M)
@@ -58,7 +58,65 @@ def randomizedSVD(Z_agg, p_vec, a_vec, K, chunk, power, rng):
 		shared_cy.chunkZ(Z_agg[M_w:M_e], X[:M_x], p_vec[M_w:M_e], a_vec[M_w:M_e])
 		A[M_w:M_e] = np.dot(X[:M_x], Q)
 	U, S, V = eigSVD(A)
-	return U[:,:K], S[:K], np.dot(Q, V)[:,:K]
+	return U[:,:D], S[:D], np.dot(Q, V)[:,:D]
+
+# Memory efficient randomized PCA with dynamic shift
+def memorySVD(Z, p_vec, a_vec, k_vec, c_vec, D, chunk, power, rng):
+	W = Z.shape[0]
+	N = Z.shape[1]//2
+	M = c_vec[W]
+	B = ceil(chunk/ceil(M/W))
+	C = ceil(W/B)
+	a = 0.0
+	L = max(D + 10, 20)
+	H = np.zeros((N, L), dtype=np.float32)
+	X = np.zeros((np.max(k_vec[:W])*B, N), dtype=np.float32)
+	A = rng.standard_normal(size=(M, L), dtype=np.float32)
+
+	# Prime iteration
+	for c in np.arange(C):
+		W_b = c*B
+		W_e = min((c + 1)*B, W)
+		C_b = c_vec[W_b]
+		C_e = c_vec[W_e]
+		C_x = C_e - C_b
+		shared_cy.memoryC(Z[W_b:W_e], X[:C_x], p_vec[C_b:C_e], a_vec[C_b:C_e], k_vec[W_b:W_e], c_vec[W_b:W_e])
+		H += np.dot(X[:C_x].T, A[C_b:C_e])
+		shared_cy.resetC(X[:C_x])
+	Q, _, _ = eigSVD(H)
+	H.fill(0.0)
+
+	# Power iterations
+	for p in np.arange(power):
+		print(f"\rPower iteration {p + 1}/{power}", end="")
+		for c in np.arange(C):
+			W_b = c*B
+			W_e = min((c + 1)*B, W)
+			C_b = c_vec[W_b]
+			C_e = c_vec[W_e]
+			C_x = C_e - C_b
+			shared_cy.memoryC(Z[W_b:W_e], X[:C_x], p_vec[C_b:C_e], a_vec[C_b:C_e], k_vec[W_b:W_e], c_vec[W_b:W_e])
+			A[C_b:C_e] = np.dot(X[:C_x], Q)
+			H += np.dot(X[:C_x].T, A[C_b:C_e])
+			shared_cy.resetC(X[:C_x])
+		H -= a*Q
+		Q, S, _ = eigSVD(H)
+		H.fill(0.0)
+		if S[-1] > a:
+			a = 0.5*(S[-1] + a)
+
+	# Extract singular vectors
+	for c in np.arange(C):
+		W_b = c*B
+		W_e = min((c + 1)*B, W)
+		C_b = c_vec[W_b]
+		C_e = c_vec[W_e]
+		C_x = C_e - C_b
+		shared_cy.memoryC(Z[W_b:W_e], X[:C_x], p_vec[C_b:C_e], a_vec[C_b:C_e], k_vec[W_b:W_e], c_vec[W_b:W_e])
+		A[C_b:C_e] = np.dot(X[:C_x], Q)
+		shared_cy.resetC(X[:C_x])
+	U, S, V = eigSVD(A)
+	return U[:,:D], S[:D], np.dot(Q, V)[:,:D]
 
 
 

@@ -173,11 +173,20 @@ cpdef u32 checkClust(
 		size_t c_arg = 0
 		size_t i, z
 		u32 c_max = c_vec[0]
-		u32 u
+		u32 u_max = u_vec[0]
+		u32 c, u
 	for i in range(1, U): # Find extreme point
-		if c_vec[i] > c_max:
+		c = c_vec[i]
+		u = u_vec[i]
+		if c > c_max:
 			c_arg = i
-			c_max = c_vec[i]
+			c_max = c
+			u_max = u
+		elif c == c_max: # Choose largest for ties
+			if u > u_max:
+				c_arg = i
+				c_max = c
+				u_max = u
 	if c_max >= c_lim and K < L:
 		u = u_vec[c_arg]
 		z = z_vec[c_arg]
@@ -199,11 +208,20 @@ cpdef void genClust(
 		size_t c_arg = 0
 		size_t i, z
 		u32 c_max = c_vec[0]
-		u32 u
+		u32 u_max = u_vec[0]
+		u32 c, u
 	for i in range(1, U): # Find extreme point
-		if c_vec[i] > c_max:
+		c = c_vec[i]
+		u = u_vec[i]
+		if c > c_max:
 			c_arg = i
-			c_max = c_vec[i]
+			c_max = c
+			u_max = u
+		elif c == c_max: # Choose largest for ties
+			if u > u_max:
+				c_arg = i
+				c_max = c
+				u_max = u
 	u = u_vec[c_arg]
 	z = z_vec[c_arg]
 	_updateClust(&X[c_arg,0], &R[K,0], &C[K,0], &C[z,0], u, M)

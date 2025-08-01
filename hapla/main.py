@@ -70,6 +70,8 @@ def main():
 		help="Use sample list as family ID for GCTA format")
 	parser_struct.add_argument("--pca", type=int,
 		metavar="INT", help="Perform PCA and extract eigenvectors")
+	parser_struct.add_argument("--memory", action="store_true",
+		help="Perform memory efficient SVD for large-scale data")
 	parser_struct.add_argument("--seed", type=int, default=42,
 		metavar="INT", help="Random seed (42)")
 	parser_struct.add_argument("--loadings", action="store_true",
