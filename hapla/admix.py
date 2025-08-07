@@ -10,7 +10,7 @@ import os
 from datetime import datetime
 from time import time
 
-VERSION = "0.32.0"
+VERSION = "0.32.1"
 
 ##### hapla admix #####
 def main(args, deaf):

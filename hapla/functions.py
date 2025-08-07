@@ -82,7 +82,6 @@ def memorySVD(Z, p_vec, a_vec, k_vec, c_vec, D, chunk, power, rng):
 		C_x = C_e - C_b
 		shared_cy.memoryC(Z[W_b:W_e], X[:C_x], p_vec[C_b:C_e], a_vec[C_b:C_e], k_vec[W_b:W_e], c_vec[W_b:W_e])
 		H += np.dot(X[:C_x].T, A[C_b:C_e])
-		shared_cy.resetC(X[:C_x])
 	Q, _, _ = eigSVD(H)
 	H.fill(0.0)
 
@@ -98,7 +97,6 @@ def memorySVD(Z, p_vec, a_vec, k_vec, c_vec, D, chunk, power, rng):
 			shared_cy.memoryC(Z[W_b:W_e], X[:C_x], p_vec[C_b:C_e], a_vec[C_b:C_e], k_vec[W_b:W_e], c_vec[W_b:W_e])
 			A[C_b:C_e] = np.dot(X[:C_x], Q)
 			H += np.dot(X[:C_x].T, A[C_b:C_e])
-			shared_cy.resetC(X[:C_x])
 		H -= a*Q
 		Q, S, _ = eigSVD(H)
 		H.fill(0.0)
@@ -114,7 +112,6 @@ def memorySVD(Z, p_vec, a_vec, k_vec, c_vec, D, chunk, power, rng):
 		C_x = C_e - C_b
 		shared_cy.memoryC(Z[W_b:W_e], X[:C_x], p_vec[C_b:C_e], a_vec[C_b:C_e], k_vec[W_b:W_e], c_vec[W_b:W_e])
 		A[C_b:C_e] = np.dot(X[:C_x], Q)
-		shared_cy.resetC(X[:C_x])
 	U, S, V = eigSVD(A)
 	return U[:,:D], S[:D], np.dot(Q, V)[:,:D]
 
@@ -170,7 +167,7 @@ def batQuasi(Z, P0, Q0, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, s_bat, y, L):
 
 # Randomized PCA with dynamic shift for ALS/SVD initialization
 def centerSVD(Z, p_vec, k_vec, c_vec, W, K, chunk, power, rng):
-	N = Z.shape[1]
+	N = Z.shape[1]//2
 	D = K - 1
 	M = c_vec[W]
 	B = ceil(chunk/ceil(M/W))
@@ -232,7 +229,7 @@ def factorALS(U, S, V, p_vec, k_vec, c_vec, iter, tole, rng):
 	P = rng.random(size=(M, D + 1), dtype=np.float32)
 	admix_cy.projectP(P, k_vec, c_vec)
 	I = np.dot(P, np.linalg.pinv(np.dot(P.T, P)))
-	Q = np.dot(V, np.dot(Y.T, I)) + np.sum(I*p_vec.reshape(-1,1), axis=0)
+	Q = 0.5*np.dot(V, np.dot(Y.T, I)) + np.sum(I*p_vec.reshape(-1,1), axis=0)
 	admix_cy.projectQ(Q)
 	Q0 = np.copy(Q)
 
@@ -240,23 +237,23 @@ def factorALS(U, S, V, p_vec, k_vec, c_vec, iter, tole, rng):
 	for _ in range(iter):
 		# Update P
 		I = np.dot(Q, np.linalg.pinv(np.dot(Q.T, Q)))
-		P = np.dot(Y, np.dot(V.T, I)) + np.outer(p_vec, np.sum(I, axis=0))
+		P = 0.5*np.dot(Y, np.dot(V.T, I)) + np.outer(p_vec, np.sum(I, axis=0))
 		admix_cy.projectP(P, k_vec, c_vec)
 
 		# Update Q
 		I = np.dot(P, np.linalg.pinv(np.dot(P.T, P)))
-		Q = np.dot(V, np.dot(Y.T, I)) + np.sum(I*p_vec.reshape(-1,1), axis=0)
+		Q = 0.5*np.dot(V, np.dot(Y.T, I)) + np.sum(I*p_vec.reshape(-1,1), axis=0)
 		admix_cy.projectQ(Q)
 
 		# Check convergence
 		if admix_cy.rmseQ(Q, Q0) < tole:
 			break
 		memoryview(Q0.ravel())[:] = memoryview(Q.ravel())
-	return P.flatten().astype(float), Q.astype(float)
+	return P.flatten().astype(float), Q.repeat(2, axis=0).astype(float)
 
-# Project remaining samples for ALS/SVD initialization
+# Project remaining clusters for ALS/SVD initialization
 def centerSub(Z, S, V, p_vec, k_vec, c_vec, W_sub, chunk):
-	N = Z.shape[1]
+	N = Z.shape[1]//2
 	D = V.shape[1]
 	W = Z.shape[0] - W_sub
 	A = c_vec[W_sub]
@@ -291,7 +288,7 @@ def factorSub(U_sub, U_rem, S, V, p_vec, k_vec, c_vec, W_sub, iter, tole, rng):
 	P = rng.random(size=(M, D + 1), dtype=np.float32)
 	admix_cy.projectP(P, k_sub, c_sub)
 	I = np.dot(P, np.linalg.pinv(np.dot(P.T, P)))
-	Q = np.dot(V, np.dot(Y.T, I)) + np.sum(I*p_sub.reshape(-1,1), axis=0)
+	Q = 0.5*np.dot(V, np.dot(Y.T, I)) + np.sum(I*p_sub.reshape(-1,1), axis=0)
 	admix_cy.projectQ(Q)
 	Q0 = np.copy(Q)
 
@@ -299,12 +296,12 @@ def factorSub(U_sub, U_rem, S, V, p_vec, k_vec, c_vec, W_sub, iter, tole, rng):
 	for _ in range(iter):
 		# Update P
 		I = np.dot(Q, np.linalg.pinv(np.dot(Q.T, Q)))
-		P = np.dot(Y, np.dot(V.T, I)) + np.outer(p_sub, np.sum(I, axis=0))
+		P = 0.5*np.dot(Y, np.dot(V.T, I)) + np.outer(p_sub, np.sum(I, axis=0))
 		admix_cy.projectP(P, k_sub, c_sub)
 
 		# Update Q
 		I = np.dot(P, np.linalg.pinv(np.dot(P.T, P)))
-		Q = np.dot(V, np.dot(Y.T, I)) + np.sum(I*p_sub.reshape(-1,1), axis=0)
+		Q = 0.5*np.dot(V, np.dot(Y.T, I)) + np.sum(I*p_sub.reshape(-1,1), axis=0)
 		admix_cy.projectQ(Q)
 
 		# Check convergence
@@ -316,12 +313,12 @@ def factorSub(U_sub, U_rem, S, V, p_vec, k_vec, c_vec, W_sub, iter, tole, rng):
 	# Perform extra full ALS iteration
 	Y = np.ascontiguousarray(np.concatenate((U_sub, U_rem), axis=0)*S)
 	I = np.dot(Q, np.linalg.pinv(np.dot(Q.T, Q)))
-	P = np.dot(Y, np.dot(V.T, I)) + np.outer(p_vec, np.sum(I, axis=0))
+	P = 0.5*np.dot(Y, np.dot(V.T, I)) + np.outer(p_vec, np.sum(I, axis=0))
 	admix_cy.projectP(P, k_vec, c_vec)
 	I = np.dot(P, np.linalg.pinv(np.dot(P.T, P)))
-	Q = np.dot(V, np.dot(Y.T, I)) + np.sum(I*p_vec.reshape(-1,1), axis=0)
+	Q = 0.5*np.dot(V, np.dot(Y.T, I)) + np.sum(I*p_vec.reshape(-1,1), axis=0)
 	admix_cy.projectQ(Q)
-	return P.flatten().astype(float), Q.astype(float)
+	return P.flatten().astype(float), Q.repeat(2, axis=0).astype(float)
 
 # Update for ancestry estimation in projection mode
 def proSteps(Z, P, Q, Q_tmp, k_vec, c_vec):

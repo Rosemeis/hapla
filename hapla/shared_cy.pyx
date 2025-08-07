@@ -115,7 +115,7 @@ cpdef void memoryC(
 	) noexcept nogil:
 	cdef:
 		Py_ssize_t W = Z.shape[0]
-		Py_ssize_t N = Z.shape[1]
+		Py_ssize_t N = X.shape[1]
 		size_t c, i, l, s, w
 		u8* z
 		f32 u, d
@@ -129,19 +129,8 @@ cpdef void memoryC(
 			d = a[l]
 			x = &X[l,0]
 			for i in range(N):
-				x[i//2] += (1.0 - u)*d if Z[w,i] == c else (0.0 - u)*d
-
-# Reset batch haplotype cluster assignment matrix
-cpdef void resetC(
-		f32[:,::1] X
-	) noexcept nogil:
-	cdef:
-		Py_ssize_t M = X.shape[0]
-		Py_ssize_t N = X.shape[1]
-		size_t i, j
-	for j in prange(M, schedule='guided'):
-		for i in range(N):
-			X[j,i] = 0.0
+				x[i] = (1.0 - u)*d if z[2*i] == c else (0.0 - u)*d
+				x[i] += (1.0 - u)*d if z[2*i + 1] == c else (0.0 - u)*d
 
 
 
@@ -152,7 +141,7 @@ cpdef void centerC(
 	) noexcept nogil:
 	cdef:
 		Py_ssize_t W = Z.shape[0]
-		Py_ssize_t N = Z.shape[1]
+		Py_ssize_t N = X.shape[1]
 		size_t c, i, l, s, w
 		u8* z
 		f32 u
@@ -165,7 +154,8 @@ cpdef void centerC(
 			u = p[l]
 			x = &X[l,0]
 			for i in range(N):
-				x[i] = 1.0 - u if z[i] == c else (0.0 - u)
+				x[i] = (1.0 - u) if z[2*i] == c else (0.0 - u)
+				x[i] += (1.0 - u) if z[2*i + 1] == c else (0.0 - u)
 
 
 
