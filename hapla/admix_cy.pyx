@@ -164,7 +164,7 @@ cdef inline f64 _qnC(
 		f64 sum1 = 0.0
 		f64 sum2 = 0.0
 		f64 f, u, v
-	for i in prange(I, schedule='guided'): ### TEST nested loops for SIMD in P and keep Q separated?
+	for i in prange(I, schedule='guided'):
 		u = v1[i] - v0[i]
 		v = v2[i] - v1[i] - u
 		sum1 += u*u
@@ -324,6 +324,7 @@ cpdef void updateP(
 		f64 S = 1.0/<f64>N
 		f64 h
 		f64* p
+		f64* q
 		f64* p_sum
 		f64* p_thr
 		f64* q_thr
@@ -339,8 +340,9 @@ cpdef void updateP(
 			for i in range(N):
 				s = Z[w,i]*K
 				p = &P[l + s]
-				h = _computeH(p, &Q[i,0], K)
-				_innerJ(p, &Q[i,0], &p_thr[s], &q_thr[i*K], h, K)
+				q = &Q[i,0]
+				h = _computeH(p, q, K)
+				_innerJ(p, q, &p_thr[s], &q_thr[i*K], h, K)
 			_outerP(&P[l], &p_thr[0], &p_sum[0], S, B, K)
 
 		# omp critical
@@ -368,6 +370,7 @@ cpdef void accelP(
 		f64 S = 1.0/<f64>N
 		f64 h
 		f64* p
+		f64* q
 		f64* p_sum
 		f64* p_thr
 		f64* q_thr
@@ -383,8 +386,9 @@ cpdef void accelP(
 			for i in range(N):
 				s = Z[w,i]*K
 				p = &P[l + s]
-				h = _computeH(p, &Q[i,0], K)
-				_innerJ(p, &Q[i,0], &p_thr[s], &q_thr[i*K], h, K)
+				q = &Q[i,0]
+				h = _computeH(p, q, K)
+				_innerJ(p, q, &p_thr[s], &q_thr[i*K], h, K)
 			_outerAccelP(&P[l], &P_new[l], &p_thr[0], &p_sum[0], S, B, K)
 
 		# omp critical
@@ -412,6 +416,7 @@ cpdef void accelBatchP(
 		f64 S = 1.0/<f64>N
 		f64 h
 		f64* p
+		f64* q
 		f64* p_sum
 		f64* p_thr
 		f64* q_thr
@@ -428,8 +433,9 @@ cpdef void accelBatchP(
 			for i in range(N):
 				s = Z[r,i]*K
 				p = &P[l + s]
-				h = _computeH(p, &Q[i,0], K)
-				_innerJ(p, &Q[i,0], &p_thr[s], &q_thr[i*K], h, K)
+				q = &Q[i,0]
+				h = _computeH(p, q, K)
+				_innerJ(p, q, &p_thr[s], &q_thr[i*K], h, K)
 			_outerAccelP(&P[l], &P_new[l], &p_thr[0], &p_sum[0], S, B, K)
 
 		# omp critical
