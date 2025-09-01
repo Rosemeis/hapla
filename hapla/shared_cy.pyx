@@ -59,7 +59,7 @@ cpdef void haplotypeAggregate(
 			l = s + c
 			z = &Z_agg[l,0]
 			for i in range(N):
-				z[i//2] += 1 if Z[w,i] == c else 0
+				z[i >> 1] += 1 if Z[w,i] == c else 0
 				p[l] += 1.0 if Z[w,i] == c else 0.0
 			p[l] *= d
 

@@ -10,7 +10,7 @@ import os
 from datetime import datetime
 from time import time
 
-VERSION = "0.32.1"
+VERSION = "0.32.2"
 
 ##### hapla fatash #####
 def main(args, deaf):
@@ -133,11 +133,11 @@ def main(args, deaf):
 
 		# Load P matrix file
 		if F > 1:
-			P_tmp = np.fromfile(P_list[z], dtype=float)
+			P_tmp = np.genfromtxt(P_list[z], dtype=float).reshape(-1)
 			k_tmp = k_vec[w_cnt:(w_cnt + w_vec[z])]
 			w_cnt += w_vec[z]
 		else:
-			P_tmp = np.fromfile(args.pfile, dtype=float)
+			P_tmp = np.genfromtxt(args.pfile, dtype=float).reshape(-1)
 			k_tmp = k_vec
 		c_tmp = np.insert(np.cumsum(k_tmp[:-1]*K, dtype=np.uint32), 0, 0)
 		p_num = np.sum(k_tmp, dtype=int)*K

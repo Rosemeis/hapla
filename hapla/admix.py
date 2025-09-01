@@ -10,7 +10,7 @@ import os
 from datetime import datetime
 from time import time
 
-VERSION = "0.32.1"
+VERSION = "0.32.2"
 
 ##### hapla admix #####
 def main(args, deaf):
@@ -153,7 +153,6 @@ def main(args, deaf):
 		assert np.max(y) <= args.K, "Wrong number of ancestral sources!"
 		assert np.min(y) >= 0, "Wrong format for population assignments!"
 		print(f"{np.sum(y > 0)}/{N} samples with fixed ancestry.")
-		y = np.repeat(y, 2) # Repeat the vector for easy computations
 
 		# Count ancestral sources
 		x = np.unique(y[y > 0])
@@ -162,7 +161,7 @@ def main(args, deaf):
 
 		# Initialize parameters
 		P = rng.random(size=(M, args.K)).clip(min=1e-5, max=1-(1e-5))
-		Q = rng.random(size=(2*N, args.K)).clip(min=1e-5, max=1-(1e-5))
+		Q = rng.random(size=(N, args.K)).clip(min=1e-5, max=1-(1e-5))
 		Q /= np.sum(Q, axis=1, keepdims=True)
 		P[:,x] = 0.0
 		c_tmp = np.insert(np.cumsum(k_vec, dtype=np.uint32), 0, 0)
@@ -186,30 +185,30 @@ def main(args, deaf):
 			P = np.zeros(M*args.K)
 			M_tmp = 0
 			for p in np.arange(F):
-				p_tmp = np.fromfile(P_list[p], dtype=float)
+				p_tmp = np.genfromtxt(P_list[p], dtype=float).reshape(-1)
 				M_tmp += p_tmp.shape[0]
 				P[c_vec[f_vec[p]]:c_vec[f_vec[p + 1]]] = p_tmp
 			assert np.any(P > 0.0), "Wrong format for haplotype cluster alleles!"
 			assert M_tmp == (M*args.K), "Number of haplotype clusters doesn't match!"
 			del P_list, p_tmp
 		else: # Load single frequency file
-			P = np.fromfile(args.projection, dtype=float)
+			P = np.genfromtxt(args.projection, dtype=float).reshape(-1)
 			assert P.shape[0] == (M*args.K), "Number of haplotype clusters doesn't match!"
 		
 		# Check that cluster frequencies sum to one
 		p_sum = np.zeros((W, args.K))
 		admix_cy.checkP(P, p_sum, k_vec, c_vec, args.K)
-		assert np.allclose(p_sum, 1.0), "Wrong format for haplotype cluster alleles!"
+		assert np.allclose(p_sum, 1.0, atol=1e-3), "Wrong format for haplotype cluster alleles!"
 		del p_sum
 
 		# Initialize Q matrix
-		Q = rng.random(size=(2*N, args.K)).clip(min=1e-5, max=1-(1e-5))
+		Q = rng.random(size=(N, args.K)).clip(min=1e-5, max=1-(1e-5))
 		Q /= np.sum(Q, axis=1, keepdims=True)
 	else:
 		if args.random_init: # Random initialization
 			print("Random initialization.")
 			P = rng.random(size=(M*args.K)).clip(min=1e-5, max=1-(1e-5))
-			Q = rng.random(size=(2*N, args.K)).clip(min=1e-5, max=1-(1e-5))
+			Q = rng.random(size=(N, args.K)).clip(min=1e-5, max=1-(1e-5))
 			Q /= np.sum(Q, axis=1, keepdims=True)
 			admix_cy.createP(P, k_vec, c_vec, args.K)
 		else: # SVD/ALS initialization
@@ -323,23 +322,23 @@ def main(args, deaf):
 	print(f"Final log-likelihood: {L_cur:.1f}")
 
 	# Save output
-	Q_fin = np.zeros((N, args.K)) # Final ancestry proportions
-	admix_cy.convertQ(Q, Q_fin) # Average contribution from two haplotypes
-	np.savetxt(f"{args.out}.K{args.K}.s{args.seed}.Q", Q_fin, fmt="%.6f")
+	np.savetxt(f"{args.out}.K{args.K}.s{args.seed}.Q", Q, fmt="%.6f")
 	print(f"Saved Q matrix as {args.out}.K{args.K}.s{args.seed}.Q")
 	if not args.no_freqs and (args.projection is None):
 		if F > 1: # Save P file for each file (chromosome)
 			for p in np.arange(F):
 				P_tmp = P[c_vec[f_vec[p]]:c_vec[f_vec[p + 1]]]
-				P_tmp.tofile(f"{args.out}.K{args.K}.s{args.seed}.{args.prefix}{p + 1}.P.bin")
+				P_tmp.shape = (P_tmp.shape[0]//args.K, args.K)
+				np.savetxt(f"{args.out}.K{args.K}.s{args.seed}.{args.prefix}{p + 1}.P", P_tmp, fmt="%.6f")
 			with open(f"{args.out}.K{args.K}.s{args.seed}.pfilelist", "w") as f:
 				for p in np.arange(F):
-					f.write(f"{args.out}.K{args.K}.s{args.seed}.{args.prefix}{p + 1}.P.bin\n")
-			print(f"Saved P matrices (binary) as {args.out}.K{args.K}.s{args.seed}.{args.prefix}{{1..{F}}}.P.bin")
+					f.write(f"{args.out}.K{args.K}.s{args.seed}.{args.prefix}{p + 1}.P\n")
+			print(f"Saved P matrices as {args.out}.K{args.K}.s{args.seed}.{args.prefix}{{1..{F}}}.P")
 			print(f"Saved P matrix filelist as {args.out}.K{args.K}.s{args.seed}.pfilelist")
 		else: # Single file (chromosome)
-			P.tofile(f"{args.out}.K{args.K}.s{args.seed}.P.bin")
-			print(f"Saved P matrix (binary) as {args.out}.K{args.K}.s{args.seed}.P.bin")
+			P.shape = (M, args.K)
+			np.savetxt(f"{args.out}.K{args.K}.s{args.seed}.P", P, fmt="%.6f")
+			print(f"Saved P matrix as {args.out}.K{args.K}.s{args.seed}.P")
 
 	# Print elapsed time for computation
 	t_tot = time() - start
@@ -354,11 +353,10 @@ def main(args, deaf):
 		log.write(f"\nSaved Q matrix as {args.out}.K{args.K}.s{args.seed}.Q\n")
 		if not args.no_freqs and (args.projection is None):
 			if F > 1:
-				log.write("Saved P matrices (binary) as " + \
-			  		f"{args.out}.K{args.K}.s{args.seed}.{args.prefix}{{1..{F}}}.P.bin\n")
+				log.write(f"Saved P matrices as {args.out}.K{args.K}.s{args.seed}.{args.prefix}{{1..{F}}}.P\n")
 				log.write(f"Saved P matrix filelist as {args.out}.K{args.K}.s{args.seed}.pfilelist")
 			else:
-				log.write(f"Saved P matrix (binary) as {args.out}.K{args.K}.s{args.seed}.P.bin\n")
+				log.write(f"Saved P matrix as {args.out}.K{args.K}.s{args.seed}.P\n")
 		log.write(f"\nTotal elapsed time: {t_min}m{t_sec}s\n")
 
 

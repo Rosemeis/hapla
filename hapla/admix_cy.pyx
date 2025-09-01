@@ -71,11 +71,12 @@ cdef inline void _innerQ(
 
 # Outer loop update for P
 cdef inline void _outerP(
-		f64* p, f64* p_thr, f64* p_sum, const f64 S, const Py_ssize_t B, const Py_ssize_t K
+		f64* p, f64* p_thr, const f64 S, const Py_ssize_t B, const Py_ssize_t K
 	) noexcept nogil:
 	cdef:
 		size_t c, k
 		f64 a, b
+		f64* p_sum = <f64*>calloc(K, sizeof(f64))
 		f64* p_c
 		f64* p_t
 	for c in range(B):
@@ -91,16 +92,16 @@ cdef inline void _outerP(
 		p_c = &p[c*K]
 		for k in range(K):
 			p_c[k] /= p_sum[k]
-	for k in range(K):
-		p_sum[k] = 0.0
+	free(p_sum)
 
 # Outer loop accelerated update for P
 cdef inline void _outerAccelP(
-		f64* p, f64* p_new, f64* p_thr, f64* p_sum, const f64 S, const Py_ssize_t B, const Py_ssize_t K
+		f64* p, f64* p_new, f64* p_thr, const f64 S, const Py_ssize_t B, const Py_ssize_t K
 	) noexcept nogil:
 	cdef:
 		size_t c, k
 		f64 a, b
+		f64* p_sum = <f64*>calloc(K, sizeof(f64))
 		f64* p_c
 		f64* p_n
 		f64* p_t
@@ -118,8 +119,7 @@ cdef inline void _outerAccelP(
 		p_n = &p_new[c*K]
 		for k in range(K):
 			p_n[k] /= p_sum[k]
-	for k in range(K):
-		p_sum[k] = 0.0
+	free(p_sum)
 
 # Outer loop update for Q
 cdef inline void _outerQ(
@@ -201,11 +201,12 @@ cdef inline f64 _qnBatch(
 
 # Estimate QN jump in P
 cdef inline void _computeP(
-		f64* P0, f64* P1, f64* P2, f64* p_sum, const f64 c1, const f64 c2, const Py_ssize_t B, const Py_ssize_t K
+		f64* P0, f64* P1, f64* P2, const f64 c1, const f64 c2, const Py_ssize_t B, const Py_ssize_t K
 	) noexcept nogil:
 	cdef:
 		size_t c, k
 		f64 a, b
+		f64* p_sum = <f64*>calloc(K, sizeof(f64))
 		f64* p0
 		f64* p1
 		f64* p2
@@ -222,8 +223,7 @@ cdef inline void _computeP(
 		p0 = &P0[c*K]
 		for k in range(K):
 			p0[k] /= p_sum[k]
-	for k in range(K):
-		p_sum[k] = 0.0
+	free(p_sum)
 
 # Estimate QN jump in Q
 cdef inline void _computeQ(
@@ -241,29 +241,14 @@ cdef inline void _computeQ(
 	for k in range(K):
 		q0[k] /= sumQ
 
-# Average the contribution from haplotypes
-cdef inline void _averageQ(
-		const f64* q1, const f64* q2, f64* qf, const Py_ssize_t K
-	) noexcept nogil:
-	cdef:
-		size_t k
-		f64 sumQ = 0.0
-		f64 a, b
-	for k in range(K):
-		a = (q1[k] + q2[k])/2.0
-		b = _clamp1(a)
-		sumQ += b
-		qf[k] = b
-	for k in range(K):
-		qf[k] /= sumQ
-
 # Project P to domain
 cdef inline void _projectP(
-		f32* p, f32* p_sum, const Py_ssize_t B, const Py_ssize_t K
+		f32* p, const Py_ssize_t B, const Py_ssize_t K
 	) noexcept nogil:
 	cdef:
 		size_t c, k
 		f32 a, b
+		f32* p_sum = <f32*>calloc(K, sizeof(f32))
 		f32* p_c
 	for c in range(B):
 		p_c = &p[c*K]
@@ -276,8 +261,7 @@ cdef inline void _projectP(
 		p_c = &p[c*K]
 		for k in range(K):
 			p_c[k] /= p_sum[k]
-	for k in range(K):
-		p_sum[k] = 0.0
+	free(p_sum)
 
 # Project Q to domain
 cdef inline void _projectQ(
@@ -317,33 +301,31 @@ cpdef void updateP(
 	) noexcept nogil:
 	cdef:
 		Py_ssize_t W = Z.shape[0]
-		Py_ssize_t N = Z.shape[1]
+		Py_ssize_t N = Q.shape[0]
 		Py_ssize_t K = Q.shape[1]
 		Py_ssize_t B
 		size_t i, l, s, w, x, y
-		f64 S = 1.0/<f64>N
+		f64 S = 1.0/<f64>(2*N)
 		f64 h
 		f64* p
 		f64* q
-		f64* p_sum
 		f64* p_thr
 		f64* q_thr
 		omp.omp_lock_t mutex
 	omp.omp_init_lock(&mutex)
 	with nogil, parallel():
-		p_sum = <f64*>calloc(K, sizeof(f64))
 		p_thr = <f64*>calloc(L*K, sizeof(f64))
 		q_thr = <f64*>calloc(N*K, sizeof(f64))
 		for w in prange(W, schedule='guided'):
 			l = c_vec[w]
 			B = k_vec[w]
-			for i in range(N):
+			for i in range(2*N):
 				s = Z[w,i]*K
 				p = &P[l + s]
-				q = &Q[i,0]
+				q = &Q[i >> 1,0]
 				h = _computeH(p, q, K)
-				_innerJ(p, q, &p_thr[s], &q_thr[i*K], h, K)
-			_outerP(&P[l], &p_thr[0], &p_sum[0], S, B, K)
+				_innerJ(p, q, &p_thr[s], &q_thr[(i >> 1)*K], h, K)
+			_outerP(&P[l], &p_thr[0], S, B, K)
 
 		# omp critical
 		omp.omp_set_lock(&mutex)
@@ -351,7 +333,6 @@ cpdef void updateP(
 			for y in range(K):
 				Q_tmp[x,y] += q_thr[x*K + y]
 		omp.omp_unset_lock(&mutex)
-		free(p_sum)
 		free(p_thr)
 		free(q_thr)
 	omp.omp_destroy_lock(&mutex)
@@ -363,33 +344,31 @@ cpdef void accelP(
 	) noexcept nogil:
 	cdef:
 		Py_ssize_t W = Z.shape[0]
-		Py_ssize_t N = Z.shape[1]
+		Py_ssize_t N = Q.shape[0]
 		Py_ssize_t K = Q.shape[1]
 		Py_ssize_t B
 		size_t i, l, s, w, x, y
-		f64 S = 1.0/<f64>N
+		f64 S = 1.0/<f64>(2*N)
 		f64 h
 		f64* p
 		f64* q
-		f64* p_sum
 		f64* p_thr
 		f64* q_thr
 		omp.omp_lock_t mutex
 	omp.omp_init_lock(&mutex)
 	with nogil, parallel():
-		p_sum = <f64*>calloc(K, sizeof(f64))
 		p_thr = <f64*>calloc(L*K, sizeof(f64))
 		q_thr = <f64*>calloc(N*K, sizeof(f64))
 		for w in prange(W, schedule='guided'):
 			l = c_vec[w]
 			B = k_vec[w]
-			for i in range(N):
+			for i in range(2*N):
 				s = Z[w,i]*K
 				p = &P[l + s]
-				q = &Q[i,0]
+				q = &Q[i >> 1,0]
 				h = _computeH(p, q, K)
-				_innerJ(p, q, &p_thr[s], &q_thr[i*K], h, K)
-			_outerAccelP(&P[l], &P_new[l], &p_thr[0], &p_sum[0], S, B, K)
+				_innerJ(p, q, &p_thr[s], &q_thr[(i >> 1)*K], h, K)
+			_outerAccelP(&P[l], &P_new[l], &p_thr[0], S, B, K)
 
 		# omp critical
 		omp.omp_set_lock(&mutex)
@@ -397,7 +376,6 @@ cpdef void accelP(
 			for y in range(K):
 				Q_tmp[x,y] += q_thr[x*K + y]
 		omp.omp_unset_lock(&mutex)
-		free(p_sum)
 		free(p_thr)
 		free(q_thr)
 	omp.omp_destroy_lock(&mutex)
@@ -409,34 +387,32 @@ cpdef void accelBatchP(
 	) noexcept nogil:
 	cdef:
 		Py_ssize_t W = s_bat.shape[0]
-		Py_ssize_t N = Z.shape[1]
+		Py_ssize_t N = Q.shape[0]
 		Py_ssize_t K = Q.shape[1]
 		Py_ssize_t B
 		size_t i, l, r, s, w, x, y
-		f64 S = 1.0/<f64>N
+		f64 S = 1.0/<f64>(2*N)
 		f64 h
 		f64* p
 		f64* q
-		f64* p_sum
 		f64* p_thr
 		f64* q_thr
 		omp.omp_lock_t mutex
 	omp.omp_init_lock(&mutex)
 	with nogil, parallel():
-		p_sum = <f64*>calloc(K, sizeof(f64))
 		p_thr = <f64*>calloc(L*K, sizeof(f64))
 		q_thr = <f64*>calloc(N*K, sizeof(f64))
 		for w in prange(W, schedule='guided'):
 			r = s_bat[w]
 			l = c_vec[r]
 			B = k_vec[r]
-			for i in range(N):
+			for i in range(2*N):
 				s = Z[r,i]*K
 				p = &P[l + s]
-				q = &Q[i,0]
+				q = &Q[i >> 1,0]
 				h = _computeH(p, q, K)
-				_innerJ(p, q, &p_thr[s], &q_thr[i*K], h, K)
-			_outerAccelP(&P[l], &P_new[l], &p_thr[0], &p_sum[0], S, B, K)
+				_innerJ(p, q, &p_thr[s], &q_thr[(i >> 1)*K], h, K)
+			_outerAccelP(&P[l], &P_new[l], &p_thr[0], S, B, K)
 
 		# omp critical
 		omp.omp_set_lock(&mutex)
@@ -444,7 +420,6 @@ cpdef void accelBatchP(
 			for y in range(K):
 				Q_tmp[x,y] += q_thr[x*K + y]
 		omp.omp_unset_lock(&mutex)
-		free(p_sum)
 		free(p_thr)
 		free(q_thr)
 	omp.omp_destroy_lock(&mutex)
@@ -459,16 +434,13 @@ cpdef void jumpP(
 		Py_ssize_t B
 		size_t l, w
 		f64 c1, c2
-		f64* p_sum
 	c1 = _qnC(&P0[0], &P1[0], &P2[0], M)
 	c2 = 1.0 - c1
 	with nogil, parallel():
-		p_sum = <f64*>calloc(K, sizeof(f64))
 		for w in prange(W, schedule='guided'):
 			l = c_vec[w]
 			B = k_vec[w]
-			_computeP(&P0[l], &P1[l], &P2[l], &p_sum[0], c1, c2, B, K)
-		free(p_sum)
+			_computeP(&P0[l], &P1[l], &P2[l], c1, c2, B, K)
 
 # Batch accelerated jump for P (QN)
 cpdef void jumpBatchP(
@@ -483,13 +455,11 @@ cpdef void jumpBatchP(
 	c1 = _qnBatch(&P0[0], &P1[0], &P2[0], &k_vec[0], &c_vec[0], &s_bat[0], W, K)
 	c2 = 1.0 - c1
 	with nogil, parallel():
-		p_sum = <f64*>calloc(K, sizeof(f64))
 		for w in prange(W, schedule='guided'):
 			r = s_bat[w]
 			l = c_vec[r]
 			B = k_vec[r]
-			_computeP(&P0[l], &P1[l], &P2[l], &p_sum[0], c1, c2, B, K)
-		free(p_sum)
+			_computeP(&P0[l], &P1[l], &P2[l], c1, c2, B, K)
 
 # Update Q
 cpdef void updateQ(
@@ -499,7 +469,7 @@ cpdef void updateQ(
 		Py_ssize_t N = Q.shape[0]
 		Py_ssize_t K = Q.shape[1]
 		size_t i, k
-		f64 S = 1.0/<f64>W
+		f64 S = 1.0/<f64>(2*W)
 	for i in prange(N, schedule='guided'):
 		_outerQ(&Q[i,0], &Q_tmp[i,0], S, K)
 
@@ -511,7 +481,7 @@ cpdef void accelQ(
 		Py_ssize_t N = Q.shape[0]
 		Py_ssize_t K = Q.shape[1]
 		size_t i, k
-		f64 S = 1.0/<f64>W
+		f64 S = 1.0/<f64>(2*W)
 	for i in prange(N, schedule='guided'):
 		_outerAccelQ(&Q[i,0], &Q_new[i,0], &Q_tmp[i,0], S, K)
 
@@ -523,7 +493,7 @@ cpdef void jumpQ(
 		Py_ssize_t N = Q0.shape[0]
 		Py_ssize_t K = Q0.shape[1]
 		size_t i, k
-		f64 a, c1, c2, sumQ
+		f64 a, c1, c2
 	c1 = _qnC(&Q0[0,0], &Q1[0,0], &Q2[0,0], N*K)
 	c2 = 1.0 - c1
 	for i in prange(N, schedule='guided'):
@@ -574,19 +544,8 @@ cpdef f64 loglike(
 		l = c_vec[w]
 		p = &P[l]
 		for i in range(N):
-			r += _computeL(&p[Z[w,i]*K], &Q[i,0], K)
+			r += _computeL(&p[Z[w,i]*K], &Q[i >> 1,0], K)
 	return r*((<f64>K)/((<f64>M)*(<f64>N)))
-
-# Convert ancestry proportions to individual-level from haplotype-level
-cpdef void convertQ(
-		const f64[:,::1] Q, f64[:,::1] Q_fin
-	) noexcept nogil:
-	cdef:
-		Py_ssize_t N = Q_fin.shape[0]
-		Py_ssize_t K = Q_fin.shape[1]
-		size_t i
-	for i in prange(N, schedule='guided'):
-		_averageQ(&Q[2*i,0], &Q[2*i + 1,0], &Q_fin[i,0], K)
 
 # Projection function for P (f32)
 cpdef void projectP(
@@ -597,14 +556,11 @@ cpdef void projectP(
 		Py_ssize_t K = P.shape[1]
 		Py_ssize_t B
 		size_t l, w
-		f32* p_sum
 	with nogil, parallel():
-		p_sum = <f32*>calloc(K, sizeof(f32))
 		for w in prange(W, schedule='guided'):
 			l = c_vec[w]
 			B = k_vec[w]
-			_projectP(&P[l,0], &p_sum[0], B, K)
-		free(p_sum)
+			_projectP(&P[l,0], B, K)
 
 # Projection function for Q (f32)
 cpdef void projectQ(
@@ -652,7 +608,7 @@ cpdef void superP(
 			l = c_vec[w]
 			B = k_vec[w]
 			for i in range(N):
-				y = z[i]
+				y = z[i >> 1]
 				if y > 0:
 					P[l + Z[w,i], y - 1] += 1.0
 					c_sum[y - 1] += 1.0
@@ -721,7 +677,7 @@ cpdef void stepQ(
 	) noexcept nogil:
 	cdef:
 		Py_ssize_t W = Z.shape[0]
-		Py_ssize_t N = Z.shape[1]
+		Py_ssize_t N = Q.shape[0]
 		Py_ssize_t K = Q.shape[1]
 		size_t i, l, s, w, x, y
 		f64 h
@@ -733,11 +689,11 @@ cpdef void stepQ(
 		q_thr = <f64*>calloc(N*K, sizeof(f64))
 		for w in prange(W, schedule='guided'):
 			l = c_vec[w]
-			for i in range(N):
+			for i in range(2*N):
 				s = l + Z[w,i]*K
 				p = &P[s]
-				h = _computeH(p, &Q[i,0], K)
-				_innerQ(p, &q_thr[i*K], h, K)
+				h = _computeH(p, &Q[i >> 1,0], K)
+				_innerQ(p, &q_thr[(i >> 1)*K], h, K)
 
 		# omp critical
 		omp.omp_set_lock(&mutex)
@@ -755,7 +711,7 @@ cpdef void stepBatchQ(
 	) noexcept nogil:
 	cdef:
 		Py_ssize_t W = s_bat.shape[0]
-		Py_ssize_t N = Z.shape[1]
+		Py_ssize_t N = Q.shape[0]
 		Py_ssize_t K = Q.shape[1]
 		size_t i, l, r, s, w, x, y
 		f64 h
@@ -768,11 +724,11 @@ cpdef void stepBatchQ(
 		for w in prange(W, schedule='guided'):
 			r = s_bat[w]
 			l = c_vec[r]
-			for i in range(N):
+			for i in range(2*N):
 				s = l + Z[r,i]*K
 				p = &P[s]
-				h = _computeH(p, &Q[i,0], K)
-				_innerQ(p, &q_thr[i*K], h, K)
+				h = _computeH(p, &Q[i >> 1,0], K)
+				_innerQ(p, &q_thr[(i >> 1)*K], h, K)
 
 		# omp critical
 		omp.omp_set_lock(&mutex)

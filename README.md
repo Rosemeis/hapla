@@ -1,4 +1,4 @@
-# hapla (v0.32.1)
+# hapla (v0.32.2)
 ***hapla*** is a framework for performing window-based haplotype clustering in phased genotype data. The inferred haplotype cluster alleles can be used to infer fine-scale population structure, perform polygenic prediction and haplotype cluster based association studies.
 
 ### Citation
@@ -67,7 +67,7 @@ hapla cluster --bcf data.chr1.bcf --threads 8 --out hapla.chr1 --plink
 #	- hapla.chr1.fam
 ```
 
-The number of inferred haplotype clusters will depend on the chosen window size (`--size`), the number of allowed clusters per window (`--max-clusters`), as well as $\lambda$ (`--lmbda`) and the minimum haplotype cluster size. $\lambda$ represents the fraction of the specified window size in SNPs, which is required to create a new cluster based on Hamming distance, with a default setting of `--lmbda 0.125`.  The minimum haplotype cluster size can be adjusted using either `--min-freq` or `--min-mac`. The default setting is a minimum haplotype cluster frequency of at least 0.05 for the cluster to be retained (`--min-freq 0.05`), using `--min-mac` will override any setting for `--min-freq`. Smaller clusters will be iteratively removed. 
+The number of inferred haplotype clusters will depend on the chosen window size (`--size`), the number of allowed clusters per window (`--max-clusters`), as well as $\lambda$ (`--lmbda`) and the minimum haplotype cluster size. $\lambda$ represents the fraction of the specified window size in SNPs, which is required to create a new cluster based on Hamming distance, with a default setting of `--lmbda 0.125`.  The minimum haplotype cluster size can be adjusted using either `--min-freq` or `--min-mac`. The default setting is a minimum haplotype cluster frequency of at least 0.005 for the cluster to be retained (`--min-freq 0.005`), using `--min-mac` will override any setting for `--min-freq`. Smaller clusters will be iteratively removed.
 
 
 ### Population structure inference and GRM estimation
@@ -117,19 +117,19 @@ Using `--medians` in `hapla cluster` outputs three extra files. A **.bcm**-file 
 
 ### Ancestry estimation
 ***hapla admix***\
-Estimate ancestry proportions and ancestral haplotype cluster frequencies with a pre-specified number of sources (K). Using a modified `fastmixture` model for use with our haplotype clusters. Projection and supervised modes are also available.
+Estimate ancestry proportions and ancestral haplotype cluster frequencies with a pre-specified number of sources (K). Using a modified `fastmixture` and `HaploNet` model for use with our haplotype clusters. Projection and supervised modes are also available.
 ```bash
 # Estimate ancestry proportions assuming K=3 ancestral sources for a single chromosome
 hapla admix --clusters hapla.chr1 --K 3 --seed 1 --threads 64 --out hapla.chr1
-# Saves Q matrix in text-format and P matrix as a binary file
+# Saves Q and P matrices in text-format
 #	- hapla.chr1.K3.s1.Q
-#	- hapla.chr1.K3.s1.P.bin
+#	- hapla.chr1.K3.s1.P
 
 # Estimate ancestry proportions assuming K=3 ancestral sources using filelist with all chromosomes
 hapla admix --filelist hapla.filelist --K 3 --seed 1 --threads 64 --out hapla
-# Saves Q matrix in text-format and separate binary files of P matrices, including a filelist of the P matrices
+# Saves Q matrix and file-specific P matrices in text-format, including a filelist of the P matrices
 #	- hapla.K3.s1.Q
-#	- hapla.K3.s1.chr{1..22}.P.bin
+#	- hapla.K3.s1.chr{1..22}.P
 #	- hapla.K3.s1.pfilelist
 
 # Estimate ancestry proportions in projection mode assuming K=3 ancestral sources using filelist with all chromosomes. Provide previously estimated ancestral haplotype cluster frequencies.
@@ -139,9 +139,9 @@ hapla admix --filelist hapla.proj.filelist --K 3 --seed 1 --threads 64 --project
 
 # Estimate ancestry proportions in supervised mode assuming K=3 ancestral sources using filelist with all chromosomes. Provide a single column text-file with population labels of the samples as integers, where 0 indicates no label.
 hapla admix --filelist hapla.filelist --K 3 --seed 1 --threads 64 --supervised hapla.labels --out hapla.super
-# Saves Q matrix in text-format and separate binary files of P matrices, including a filelist of the P matrices
+# Saves Q and P matrices in text-format, including a filelist of the P matrices
 #	- hapla.super.K3.s1.Q
-#	- hapla.super.K3.s1.chr{1..22}.P.bin
+#	- hapla.super.K3.s1.chr{1..22}.P
 #	- hapla.super.K3.s1.pfilelist
 ```
 
@@ -151,7 +151,7 @@ hapla admix --filelist hapla.filelist --K 3 --seed 1 --threads 64 --supervised h
 Infer local ancestry tracts using the admixture estimation from `hapla admix` in a hidden markov model. Based on a modified fastPHASE model for use with our haplotype clusters.
 ```bash
 # Infer local ancestry tracts for a single chromosome (posterior decoding)
-hapla fatash --clusters hapla.chr1 --qfile hapla.chr1.K3.s1.Q --pfile hapla.chr1.K3.s1.P.bin --threads 16 --out hapla.chr1
+hapla fatash --clusters hapla.chr1 --qfile hapla.chr1.K3.s1.Q --pfile hapla.chr1.K3.s1.P --threads 16 --out hapla.chr1
 # Saves posterior decoding path in text-format
 #	- hapla.chr1.path
 

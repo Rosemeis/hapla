@@ -10,7 +10,7 @@ import os
 from datetime import datetime
 from time import time
 
-VERSION = "0.32.1"
+VERSION = "0.32.2"
 
 ##### hapla cluster #####
 def main(args, deaf):
@@ -24,7 +24,7 @@ def main(args, deaf):
 	assert os.path.isfile(f"{args.vcf}"), "VCF/BCF file doesn't exist!"
 	assert os.path.isfile(f"{args.vcf}.csi") or os.path.isfile(f"{args.vcf}.tbi"), "VCF/BCF index doesn't exist!"
 	assert args.threads > 0, "Please select a valid number of threads!"
-	assert args.min_freq > 0.0, "Invalid haplotype cluster frequency!"
+	assert (args.min_freq > 0.0) and (args.min_freq < 1.0), "Invalid cluster frequency threshold!"
 	if args.min_mac is not None:
 		assert args.min_mac > 1, "Please select a valid MAC threshold!"
 	assert args.max_iterations > 0, "Please select a valid number of iterations!"

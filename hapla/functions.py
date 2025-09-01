@@ -249,7 +249,7 @@ def factorALS(U, S, V, p_vec, k_vec, c_vec, iter, tole, rng):
 		if admix_cy.rmseQ(Q, Q0) < tole:
 			break
 		memoryview(Q0.ravel())[:] = memoryview(Q.ravel())
-	return P.flatten().astype(float), Q.repeat(2, axis=0).astype(float)
+	return P.flatten().astype(float), Q.astype(float)
 
 # Project remaining clusters for ALS/SVD initialization
 def centerSub(Z, S, V, p_vec, k_vec, c_vec, W_sub, chunk):
@@ -318,7 +318,7 @@ def factorSub(U_sub, U_rem, S, V, p_vec, k_vec, c_vec, W_sub, iter, tole, rng):
 	I = np.dot(P, np.linalg.pinv(np.dot(P.T, P)))
 	Q = 0.5*np.dot(V, np.dot(Y.T, I)) + np.sum(I*p_vec.reshape(-1,1), axis=0)
 	admix_cy.projectQ(Q)
-	return P.flatten().astype(float), Q.repeat(2, axis=0).astype(float)
+	return P.flatten().astype(float), Q.astype(float)
 
 # Update for ancestry estimation in projection mode
 def proSteps(Z, P, Q, Q_tmp, k_vec, c_vec):
