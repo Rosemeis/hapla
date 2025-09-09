@@ -2,8 +2,14 @@
 ***hapla*** is a framework for performing window-based haplotype clustering in phased genotype data. The inferred haplotype cluster alleles can be used to infer fine-scale population structure, perform polygenic prediction and haplotype cluster based association studies.
 
 ### Citation
-Please cite our paper in [*Nature Communications*](https://doi.org/10.1038/s41467-024-55477-3)\
-Preprint also available on [medRxiv](https://doi.org/10.1101/2024.04.30.24306654)
+**Please cite our papers.**
+
+***hapla cluster***\
+Paper in [*Nature Communications*](https://doi.org/10.1038/s41467-024-55477-3)\
+Preprint available on [medRxiv](https://doi.org/10.1101/2024.04.30.24306654)
+
+***hapla admix***\
+Preprint available on [bioRxiv](https://doi.org/10.1101/2025.09.02.673718)
 
 ## Installation
 ```bash
@@ -146,7 +152,7 @@ hapla admix --filelist hapla.filelist --K 3 --seed 1 --threads 64 --supervised h
 ```
 
 
-### Local ancestry inference
+### Local ancestry inference (Prototype)
 ***hapla fatash***\
 Infer local ancestry tracts using the admixture estimation from `hapla admix` in a hidden markov model. Based on a modified fastPHASE model for use with our haplotype clusters.
 ```bash
