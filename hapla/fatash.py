@@ -252,7 +252,7 @@ def main(args, deaf):
 		if args.viterbi: # Compute Viterbi decoding
 			D_ind = np.zeros((N, W_chr), dtype=np.uint8)
 			if args.alpha is None:
-				alpha = [10**(-a) for a in range(args.alpha_max, args.alpha_min + 1)]
+				alpha = [10**(-a) for a in range(args.alpha_min, args.alpha_max + 1)]
 				print(f"with majority voting across {len(alpha)} alphas.")
 				D_bag = np.zeros((len(alpha), N, W_chr), dtype=np.uint8)
 				for a in range(len(alpha)):
