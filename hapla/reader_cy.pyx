@@ -137,9 +137,9 @@ cpdef void convertPlink(
 					for bit in range(0, 8, 2):
 						if z_vec[j] == 0:
 							Z_bin[l,b] |= (1<<bit)
-							Z_bin[l,b] |= (1<<(bit+1))
+							Z_bin[l,b] |= (1<<(bit + 1))
 						if z_vec[j] == 1:
-							Z_bin[l,b] |= (1<<(bit+1))
+							Z_bin[l,b] |= (1<<(bit + 1))
 
 						# Increase counter and check for break
 						j = j + 1

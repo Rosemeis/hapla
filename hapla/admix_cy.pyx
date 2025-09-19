@@ -673,7 +673,7 @@ cpdef void checkP(
 
 # Update Q temp arrays in projection mode
 cpdef void stepQ(
-		u8[:,::1] Z, f64[::1] P, const f64[:,::1] Q, f64[:,::1] Q_tmp, const u32[::1] k_vec, const u32[::1] c_vec
+		u8[:,::1] Z, f64[::1] P, const f64[:,::1] Q, f64[:,::1] Q_tmp, const u32[::1] c_vec
 	) noexcept nogil:
 	cdef:
 		Py_ssize_t W = Z.shape[0]
@@ -706,8 +706,7 @@ cpdef void stepQ(
 
 # Batch accelerate update Q temp arrays in projection mode
 cpdef void stepBatchQ(
-		u8[:,::1] Z, f64[::1] P, const f64[:,::1] Q, f64[:,::1] Q_tmp, const u32[::1] k_vec, const u32[::1] c_vec, 
-		const u32[::1] s_bat
+		u8[:,::1] Z, f64[::1] P, const f64[:,::1] Q, f64[:,::1] Q_tmp, const u32[::1] c_vec, const u32[::1] s_bat
 	) noexcept nogil:
 	cdef:
 		Py_ssize_t W = s_bat.shape[0]

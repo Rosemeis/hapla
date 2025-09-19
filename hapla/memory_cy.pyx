@@ -21,7 +21,7 @@ cpdef void readBit(
 			if V[i,0] == 1:
 				G[b] |= (1<<bit)
 			if V[i,1] == 1:
-				G[b] |= (1<<(bit+1))
+				G[b] |= (1<<(bit + 1))
 			
 			# Increase counter and check for break
 			i += 1
@@ -40,14 +40,14 @@ cpdef void predBit(
 		for bit in range(0, 8, 4):
 			if V[i,0] == 1: # Allele 1 (1,1)
 				G[b] |= (1<<bit)
-				G[b] |= (1<<(bit+1))
+				G[b] |= (1<<(bit + 1))
 			elif V[i,0] == -1: # Missing (1,0)
 				G[b] |= (1<<bit)
 			if V[i,1] == 1: # Allele 2 (1,1)
-				G[b] |= (1<<(bit+2))
-				G[b] |= (1<<(bit+3))
+				G[b] |= (1<<(bit + 2))
+				G[b] |= (1<<(bit + 3))
 			elif V[i,1] == -1: # Missing (1,0)
-				G[b] |= (1<<(bit+2))
+				G[b] |= (1<<(bit + 2))
 			
 			# Increase counter and check for break
 			i += 1

@@ -9,13 +9,13 @@ __author__ = "Jonas Meisner"
 import os
 from datetime import datetime
 from time import time
+from hapla import __version__
 
-VERSION = "0.32.2"
 
 ##### hapla struct #####
 def main(args, deaf):
 	print("-----------------------------------")
-	print(f"hapla by Jonas Meisner (v{VERSION})")
+	print(f"hapla by Jonas Meisner (v{__version__})")
 	print(f"hapla struct using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 
@@ -33,7 +33,7 @@ def main(args, deaf):
 	# Create log-file of used arguments
 	full = vars(args)
 	with open(f"{args.out}.log", "w") as log:
-		log.write(f"hapla v{VERSION}\n")
+		log.write(f"hapla v{__version__}\n")
 		log.write("hapla struct\n")
 		log.write(f"Time: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n")
 		log.write(f"Directory: {os.getcwd()}\n")

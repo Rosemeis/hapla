@@ -2,6 +2,7 @@ import numpy as np
 from math import ceil
 from hapla import shared_cy
 from hapla import admix_cy
+from hapla import fatash_cy
 
 
 ##### hapla - functions #####
@@ -321,32 +322,63 @@ def factorSub(U_sub, U_rem, S, V, p_vec, k_vec, c_vec, W_sub, iter, tole, rng):
 	return P.flatten().astype(float), Q.astype(float)
 
 # Update for ancestry estimation in projection mode
-def proSteps(Z, P, Q, Q_tmp, k_vec, c_vec):
-	admix_cy.stepQ(Z, P, Q, Q_tmp, k_vec, c_vec)
+def proSteps(Z, P, Q, Q_tmp, c_vec):
+	admix_cy.stepQ(Z, P, Q, Q_tmp, c_vec)
 	admix_cy.updateQ(Q, Q_tmp, Z.shape[0])
 
 # Accelerated update for ancestry estimation in projection mode
-def proQuasi(Z, P, Q0, Q_tmp, Q1, Q2, k_vec, c_vec):
+def proQuasi(Z, P, Q0, Q_tmp, Q1, Q2, c_vec):
 	# 1st EM step
-	admix_cy.stepQ(Z, P, Q0, Q_tmp, k_vec, c_vec)
+	admix_cy.stepQ(Z, P, Q0, Q_tmp, c_vec)
 	admix_cy.accelQ(Q0, Q1, Q_tmp, Z.shape[0])
 
 	# 2nd EM step
-	admix_cy.stepQ(Z, P, Q1, Q_tmp, k_vec, c_vec)
+	admix_cy.stepQ(Z, P, Q1, Q_tmp, c_vec)
 	admix_cy.accelQ(Q1, Q2, Q_tmp, Z.shape[0])
 
 	# Acceleation update
 	admix_cy.jumpQ(Q0, Q1, Q2)
 
 # Batch accelerated update for ancestry estimation in projection mode
-def proBatch(Z, P, Q0, Q_tmp, Q1, Q2, k_vec, c_vec, s_bat):
+def proBatch(Z, P, Q0, Q_tmp, Q1, Q2, c_vec, s_bat):
 	# 1st EM step
-	admix_cy.stepBatchQ(Z, P, Q0, Q_tmp, k_vec, c_vec, s_bat)
+	admix_cy.stepBatchQ(Z, P, Q0, Q_tmp, c_vec, s_bat)
 	admix_cy.accelQ(Q0, Q1, Q_tmp, s_bat.shape[0])
 
 	# 2nd EM step
-	admix_cy.stepBatchQ(Z, P, Q1, Q_tmp, k_vec, c_vec, s_bat)
+	admix_cy.stepBatchQ(Z, P, Q1, Q_tmp, c_vec, s_bat)
 	admix_cy.accelQ(Q1, Q2, Q_tmp, s_bat.shape[0])
 
 	# Acceleation update
 	admix_cy.jumpQ(Q0, Q1, Q2)
+
+# Update for ancestry estimation in fatash
+def laiSteps(Z, P, Q, Q_tmp, c_vec):
+	fatash_cy.stepQ(Z, P, Q, Q_tmp, c_vec)
+	fatash_cy.updateQ(Q, Q_tmp, Z.shape[0])
+
+# Accelerated update for ancestry estimation in fatash
+def laiQuasi(Z, P, Q0, Q_tmp, Q1, Q2, c_vec):
+	# 1st EM step
+	fatash_cy.stepQ(Z, P, Q0, Q_tmp, c_vec)
+	fatash_cy.accelQ(Q0, Q1, Q_tmp, Z.shape[0])
+
+	# 2nd EM step
+	fatash_cy.stepQ(Z, P, Q1, Q_tmp, c_vec)
+	fatash_cy.accelQ(Q1, Q2, Q_tmp, Z.shape[0])
+
+	# Acceleation update
+	fatash_cy.jumpQ(Q0, Q1, Q2)
+
+# Batch accelerated update for ancestry estimation in fatash
+def laiBatch(Z, P, Q0, Q_tmp, Q1, Q2, c_vec, s_bat):
+	# 1st EM step
+	fatash_cy.stepBatchQ(Z, P, Q0, Q_tmp, c_vec, s_bat)
+	fatash_cy.accelQ(Q0, Q1, Q_tmp, s_bat.shape[0])
+
+	# 2nd EM step
+	fatash_cy.stepBatchQ(Z, P, Q1, Q_tmp, c_vec, s_bat)
+	fatash_cy.accelQ(Q1, Q2, Q_tmp, s_bat.shape[0])
+
+	# Acceleation update
+	fatash_cy.jumpQ(Q0, Q1, Q2)

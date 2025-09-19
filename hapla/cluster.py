@@ -9,13 +9,13 @@ __author__ = "Jonas Meisner"
 import os
 from datetime import datetime
 from time import time
+from hapla import __version__
 
-VERSION = "0.32.2"
 
 ##### hapla cluster #####
 def main(args, deaf):
 	print("-----------------------------------")
-	print(f"hapla by Jonas Meisner (v{VERSION})")
+	print(f"hapla by Jonas Meisner (v{__version__})")
 	print(f"hapla cluster using {args.threads} thread(s)")
 	print("-----------------------------------\n")
 
@@ -26,7 +26,7 @@ def main(args, deaf):
 	assert args.threads > 0, "Please select a valid number of threads!"
 	assert (args.min_freq > 0.0) and (args.min_freq < 1.0), "Invalid cluster frequency threshold!"
 	if args.min_mac is not None:
-		assert args.min_mac > 1, "Please select a valid MAC threshold!"
+		assert args.min_mac > 0, "Please select a valid MAC threshold!"
 	assert args.max_iterations > 0, "Please select a valid number of iterations!"
 	assert (args.lmbda > 0.0) and (args.lmbda < 1.0), "Please select a valid lambda value!"
 	assert (args.max_clusters > 1) and (args.max_clusters <= 256), "Max allowed clusters exceeded!"
@@ -47,7 +47,7 @@ def main(args, deaf):
 	if args.min_mac is None:
 		mand.append("min_freq")
 	with open(f"{args.out}.log", "w") as log:
-		log.write(f"hapla v{VERSION}\n")
+		log.write(f"hapla v{__version__}\n")
 		log.write("hapla cluster\n")
 		log.write(f"Time: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n")
 		log.write(f"Directory: {os.getcwd()}\n")
@@ -183,7 +183,7 @@ def main(args, deaf):
 			c_lim = np.uint32(ceil(args.lmbda*float(X.shape[1])))
 
 		# Prepare last window
-		if w == (W-1):
+		if w == (W - 1):
 			if args.memory:
 				H = np.zeros((M - S, N), dtype=np.uint8)
 			X = np.zeros((N, M - S), dtype=np.uint8)
@@ -216,7 +216,7 @@ def main(args, deaf):
 					if K > 1: # Converged
 						break
 					else: # Make sure two haplotype clusters are generated
-						print(", No diversity (K=1)! Adding extra cluster.")
+						print(", No diversity (K = 1)! Adding extra cluster.")
 						cluster_cy.genClust(X, R, C, z_vec, c_vec, n_vec, u_vec, U, K)
 						K += 1
 			else:

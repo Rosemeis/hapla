@@ -1,4 +1,4 @@
-# hapla (v0.32.2)
+# hapla (v0.33.0)
 ***hapla*** is a framework for performing window-based haplotype clustering in phased genotype data. The inferred haplotype cluster alleles can be used to infer fine-scale population structure, perform polygenic prediction and haplotype cluster based association studies.
 
 ### Citation
@@ -43,8 +43,8 @@ If you run into issues with your installation on a HPC system, it could be due t
 ***hapla cluster***\
 Window-based haplotype clustering in a phased VCF/BCF file (including index).
 ```bash
-# Cluster haplotypes in a chromosome with fixed window size (8 SNPs)
-hapla cluster --bcf data.chr1.bcf --size 8 --threads 8 --out hapla.chr1
+# Cluster haplotypes in a chromosome with fixed window size (16 SNPs)
+hapla cluster --bcf data.chr1.bcf --size 16 --threads 8 --out hapla.chr1
 # Saves inferred haplotype cluster assignments in binary hapla format
 #	- hapla.chr1.bca
 #	- hapla.chr1.ids
@@ -53,13 +53,13 @@ hapla cluster --bcf data.chr1.bcf --size 8 --threads 8 --out hapla.chr1
 `hapla cluster` outputs three files. A **.bca**-file (binary cluster assignments), which stores the cluster assignments as *unsigned char*s, a **.ids**-file with sample names and a **.win**-file with information about the genomic windows.
 
 ```bash
-# Cluster haplotypes in a chromosome with fixed size and overlapping windows (step size 4)
-hapla cluster --bcf data.chr1.bcf --size 8 --step 4 --threads 8 --out hapla.chr1
+# Cluster haplotypes in a chromosome with fixed size and overlapping windows (step size 8 SNPs)
+hapla cluster --bcf data.chr1.bcf --size 16 --step 8 --threads 8 --out hapla.chr1
 
 # Cluster haplotypes in all chromosomes and save output path in a filelist
 for c in {1..22}
 do
-	hapla cluster --bcf data.chr${c}.bcf --size 8 --threads 8 --out hapla.chr${c}
+	hapla cluster --bcf data.chr${c}.bcf --size 16 --threads 8 --out hapla.chr${c}
 	echo "hapla.chr${c}" >> hapla.filelist
 done
 ```

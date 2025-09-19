@@ -150,21 +150,35 @@ def main():
 	parser_fatash.add_argument("-p", "--pfile", 
 		metavar="FILE", help="Path to file with haplotype cluster frequencies")
 	parser_fatash.add_argument("-q", "--qfile", 
-		metavar="FILE", help="Path to file with admixture proportions")
+		metavar="FILE", help="Path to file with ancestry proportions")
 	parser_fatash.add_argument("-t", "--threads", type=int, default=1,
 		metavar="INT", help="Number of threads (1)")
 	parser_fatash.add_argument("-o", "--out", default="hapla.fatash",
 		metavar="OUTPUT", help="Output prefix")
-	parser_fatash.add_argument("--alpha", type=float, default=1e-7,
-		metavar="FLOAT", help="Set fixed alpha rate (1e-7)")
+	parser_fatash.add_argument("--alpha", type=float,
+		metavar="FLOAT", help="Single alpha rate in transition matrix")
 	parser_fatash.add_argument("--medians", action="store_true",
 		help="Utilize haplotype cluster probabilities")
 	parser_fatash.add_argument("--viterbi", action="store_true",
-		help="Perform Viterbi decoding")
-	parser_fatash.add_argument("--save-posterior", action="store_true",
-		help="Save posterior probabilities")
+		help="Perform Viterbi decoding for LAI inference (HMM)")
 	parser_fatash.add_argument("--prefix", default="chr",
 		metavar="OUTPUT", help="Prefix for multiple path files")
+	parser_fatash.add_argument("--genome-wide", action="store_true",
+		help="Use genome-wide ancestry proportions across all chromosomes")
+	parser_fatash.add_argument("--alpha-min", type=int, default=5,
+		help="Lowest alpha exponent (negative log10 scale) to use in majority voting (5)")
+	parser_fatash.add_argument("--alpha-max", type=int, default=9,
+		help="Highest alpha exponent (negative log10 scale) to use in majority voting (9)")
+	parser_fatash.add_argument("--admix-seed", type=int, default=42,
+		metavar="INT", help="Random seed in ancestry estimation (42)")
+	parser_fatash.add_argument("--admix-iter", type=int, default=1000,
+		metavar="INT", help="Maximum number of iterations (1000)")
+	parser_fatash.add_argument("--admix-tole", type=float, default=1e-9,
+		metavar="FLOAT", help="Tolerance in scaled log-likelihood units (1e-9)")
+	parser_fatash.add_argument("--admix-batches", type=int, default=8,
+		metavar="INT", help="Number of initial mini-batches (8)")
+	parser_fatash.add_argument("--admix-check", type=int, default=5,
+		metavar="INT", help="Number of iterations between convergence checks (5)")
 
 	# Parse arguments
 	args = parser.parse_args()

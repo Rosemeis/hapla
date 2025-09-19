@@ -9,13 +9,13 @@ __author__ = "Jonas Meisner"
 import os
 from datetime import datetime
 from time import time
+from hapla import __version__
 
-VERSION = "0.32.2"
 
 ##### hapla admix #####
 def main(args, deaf):
 	print("-----------------------------------")
-	print(f"hapla by Jonas Meisner (v{VERSION})")
+	print(f"hapla by Jonas Meisner (v{__version__})")
 	print(f"hapla admix using {args.threads} thread(s)")
 	print("-----------------------------------")
 
@@ -41,7 +41,7 @@ def main(args, deaf):
 	full = vars(args)
 	mand = ["seed", "batches"]
 	with open(f"{args.out}.K{args.K}.s{args.seed}.log", "w") as log:
-		log.write(f"hapla v{VERSION}\n")
+		log.write(f"hapla v{__version__}\n")
 		log.write("hapla admix\n")
 		log.write(f"Time: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n")
 		log.write(f"Directory: {os.getcwd()}\n")
@@ -252,9 +252,9 @@ def main(args, deaf):
 		functions.quasi(Z, P, Q, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, y, L)
 		functions.steps(Z, P, Q, Q_tmp, k_vec, c_vec, y, L)
 	else:
-		functions.proSteps(Z, P, Q, Q_tmp, k_vec, c_vec)
-		functions.proQuasi(Z, P, Q, Q_tmp, Q1, Q2, k_vec, c_vec)
-		functions.proSteps(Z, P, Q, Q_tmp, k_vec, c_vec)
+		functions.proSteps(Z, P, Q, Q_tmp, c_vec)
+		functions.proQuasi(Z, P, Q, Q_tmp, Q1, Q2, c_vec)
+		functions.proSteps(Z, P, Q, Q_tmp, c_vec)
 	print(f"\rPriming iteration.\t\t({time() - ts:.1f}s)\n")
 
 	# Set up mini-batch parameters
@@ -283,14 +283,14 @@ def main(args, deaf):
 			if args.projection is None:
 				functions.quasi(Z, P, Q, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, y, L)
 			else:
-				functions.proQuasi(Z, P, Q, Q_tmp, Q1, Q2, k_vec, c_vec)
+				functions.proQuasi(Z, P, Q, Q_tmp, Q1, Q2, c_vec)
 		else: # Full updates
 			if args.projection is None:
 				functions.quasi(Z, P, Q, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, y, L)
 				functions.steps(Z, P, Q, Q_tmp, k_vec, c_vec, y, L)
 			else:
-				functions.proSteps(Z, P, Q, Q_tmp, k_vec, c_vec)
-				functions.proQuasi(Z, P, Q, Q_tmp, Q1, Q2, k_vec, c_vec)
+				functions.proSteps(Z, P, Q, Q_tmp, c_vec)
+				functions.proQuasi(Z, P, Q, Q_tmp, Q1, Q2, c_vec)
 
 		# Log-likelihood convergence check
 		if ((it + 1) % args.check) == 0:
@@ -309,7 +309,7 @@ def main(args, deaf):
 					if args.projection is None:
 						functions.quasi(Z, P, Q, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, y, L)
 					else:
-						functions.proQuasi(Z, P, Q, Q_tmp, Q1, Q2, k_vec, c_vec)
+						functions.proQuasi(Z, P, Q, Q_tmp, Q1, Q2, c_vec)
 				else:
 					L_bat = L_cur
 			else: # Check for convergence
