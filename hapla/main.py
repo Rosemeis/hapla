@@ -48,6 +48,25 @@ def main():
 	parser_cluster.add_argument("--memory", action="store_true",
 		help="Store haplotypes in 1-bit matrix")
 
+	# hapla predict
+	parser_predict = subparsers.add_parser("predict")
+	parser_predict.add_argument("-g", "--vcf", "--bcf",
+		metavar="FILE", help="Input phased/unphased genotype file in VCF/BCF format")
+	parser_predict.add_argument("-b", "--bfile",
+		metavar="FILE", help="Input unphased genotype file in binary PLINK format")
+	parser_predict.add_argument("-r", "--ref",
+		metavar="FILE",	help="Input reference prefix of pre-estimated cluster medians")
+	parser_predict.add_argument("-t", "--threads", type=int, default=1,
+		metavar="INT", help="Number of threads (1)")
+	parser_predict.add_argument("-o", "--out", default="hapla.predict",
+		metavar="OUTPUT", help="Output prefix")
+	parser_predict.add_argument("--plink", action="store_true",
+		help="Generate binary PLINK output")
+	parser_predict.add_argument("--duplicate-fid", action="store_true",
+		help="Use sample list as family ID (PLINK 1.9 compatibility)")
+	parser_predict.add_argument("--memory", action="store_true",
+		help="Store haplotypes in 2-bit matrix")
+
 	# hapla struct
 	parser_struct = subparsers.add_parser("struct")
 	parser_struct.add_argument("-f", "--filelist",
@@ -60,6 +79,8 @@ def main():
 		metavar="OUTPUT", help="Output prefix")
 	parser_struct.add_argument("--grm", action="store_true",
 		help="Estimate genome-wide relationship matrix (GRM)")
+	parser_struct.add_argument("--projection", metavar="FILE",
+		help="Project samples on to existing PC space")
 	parser_struct.add_argument("--chunk", type=int, default=4096,
 		metavar="INT", help="Number of cluster alleles in batches (4096)")
 	parser_struct.add_argument("--power", type=int, default=11,
@@ -75,26 +96,9 @@ def main():
 	parser_struct.add_argument("--seed", type=int, default=42,
 		metavar="INT", help="Random seed (42)")
 	parser_struct.add_argument("--loadings", action="store_true",
-		help="Save loadings of SVD")
+		help="Save frequencies and loadings of SVD")
 	parser_struct.add_argument("--raw", action="store_true",
 		help="Raw output without '*.fam' info")
-
-	# hapla predict
-	parser_predict = subparsers.add_parser("predict")
-	parser_predict.add_argument("-g", "--vcf", "--bcf",
-		metavar="FILE", help="Input phased genotype file in VCF/BCF format")
-	parser_predict.add_argument("-r", "--ref", metavar="FILE",
-		help="Input reference prefix of pre-estimated cluster medians")
-	parser_predict.add_argument("-t", "--threads", type=int, default=1,
-		metavar="INT", help="Number of threads (1)")
-	parser_predict.add_argument("-o", "--out", default="hapla.predict",
-		metavar="OUTPUT", help="Output prefix")
-	parser_predict.add_argument("--plink", action="store_true",
-		help="Generate binary PLINK output")
-	parser_predict.add_argument("--duplicate-fid", action="store_true",
-		help="Use sample list as family ID (PLINK 1.9 compatibility)")
-	parser_predict.add_argument("--memory", action="store_true",
-		help="Store haplotypes in 2-bit matrix")
 
 	# hapla admix
 	parser_admix = subparsers.add_parser("admix")
@@ -196,16 +200,6 @@ def main():
 			from hapla import cluster
 			deaf = vars(parser_cluster.parse_args([]))
 			cluster.main(args, deaf)
-	
-	# hapla struct
-	if sys.argv[1] == "struct":
-		if len(sys.argv) < 3:
-			parser_struct.print_help()
-			sys.exit()
-		else:
-			from hapla import struct
-			deaf = vars(parser_struct.parse_args([]))
-			struct.main(args, deaf)
 
 	# hapla predict
 	if sys.argv[1] == "predict":
@@ -216,6 +210,16 @@ def main():
 			from hapla import predict
 			deaf = vars(parser_predict.parse_args([]))
 			predict.main(args, deaf)
+	
+	# hapla struct
+	if sys.argv[1] == "struct":
+		if len(sys.argv) < 3:
+			parser_struct.print_help()
+			sys.exit()
+		else:
+			from hapla import struct
+			deaf = vars(parser_struct.parse_args([]))
+			struct.main(args, deaf)
 
 	# hapla admix
 	if sys.argv[1] == "admix":

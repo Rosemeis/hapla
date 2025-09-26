@@ -48,10 +48,7 @@ def main(args, deaf):
 		log.write("Options:\n")
 		for key in full:
 			if full[key] != deaf[key]:
-				if type(full[key]) is bool:
-					log.write(f"\t--{key}\n")
-				else:
-					log.write(f"\t--{key} {full[key]}\n")
+				log.write(f"\t--{key}\n") if (type(full[key]) is bool) else log.write(f"\t--{key} {full[key]}\n")
 			elif key in mand:
 				log.write(f"\t--{key} {full[key]}\n")
 	del full, deaf, mand
@@ -279,7 +276,7 @@ def main(args, deaf):
 				if args.projection is None:
 					functions.batQuasi(Z, P, Q, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, s_bat, y, L)
 				else:
-					functions.proBatch(Z, P, Q, Q_tmp, Q1, Q2, k_vec, c_vec, s_bat)
+					functions.proBatch(Z, P, Q, Q_tmp, Q1, Q2, c_vec, s_bat)
 			if args.projection is None:
 				functions.quasi(Z, P, Q, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, y, L)
 			else:
@@ -322,8 +319,9 @@ def main(args, deaf):
 	print(f"Final log-likelihood: {L_cur:.1f}")
 
 	# Save output
-	np.savetxt(f"{args.out}.K{args.K}.s{args.seed}.Q", Q, fmt="%.6f")
-	print(f"Saved Q matrix as {args.out}.K{args.K}.s{args.seed}.Q")
+	project = "project." if (args.projection is not None) else ""
+	np.savetxt(f"{args.out}.{project}K{args.K}.s{args.seed}.Q", Q, fmt="%.6f")
+	print(f"Saved Q matrix as {args.out}.{project}K{args.K}.s{args.seed}.Q")
 	if not args.no_freqs and (args.projection is None):
 		if F > 1: # Save P file for each file (chromosome)
 			for p in np.arange(F):
@@ -350,7 +348,7 @@ def main(args, deaf):
 	with open(f"{args.out}.K{args.K}.s{args.seed}.log", "a") as log:
 		log.write(f"\nFinal log-likelihood: {L_cur:.1f}\n")
 		log.write(f"Converged in {it + 1} iterations.\n")
-		log.write(f"\nSaved Q matrix as {args.out}.K{args.K}.s{args.seed}.Q\n")
+		log.write(f"\nSaved Q matrix as {args.out}.{project}K{args.K}.s{args.seed}.Q\n")
 		if not args.no_freqs and (args.projection is None):
 			if F > 1:
 				log.write(f"Saved P matrices as {args.out}.K{args.K}.s{args.seed}.{args.prefix}{{1..{F}}}.P\n")

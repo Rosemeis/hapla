@@ -42,11 +42,11 @@ N = fam.shape[0]
 
 # Read .bed file
 with open(f"{args.bfile}.bed", "rb") as bed:
-	G_mat = np.fromfile(bed, dtype=np.uint8, offset=3)
+	D = np.fromfile(bed, dtype=np.uint8, offset=3)
 B = ceil(N/4)
-assert (G_mat.shape[0] % B) == 0, "bim file doesn't match!"
-M = G_mat.shape[0]//B
-G_mat.shape = (M, B)
+assert (D.shape[0] % B) == 0, "bim file doesn't match!"
+M = D.shape[0]//B
+D.shape = (M, B)
 print(f"\rLoaded genotype data: {N} samples and {M} SNPs.")
 
 ### Simulate phenotypes
@@ -60,7 +60,7 @@ G = np.zeros((args.causal, N), dtype=float) # Genotypes or haplotype clusters
 for p in range(args.phenos):
 	# Sample causal loci
 	c = np.sort(np.random.permutation(M)[:G.shape[0]]).astype(np.uint32)
-	reader_cy.phenoPlink(G_mat, G, c)
+	reader_cy.phenoPlink(D, G, c)
 
 	# Sample causal effects and estimate true PGS:
 	b = np.random.normal(loc=0.0, scale=sqrt(args.h2/float(G.shape[0])), \

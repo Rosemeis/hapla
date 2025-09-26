@@ -22,6 +22,7 @@ cdef inline f64 _clamp2(f64 a) noexcept nogil: return _fmax(ACC_MIN, _fmin(a, AC
 
 
 ##### hapla - local ancestry inference #####
+### Inline functions
 # Safe log-sum-exp for array
 cdef inline f64 _logsumexp(
 		const f64* vec, const Py_ssize_t K
@@ -275,6 +276,8 @@ cdef inline void _backward(
 		for k1 in range(K):
 			l[k1] = exp(a[k1] + b[k1] - l_fwd)
 
+
+### Standard functions
 # Convert log-likes to normalized likes
 cpdef void createLikes(
 		f32[::1] L, const u32[::1] k_vec, const u32[::1] x_vec
@@ -287,7 +290,7 @@ cpdef void createLikes(
 
 # Calculate emission probabilities using hard calls
 cpdef void hardEmissions(
-		 const u8[:,::1] Z, f64[:,:,::1] E, const f64[::1] P, const u32[::1] c_vec
+		 const u8[:,::1] Z, f64[:,:,::1] E, f64[::1] P, const u32[::1] c_vec
 	) noexcept nogil:
 	cdef:
 		Py_ssize_t N = E.shape[0]
@@ -328,6 +331,7 @@ cpdef void softEmissions(
 				for c in range(B):
 					E[i,w,k] += <f64>l[c]*p[k]
 				E[i,w,k] = log(E[i,w,k])
+
 
 ## Multithreaded functions
 # Viterbi algorithm

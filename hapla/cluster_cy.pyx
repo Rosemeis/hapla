@@ -19,7 +19,7 @@ cdef inline f32 _clamp3(f32 a) noexcept nogil: return _fmaxf(PRO_MIN, _fminf(a, 
 
 ##### hapla - haplotype clustering #####
 ### Inline functions
-# Inner function for marginal medians and variance
+# Inner function for marginal medians
 cdef inline void _marginal(
 		u8* r, u32* c, const u32 n, const Py_ssize_t M
 	) noexcept nogil:

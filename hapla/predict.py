@@ -7,6 +7,7 @@ __author__ = "Jonas Meisner"
 
 # Libraries
 import os
+import re
 from datetime import datetime
 from time import time
 from hapla import __version__
@@ -20,9 +21,15 @@ def main(args, deaf):
 	print("-----------------------------------\n")
 	
 	# Check input
-	assert args.vcf is not None, "Please provide phased genotype file (--bcf or --vcf)!"
-	assert os.path.isfile(f"{args.vcf}"), "VCF/BCF file doesn't exist!"
-	assert os.path.isfile(f"{args.vcf}.csi") or os.path.isfile(f"{args.vcf}.tbi"), "VCF/BCF index doesn't exist!"
+	assert args.vcf is not None or args.bfile is not None, "Please provide genotype file (--bcf, --vcf, --bfile)!"
+	if args.vcf is not None:
+		assert os.path.isfile(f"{args.vcf}"), "VCF/BCF file doesn't exist!"
+		assert os.path.isfile(f"{args.vcf}.csi") or os.path.isfile(f"{args.vcf}.tbi"), "VCF/BCF index doesn't exist!"
+	else:
+		assert os.path.isfile(f"{args.bfile}.bed"), "PLINK bed file doesn't exist!"
+		assert os.path.isfile(f"{args.bfile}.bim"), "PLINK bim file doesn't exist!"
+		assert os.path.isfile(f"{args.bfile}.fam"), "PLINK fam file doesn't exist!"
+		unphased = True
 	assert args.ref is not None, "Please provide pre-estimated reference haplotype cluster medians (--ref)!"
 	assert os.path.isfile(f"{args.ref}.bcm"), "bcm file doesn't exist!"
 	assert os.path.isfile(f"{args.ref}.win"), "win file doesn't exist!"
@@ -50,10 +57,7 @@ def main(args, deaf):
 		log.write("Options:\n")
 		for key in full:
 			if full[key] != deaf[key]:
-				if type(full[key]) is bool:
-					log.write(f"\t--{key}\n")
-				else:
-					log.write(f"\t--{key} {full[key]}\n")
+				log.write(f"\t--{key}\n") if (type(full[key]) is bool) else log.write(f"\t--{key} {full[key]}\n")
 	del full, deaf
 
 	# Import numerical libraries and cython functions
@@ -64,37 +68,79 @@ def main(args, deaf):
 	from hapla import memory_cy
 	from hapla import shared_cy
 
-	# Initiate VCF and extract sample list
-	print("\rLoading VCF/BCF file...", end="")
-	v_file = VCF(args.vcf, threads=min(args.threads, 4))
-	s_list = np.array(v_file.samples).reshape(-1, 1)
-	N = 2*s_list.shape[0]
-	M = v_file.num_records
-	B = ceil(N/4)
+	# Load genotype data
+	if args.vcf is not None:
+		print("\rLoading VCF/BCF file...", end="")
+		v_file = VCF(args.vcf, threads=min(args.threads, 4))
+		s_list = np.array(v_file.samples).reshape(-1, 1)
+		M = v_file.num_records
 
-	# Allocate arrays
-	if args.memory:
-		G = np.zeros((M, B), dtype=np.uint8)
+		# Check phasing and set parameters
+		first = next(v_file)
+		chrom = str(first.CHROM) # Extract chromosome information
+		V = first.genotype.array() # Extract genotype array
+		unphased = not bool(V[0,2]) # Extract phasing information
+		N = s_list.shape[0] if unphased else 2*s_list.shape[0]
+		B = ceil(N/4)
+
+		# Allocate arrays
+		G = np.zeros((M, B), dtype=np.uint8) if args.memory else np.zeros((M, N), dtype=np.uint8)
+		v_vec = np.zeros(M, dtype=np.uint32)
+		v_vec[0] = first.POS
+
+		# Read variants into matrix
+		if not unphased: # Haplotypes
+			memory_cy.predBit(G[0], V, N//2) if args.memory else reader_cy.predVar(G[0], V, N//2)
+			for j, variant in enumerate(v_file):
+				V = variant.genotype.array()
+				memory_cy.predBit(G[j + 1], V, N//2) if args.memory else reader_cy.predVar(G[j + 1], V, N//2)
+				v_vec[j + 1] = variant.POS
+		else: # Genotypes
+			memory_cy.genoBit(G[0], V, N) if args.memory else reader_cy.genoVar(G[0], V, N)
+			for j, variant in enumerate(v_file):
+				V = variant.genotype.array()
+				memory_cy.genoBit(G[j + 1], V, N) if args.memory else reader_cy.genoVar(G[j + 1], V, N)
+				v_vec[j + 1] = variant.POS
+		del first, V, v_file
 	else:
-		G = np.zeros((M, N), dtype=np.uint8)
-	v_vec = np.zeros(M, dtype=np.uint32)
+		print("\rLoading PLINK files..", end="")
+		N = 0
+		with open(f"{args.bfile}.fam", "r") as fam:
+			for _ in fam:
+				N += 1
+		B = ceil(N/4)
 
-	# Read variants into matrix
-	v_file = VCF(args.vcf, threads=min(args.threads, 4))
-	for j, variant in enumerate(v_file):
-		V = variant.genotype.array()
-		if args.memory:
-			memory_cy.predBit(G[j], V, N//2)
+		# Read .bed file
+		with open(f"{args.bfile}.bed", "rb") as bed:
+			D = np.fromfile(bed, dtype=np.uint8, offset=3)
+		assert (D.shape[0] % B) == 0, "bim file doesn't match!"
+		M = D.shape[0]//B
+		D.shape = (M, B)
+
+		# Expand genotypes into 8-bit array
+		if not args.memory:
+			G = np.zeros((M, N), dtype=np.uint8)
+			reader_cy.readPlink(D, G)
+			del D
 		else:
-			reader_cy.predVar(G[j], V, N//2)
-		v_vec[j] = variant.POS
-	chrom = str(variant.CHROM) # Extract chromosome information
-	del V, v_file
-	print(f"\rLoaded phased genotype data: {N} haplotypes and {M} SNPs.")
+			G = D
+
+		# Read sample and variant names
+		bim = np.genfromtxt(f"{args.bfile}.bim", dtype=np.str_, usecols=[0,3])
+		v_vec = bim[:,1].astype(np.uint32)
+		chrom = str(bim[-1,0])
+		s_list = np.genfromtxt(f"{args.bfile}.fam", dtype=np.str_, usecols=[1]).reshape(-1, 1)
+		del bim
+	if unphased:
+		print(f"\rLoaded unphased genotype data: {N} samples and {M} SNPs.")
+		N *= 2
+	else:
+		print(f"\rLoaded phased genotype data: {N} haplotypes and {M} SNPs.")
 
 	# Load window information from reference
 	w_mat = np.genfromtxt(f"{args.ref}.win", dtype=np.str_, skip_header=1)
-	assert w_mat[0,0] == chrom, "Chromosome name differ between files!"
+	assert re.search(r"(\d+)$", w_mat[0,0]).group(1) == re.search(r"(\d+)$", chrom).group(1), \
+		"Chromosome number differ between files!"
 	assert int(w_mat[0,1]) == v_vec[0], "Positions differ between files!"
 	assert int(w_mat[-1,2]) == v_vec[-1], "Positions differ between files!"
 	s_vec = w_mat[:,1].astype(np.uint32)
@@ -122,26 +168,29 @@ def main(args, deaf):
 	K = 0
 	print(f"Clustering {W} windows.")
 	for w in np.arange(W):
-		print(f"\rWindow {w+1}/{W}", end="")
+		print(f"\rWindow {w + 1}/{W}", end="")
 		b_win = int(b_vec[w])
 		k_win = int(k_vec[w])
 
 		# Load haplotype window
 		R_mat = R_arr[B:(B + k_win*b_win)]
 		R_mat.shape = (k_win, b_win)
-		X = np.zeros((N, R_mat.shape[1]), dtype=np.uint8)
-		if args.memory:
-			memory_cy.predictBit(G, X, w_vec[w])
-		else:
-			reader_cy.predictHap(G, X, w_vec[w])
-		
+		if not unphased: # Haplotypes
+			X = np.zeros((N, R_mat.shape[1]), dtype=np.uint8)
+			memory_cy.expandBit(G, X, w_vec[w]) if args.memory else reader_cy.convertWin(G, X, w_vec[w])
+		else: # Genotypes
+			X = np.zeros((N//2, R_mat.shape[1]), dtype=np.uint8)
+			memory_cy.expandGeno(G, X, w_vec[w]) if args.memory else reader_cy.convertWin(G, X, w_vec[w])
+
 		# Cluster assignment
-		shared_cy.predictCluster(X, R_mat, Z, k_vec[w], w)
+		shared_cy.genoCluster(X, R_mat, Z[w]) if unphased else shared_cy.predictCluster(X, R_mat, Z[w])
 
 		# Update counter
 		B += k_win*b_win
 		K += k_win
 	del G, X, R_mat, R_arr, w_vec
+	if "D" in locals():
+		del D
 	print(".\n")
 
 	# Save hapla output and print info

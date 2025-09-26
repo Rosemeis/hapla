@@ -61,10 +61,7 @@ def main(args, deaf):
 		log.write("Options:\n")
 		for key in full:
 			if full[key] != deaf[key]:
-				if type(full[key]) is bool:
-					log.write(f"\t--{key}\n")
-				else:
-					log.write(f"\t--{key} {full[key]}\n")
+				log.write(f"\t--{key}\n") if (type(full[key]) is bool) else log.write(f"\t--{key} {full[key]}\n")
 	del full, deaf
 
 	# Import numerical libraries and cython functions

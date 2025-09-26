@@ -21,16 +21,6 @@ cpdef void readVar(
 		G[2*i] = V[i,0] # Allele 1
 		G[2*i + 1] = V[i,1] # Allele 2
 
-# Read variant from VCF/BCF into 8-bit integer format with missing option
-cpdef void predVar(
-		u8[::1] G, const i16[:,::1] V, const Py_ssize_t N
-	) noexcept nogil:
-	cdef:
-		size_t i
-	for i in range(N):
-		G[2*i] = 9 if V[i,0] == -1 else V[i,0] # Allele 1
-		G[2*i + 1] = 9 if V[i,1] == -1 else V[i,1] # Allele 2
-
 # Initialize cluster mean and suffix arrays
 cpdef void convertHap(
 		const u8[:,::1] G, u32[:,::1] C, u32[::1] p_vec, u32[::1] d_vec, u32[::1] a_tmp, u32[::1] b_tmp, 
@@ -39,11 +29,10 @@ cpdef void convertHap(
 	cdef:
 		Py_ssize_t M = C.shape[1]
 		Py_ssize_t N = G.shape[1]
-		size_t m = S
 		size_t i, j, k, s, u, v
 		u32 f, l, p, q
 	for j in range(M):
-		s = m + j
+		s = S + j
 		u = v = 0
 		p = q = j + 1
 		C[0,j] = 0
@@ -94,7 +83,7 @@ cpdef u32 uniqueHap(
 	return u
 			
 # Convert transposed window for predicting target clusters
-cpdef void predictHap(
+cpdef void convertWin(
 		const u8[:,::1] G, u8[:,::1] X, const u32 S
 	) noexcept nogil:
 	cdef:
@@ -138,7 +127,7 @@ cpdef void convertPlink(
 						if z_vec[j] == 0:
 							Z_bin[l,b] |= (1<<bit)
 							Z_bin[l,b] |= (1<<(bit + 1))
-						if z_vec[j] == 1:
+						elif z_vec[j] == 1:
 							Z_bin[l,b] |= (1<<(bit + 1))
 
 						# Increase counter and check for break
@@ -152,25 +141,67 @@ cpdef void convertPlink(
 				P_mat[l,2] = b_vec[w]
 		free(z_vec)
 
-# Convert 2-bit into standardized genotype array for phenotypes
-cpdef void phenoPlink(
-		const u8[:,::1] G_mat, f64[:,::1] G, const u32[::1] c
+# Read variant from phased VCF/BCF into 8-bit integer format with missing option
+cpdef void predVar(
+		u8[::1] G, const i16[:,::1] V, const Py_ssize_t N
+	) noexcept nogil:
+	cdef:
+		size_t i
+	for i in range(N):
+		G[2*i] = 9 if V[i,0] == -1 else V[i,0] # Allele 1
+		G[2*i + 1] = 9 if V[i,1] == -1 else V[i,1] # Allele 2
+
+# Read variant from unphased VCF/BCF into 8-bit integer format with missing option
+cpdef void genoVar(
+		u8[::1] G, const i16[:,::1] V, const Py_ssize_t N
+	) noexcept nogil:
+	cdef:
+		size_t i
+	for i in range(N):
+		G[i] = 9 if (V[i,0] == -1) or (V[i,1] == -1) else V[i,0] + V[i,1]
+
+# Read unphased 2-bit genotype array for haplotype cluster prediciton
+cpdef void readPlink(
+		const u8[:,::1] D, u8[:,::1] G
 	) noexcept nogil:
 	cdef:
 		Py_ssize_t M = G.shape[0]
 		Py_ssize_t N = G.shape[1]
-		Py_ssize_t B = G_mat.shape[1]
+		Py_ssize_t B = D.shape[1]
 		size_t b, i, j, bytepart
 		u8[4] recode = [2, 9, 1, 0]
 		u8 mask = 3
 		u8 byte
-	for j in range(M):
+	for j in prange(M, schedule='guided'):
 		i = 0
 		for b in range(B):
-			byte = G_mat[c[j],b]
+			byte = D[j,b]
+			for bytepart in range(4):
+				G[j,i] = recode[byte & mask]
+				byte = byte >> 2
+				i = i + 1
+				if i == N:
+					break
+
+# Convert 2-bit into genotype array for phenotype generation
+cpdef void phenoPlink(
+		const u8[:,::1] D, f64[:,::1] G, const u32[::1] c
+	) noexcept nogil:
+	cdef:
+		Py_ssize_t M = G.shape[0]
+		Py_ssize_t N = G.shape[1]
+		Py_ssize_t B = D.shape[1]
+		size_t b, i, j, bytepart
+		u8[4] recode = [2, 9, 1, 0]
+		u8 mask = 3
+		u8 byte
+	for j in prange(M, schedule='guided'):
+		i = 0
+		for b in range(B):
+			byte = D[c[j],b]
 			for bytepart in range(4):
 				G[j,i] = <f64>recode[byte & mask]
 				byte = byte >> 2
-				i += 1
+				i = i + 1
 				if i == N:
 					break

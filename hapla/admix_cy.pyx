@@ -296,7 +296,7 @@ cdef inline f32 _computeR(
 ### Update functions
 # Update P and Q temp arrays
 cpdef void updateP(
-		u8[:,::1] Z, f64[::1] P, const f64[:,::1] Q, f64[:,::1] Q_tmp, const u32[::1] k_vec, const u32[::1] c_vec, 
+		u8[:,::1] Z, f64[::1] P, f64[:,::1] Q, f64[:,::1] Q_tmp, const u32[::1] k_vec, const u32[::1] c_vec, 
 		const u32 L
 	) noexcept nogil:
 	cdef:
@@ -339,7 +339,7 @@ cpdef void updateP(
 
 # Accelerated update P and Q temp arrays
 cpdef void accelP(
-		u8[:,::1] Z, f64[::1] P, f64[::1] P_new, const f64[:,::1] Q, f64[:,::1] Q_tmp, const u32[::1] k_vec, 
+		u8[:,::1] Z, f64[::1] P, f64[::1] P_new, f64[:,::1] Q, f64[:,::1] Q_tmp, const u32[::1] k_vec, 
 		const u32[::1] c_vec, const u32 L
 	) noexcept nogil:
 	cdef:
@@ -382,7 +382,7 @@ cpdef void accelP(
 
 # Batch accelerated update P and Q temp arrays
 cpdef void accelBatchP(
-		u8[:,::1] Z, f64[::1] P, f64[::1] P_new, const f64[:,::1] Q, f64[:,::1] Q_tmp, const u32[::1] k_vec, 
+		u8[:,::1] Z, f64[::1] P, f64[::1] P_new, f64[:,::1] Q, f64[:,::1] Q_tmp, const u32[::1] k_vec, 
 		const u32[::1] c_vec, const u32[::1] s_bat, const u32 L
 	) noexcept nogil:
 	cdef:

@@ -54,10 +54,7 @@ def main(args, deaf):
 		log.write("Options:\n")
 		for key in full:
 			if full[key] != deaf[key]:
-				if type(full[key]) is bool:
-					log.write(f"\t--{key}\n")
-				else:
-					log.write(f"\t--{key} {full[key]}\n")
+				log.write(f"\t--{key}\n") if (type(full[key]) is bool) else log.write(f"\t--{key} {full[key]}\n")
 			elif key in mand:
 				log.write(f"\t--{key} {full[key]}\n")
 	del full, deaf, mand
@@ -89,25 +86,16 @@ def main(args, deaf):
 	B = ceil(N/8)
 
 	# Set haplotype cluster size threshold
-	if args.min_mac is not None:
-		N_mac = np.uint32(args.min_mac)
-	else:
-		N_mac = np.uint32(ceil(N*args.min_freq))
+	N_mac = np.uint32(args.min_mac) if (args.min_mac is not None) else np.uint32(ceil(N*args.min_freq))
 
 	# Allocate arrays
-	if args.memory:
-		G = np.zeros((M, B), dtype=np.uint8)
-	else:
-		G = np.zeros((M, N), dtype=np.uint8)
+	G = np.zeros((M, B), dtype=np.uint8) if args.memory else np.zeros((M, N), dtype=np.uint8)
 	v_vec = np.zeros(M, dtype=np.uint32)
 
 	# Read variants into matrix
 	for j, variant in enumerate(v_file):
 		V = variant.genotype.array()
-		if args.memory:
-			memory_cy.readBit(G[j], V, N//2)
-		else:
-			reader_cy.readVar(G[j], V, N//2)
+		memory_cy.readBit(G[j], V, N//2) if args.memory else reader_cy.readVar(G[j], V, N//2)
 		v_vec[j] = variant.POS
 	chrom = variant.CHROM # Extract chromosome information
 	del V, v_file
@@ -119,8 +107,7 @@ def main(args, deaf):
 		if args.step is not None:
 			W = ceil((M - args.size)/args.step)
 			w_vec = [w*args.step for w in range(W)]
-			print(f"Clustering {W} overlapping windows of {args.size} SNPs " + \
-		 			f"(step-size {args.step}).")
+			print(f"Clustering {W} overlapping windows of {args.size} SNPs (step-size {args.step}).")
 		else:
 			W = M//args.size
 			w_vec = [w*args.size for w in range(W)]

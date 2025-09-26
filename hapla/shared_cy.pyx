@@ -1,7 +1,8 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, initializedcheck=False, cdivision=True
 cimport numpy as np
-from cython.parallel import prange
+from cython.parallel import parallel, prange
 from libc.stdint cimport uint8_t, uint32_t
+from libc.stdlib cimport calloc, free
 
 ctypedef uint8_t u8
 ctypedef uint32_t u32
@@ -29,17 +30,44 @@ cdef inline void _standardize(
 		x[i] = (<f32>z[i] - u)*a
 
 # Calculate Hamming distance
-cdef inline u32 hammingPred(
-		const u8* X, const u8* R, const Py_ssize_t M
+cdef inline u32 _hammingPred(
+		const u8* h, const u8* r, const Py_ssize_t M
 	) noexcept nogil:
 	cdef:
 		size_t j
 		u32 dist = 0
 	for j in range(M):
-		if X[j] != R[j] and X[j] != 9: # Ignore missing
+		if h[j] != r[j] and h[j] != 9: # Ignore missing
 			dist += 1
 	return dist
 
+# Homozygous states for unphased genotype clustering
+cdef inline void _homStates(
+		const u8* x, u8* h1, u8* h2, const Py_ssize_t M
+	) noexcept nogil:
+	cdef:
+		size_t j
+	for j in range(M):
+		if x[j] == 0:
+			h1[j] = 0
+			h2[j] = 0
+		elif x[j] == 2:
+			h1[j] = 1
+			h2[j] = 1
+		else: # Missing or heterozygous
+			h1[j] = 9
+			h2[j] = 9
+
+# Heterozygous states for unphased genotype clustering
+cdef inline void _hetStates(
+		const u8* x, u8* h1, u8* h2, u8* r, const Py_ssize_t M
+	) noexcept nogil:
+	cdef:
+		size_t j
+	for j in range(M):
+		if x[j] == 1:
+			h1[j] = r[j]
+			h2[j] = 1 - r[j]
 
 
 ### hapla struct
@@ -133,7 +161,6 @@ cpdef void memoryC(
 				x[i] += (1.0 - u)*d if z[2*i + 1] == c else (0.0 - u)*d
 
 
-
 ### hapla admix
 # Center batch haplotype cluster assignment matrix
 cpdef void centerC(
@@ -158,24 +185,65 @@ cpdef void centerC(
 				x[i] += (1.0 - u) if z[2*i + 1] == c else (0.0 - u)
 
 
-
 ### hapla predict
-# Haplotype cluster assignment based on pre-estimated medians
+# Haplotype cluster assignment based on medians in phased genotypes
 cpdef void predictCluster(
-		u8[:,::1] X, const u8[:,::1] R, u8[:,::1] Z, const u32 K, const int w
+		u8[:,::1] X, const u8[:,::1] R, u8[::1] Z
 	) noexcept nogil:
 	cdef:
 		Py_ssize_t N = X.shape[0]
 		Py_ssize_t M = X.shape[1]
-		size_t c, d, i, k, z
+		Py_ssize_t K = R.shape[0]
+		size_t i, k, z
 		u8* h
-	for i in prange(N):
+		u32 c, d
+	for i in prange(N, schedule='guided'):
 		h = &X[i,0]
 		z = 0
-		c = hammingPred(h, &R[0,0], M)
+		c = _hammingPred(h, &R[0,0], M)
 		for k in range(1, K):
-			d = hammingPred(h, &R[k,0], M)
+			d = _hammingPred(h, &R[k,0], M)
 			if d <= c:
 				z = k
 				c = d
-		Z[w,i] = z
+		Z[i] = z
+
+# Haplotype cluster assignment based on medians in unphased genotypes
+cpdef void genoCluster(
+		u8[:,::1] X, u8[:,::1] R, u8[::1] Z
+	) noexcept nogil:
+	cdef:
+		Py_ssize_t N = X.shape[0]
+		Py_ssize_t M = X.shape[1]
+		Py_ssize_t K = R.shape[0]
+		size_t i, k1, k2, z1, z2
+		u8* x
+		u8* h1
+		u8* h2
+		f32 c, d1, d2
+	with nogil, parallel():
+		h1 = <u8*>calloc(M, sizeof(u8))
+		h2 = <u8*>calloc(M, sizeof(u8))
+		for i in prange(N, schedule='guided'):
+			z1 = 0
+			z2 = 0
+			c = M + 1
+
+			# Loop all cluster combinations
+			x = &X[i,0]
+			_homStates(x, h1, h2, M)
+			for k1 in range(K):
+				_hetStates(x, h1, h2, &R[k1,0], M)
+				d1 = <f32>_hammingPred(h1, &R[k1,0], M)
+				for k2 in range(K):
+					d2 = <f32>_hammingPred(h2, &R[k2,0], M)
+					if (0.66*d1 + 0.33*d2) < c: # Magic weight
+						z1 = k1
+						z2 = k2
+						c = 0.66*d1 + 0.33*d2
+
+			# Cluster assignment
+			Z[2*i] = z1
+			Z[2*i + 1] = z2
+		free(h1)
+		free(h2)

@@ -21,9 +21,14 @@ def main(args, deaf):
 
 	# Check input
 	assert (args.filelist is not None) or (args.clusters is not None), "No input data (--filelist or --clusters)!"
-	assert (args.grm or (args.pca is not None)), "No analysis selected (--grm, --pca)!"
+	assert (args.grm or (args.pca is not None) or (args.projection is not None)), \
+		"No analysis selected (--grm, --pca, --projection)!"
 	if args.pca is not None:
 		assert args.pca > 0, "Please select a valid number of eigenvectors!"
+	if args.projection is not None:
+		assert os.path.isfile(f"{args.projection}.freqs"), "Frequencies doesn't exist!"
+		assert os.path.isfile(f"{args.projection}.loadings"), "Loadings doesn't exist!"
+		assert os.path.isfile(f"{args.projection}.eigenvals"), "Eigenvalues doesn't exist!"
 	assert args.threads > 0, "Please select a valid number of threads!"
 	assert args.chunk > 0, "Please select a valid chunk size!"
 	assert args.power > 0, "Please select a valid number of power iterations!"
@@ -40,10 +45,7 @@ def main(args, deaf):
 		log.write("Options:\n")
 		for key in full:
 			if full[key] != deaf[key]:
-				if type(full[key]) is bool:
-					log.write(f"\t--{key}\n")
-				else:
-					log.write(f"\t--{key} {full[key]}\n")
+				log.write(f"\t--{key}\n") if (type(full[key]) is bool) else log.write(f"\t--{key} {full[key]}\n")
 	del full, deaf
 
 	# Control threads of external numerical libraries
@@ -235,10 +237,10 @@ def main(args, deaf):
 			Z_agg = np.zeros((M, N), dtype=np.uint8)
 			shared_cy.haplotypeAggregate(Z, Z_agg, p_vec, k_vec, c_vec)
 			a_vec = 1.0/np.sqrt(2.0*p_vec*(1.0 - p_vec))
-			del Z, k_vec, c_vec
+			del Z, c_vec
 			U, S, V = functions.randomizedSVD(Z_agg, p_vec, a_vec, args.pca, args.chunk, args.power, rng)
 			del Z_agg
-		del p_vec, a_vec
+		del a_vec
 		print(".\n")
 
 		# Save matrices
@@ -259,7 +261,82 @@ def main(args, deaf):
 		if args.loadings:
 			np.savetxt(f"{args.out}.loadings", U, fmt="%.6f")
 			print(f"Saved loadings as {args.out}.loadings")
+			np.savetxt(f"{args.out}.freqs", p_vec, fmt="%.6f")
+			print(f"Saved haplotype cluster frequencies as {args.out}.freqs")
 		print("")
+		del p_vec
+	
+	# Project samples on to existing PC space
+	if args.projection is not None:
+		# Load frequencies, loadings, and eigenvalues
+		S = np.genfromtxt(f"{args.projection}.eigenvals", dtype=np.float32)
+		U = np.genfromtxt(f"{args.projection}.loadings", dtype=np.float32)
+		p_vec = np.genfromtxt(f"{args.projection}.freqs", dtype=np.float32)
+		a_vec = 1.0/np.sqrt(2.0*p_vec*(1.0 - p_vec))
+
+		# Set up parameters
+		assert S.shape[0] == U.shape[1], "Number of components doesn't match between files!"
+		M, K = U.shape
+		S = np.sqrt(S*M)
+		U *= (1.0/S)
+		del S
+
+		# Load haplotype cluster assignments from binary hapla format
+		B = 0
+		Z = np.zeros((W, 2*N), dtype=np.uint8)
+		for z in np.arange(F):
+			with open(f"{Z_list[z]}.bca", "rb") as f:
+				# Check magic numbers
+				magic = np.fromfile(f, dtype=np.uint8, count=3)
+				assert np.allclose(magic, np.array([7, 9, 13], dtype=np.uint8)), \
+					"Magic number doesn't match file format!"
+				
+				# Add haplotype cluster assignments to container
+				z_tmp = np.fromfile(f, dtype=np.uint8)
+				z_tmp.shape = (w_vec[z], 2*N)
+				Z[B:(B + w_vec[z]),:] = z_tmp
+				B += w_vec[z]
+			print(f"\rParsed file {z + 1}/{F}", end="")
+		del magic, z_tmp
+
+		# Count haplotype cluster alleles
+		assert np.sum(k_vec, dtype=np.uint32) == M, "Number of clusters doesn't match between files!"
+		c_vec = np.insert(np.cumsum(k_vec, dtype=np.uint32), 0, 0)
+
+		# Print information
+		print(f"\rLoaded haplotype cluster assignments:\n" + \
+			f"- {N} samples\n" + \
+			f"- {W} windows\n" + \
+			f"- {M} clusters\n")
+		
+		# Loop through chunks
+		V = np.zeros((N, K), dtype=np.float32)
+		B = ceil(args.chunk/ceil(M/W))
+		C = ceil(W/B)
+		X = np.zeros((np.max(k_vec[:W])*B, N), dtype=np.float32)
+		for c in np.arange(C):
+			W_b = c*B
+			W_e = min((c + 1)*B, W)
+			C_b = c_vec[W_b]
+			C_e = c_vec[W_e]
+			C_x = C_e - C_b
+			shared_cy.memoryC(Z[W_b:W_e], X[:C_x], p_vec[C_b:C_e], a_vec[C_b:C_e], k_vec[W_b:W_e], c_vec[W_b:W_e])
+			V += np.dot(X[:C_x].T, U[C_b:C_e])
+		del U, X, p_vec, a_vec
+		
+		# Save matrices
+		if args.raw: # Only eigenvectors
+			np.savetxt(f"{args.out}.project.eigenvecs", V, fmt="%.6f")
+		else: # Include FID and IID fields
+			z_ids = z_ids.reshape(-1, 1)
+			if args.duplicate_fid:
+				fam = z_ids.repeat(2, axis=1)
+			else:
+				fam = np.hstack((np.zeros((N, 1), dtype=np.uint8), z_ids))
+			V = np.hstack((fam, np.round(V, 7)))
+			h = ["#FID", "IID"] + [f"PC{k}" for k in range(1, K + 1)]
+			np.savetxt(f"{args.out}.project.eigenvecs", V, fmt="%s", delimiter="\t", comments="", header="\t".join(h))
+		print(f"Saved projected eigenvectors as {args.out}.project.eigenvecs")
 
 	# Print elapsed time for computation
 	t_tot = time() - start
@@ -279,6 +356,9 @@ def main(args, deaf):
 			log.write(f"Saved eigenvalues as {args.out}.eigenvals\n")
 			if args.loadings:
 				log.write(f"Saved loadings as {args.out}.loadings\n")
+				log.write(f"Saved haplotype cluster frequencies as {args.out}.freqs\n")
+		if args.projection is not None:
+			log.write(f"\nSaved projected eigenvectors as {args.out}.project.eigenvecs\n")
 		log.write(f"\nTotal elapsed time: {t_min}m{t_sec}s\n")
 
 

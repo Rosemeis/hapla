@@ -1,4 +1,4 @@
-# hapla (v0.33.1)
+# hapla (v0.40.0)
 ***hapla*** is a framework for performing window-based haplotype clustering in phased genotype data. The inferred haplotype cluster alleles can be used to infer fine-scale population structure, perform polygenic prediction and haplotype cluster based association studies.
 
 ### Citation
@@ -33,8 +33,8 @@ If you run into issues with your installation on a HPC system, it could be due t
 ## Quick start
 ***hapla*** contains the following subcommands at this moment:
 - `hapla cluster`
-- `hapla struct`
 - `hapla predict`
+- `hapla struct`
 - `hapla admix`
 - `hapla fatash`
 
@@ -76,30 +76,6 @@ hapla cluster --bcf data.chr1.bcf --threads 8 --out hapla.chr1 --plink
 The number of inferred haplotype clusters will depend on the chosen window size (`--size`), the number of allowed clusters per window (`--max-clusters`), as well as $\lambda$ (`--lmbda`) and the minimum haplotype cluster size. $\lambda$ represents the fraction of the specified window size in SNPs, which is required to create a new cluster based on Hamming distance, with a default setting of `--lmbda 0.125`.  The minimum haplotype cluster size can be adjusted using either `--min-freq` or `--min-mac`. The default setting is a minimum haplotype cluster frequency of at least 0.005 for the cluster to be retained (`--min-freq 0.005`), using `--min-mac` will override any setting for `--min-freq`. Smaller clusters will be iteratively removed.
 
 
-### Population structure inference and GRM estimation
-***hapla struct***\
-Infer population structure and estimate genome-wide relationship matrix (GRM) using haplotype cluster alleles.
-```bash
-# Perform PCA on all chromosomes (genome-wide) using filelist and extract top 20 eigenvectors
-hapla struct --filelist hapla.filelist --threads 64 --pca 20 --out hapla
-# Saves eigenvalues and eigenvectors in text-format
-#	- hapla.eigenvecs
-#	- hapla.eigenvals
-
-# Or perform PCA on a single chromosome and extract top 20 eigenvectors
-hapla struct --clusters hapla.chr1 --threads 64 --pca 20 --out hapla.chr1
-# Saves eigenvalues and eigenvectors in text-format
-#	- hapla.chr1.eigenvecs
-#	- hapla.chr1.eigenvals
-
-# Construct genome-wide relationship matrix (GRM)
-hapla struct --filelist hapla.filelist --threads 64 --grm --out hapla
-# Saves the GRM in binary GCTA format (float)
-#	- hapla.grm.bin
-#	- hapla.grm.N.bin
-#	- hapla.grm.id
-```
-
 ### Predict haplotype cluster assignments
 ***hapla predict***\
 Predict haplotype cluster assignments using pre-computed cluster medians in a new set of haplotypes (VCF/BCF format). SNP sets must be overlapping.
@@ -120,6 +96,55 @@ hapla predict --bcf new.chr1.bcf  --ref ref.chr1 --threads 64 --out new.chr1
 ```
 Using `--medians` in `hapla cluster` outputs three extra files. A **.bcm**-file (binary cluster medians), which stores the cluster medians as *unsigned char*s, a **.blk**-file, which stores pairwise log-likelihoods between the cluster medians, a **.wix**-file with window index information. The files are needed to predict haplotype clusters in a new set of haplotypes.
 
+(Prototype) Predict haplotype cluster assignments using pre-computed cluster medians in an *unphased* genotype dataset (VCF/BCF or binary PLINK format). SNP sets must be overlapping. **NOT** suitable for local ancestry inference.
+```bash
+# Predict assignments in an unphased genotype dataset in VCF/BCF format (same command as above)
+hapla predict --bcf new.chr1.bcf  --ref ref.chr1 --threads 64 --out new.chr1
+# Saves predicted haplotype cluster assignments in binary hapla format
+#	- new.chr1.bca
+#	- new.chr1.ids
+#	- new.chr1.win
+
+# Predict assignments in an unphased genotype dataset in binary PLINK format (provide with file-prefix)
+hapla predict --bfile new.chr1 --ref ref.chr1 --threads 64 --out new.chr1
+# Saves predicted haplotype cluster assignments in binary hapla format
+#	- new.chr1.bca
+#	- new.chr1.ids
+#	- new.chr1.win
+```
+
+
+### Population structure inference and GRM estimation
+***hapla struct***\
+Infer population structure and estimate genome-wide relationship matrix (GRM) using haplotype cluster alleles.
+```bash
+# Perform PCA on a single chromosome and extract top 20 eigenvectors
+hapla struct --clusters hapla.chr1 --threads 64 --pca 20 --out hapla.chr1
+# Saves eigenvalues and eigenvectors in text-format
+#	- hapla.chr1.eigenvecs
+#	- hapla.chr1.eigenvals
+
+# Perform PCA on all chromosomes (genome-wide) using filelist and extract top 20 eigenvectors. Save loadings and haplotype cluster frequencies.
+hapla struct --filelist hapla.filelist --threads 64 --pca 20 --out hapla --loadings
+# Saves eigenvalues and eigenvectors in text-format
+#	- hapla.eigenvecs
+#	- hapla.eigenvals
+#	- hapla.loadings
+#	- hapla.freqs
+
+# Construct genome-wide relationship matrix (GRM)
+hapla struct --filelist hapla.filelist --threads 64 --grm --out hapla
+# Saves the GRM in binary GCTA format (float)
+#	- hapla.grm.bin
+#	- hapla.grm.N.bin
+#	- hapla.grm.id
+
+# Project samples on to existing PC space and extract eigenvectors
+hapla struct --filelist new.filelist --threads 64 --out new --projection hapla
+# Saves eigenvalues and eigenvectors in text-format
+#	- new.project.eigenvecs
+```
+
 
 ### Ancestry estimation
 ***hapla admix***\
@@ -139,9 +164,9 @@ hapla admix --filelist hapla.filelist --K 3 --seed 1 --threads 64 --out hapla
 #	- hapla.K3.s1.pfilelist
 
 # Estimate ancestry proportions in projection mode assuming K=3 ancestral sources using filelist with all chromosomes. Provide previously estimated ancestral haplotype cluster frequencies.
-hapla admix --filelist hapla.proj.filelist --K 3 --seed 1 --threads 64 --projection hapla.K3.s1.pfilelist --out hapla.proj
+hapla admix --filelist new.filelist --K 3 --seed 1 --threads 64 --projection hapla.K3.s1.pfilelist --out new
 # Saves Q matrix in text-format
-#	- hapla.proj.K3.s1.Q
+#	- new.project.K3.s1.Q
 
 # Estimate ancestry proportions in supervised mode assuming K=3 ancestral sources using filelist with all chromosomes. Provide a single column text-file with population labels of the samples as integers, where 0 indicates no label.
 hapla admix --filelist hapla.filelist --K 3 --seed 1 --threads 64 --supervised hapla.labels --out hapla.super
