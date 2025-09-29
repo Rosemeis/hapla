@@ -104,7 +104,7 @@ def main(args, deaf):
 		W = k_vec.shape[0]
 		w_vec = np.array([W], dtype=np.uint32)
 	print(f"Parsing {F} file(s).")
-	
+
 	# Estimate genome-wide relationship matrix
 	if args.grm:
 		print("Estimating genome-wide relationship matrix (GRM).")
@@ -189,7 +189,7 @@ def main(args, deaf):
 			f"- {args.out}.grm.N.bin\n" + \
 			f"- {args.out}.grm.id\n")
 		del G, fam
-	
+
 	# Infer population structure using PCA
 	if args.pca is not None:
 		# Load haplotype cluster assignments from binary hapla format
@@ -265,7 +265,7 @@ def main(args, deaf):
 			print(f"Saved haplotype cluster frequencies as {args.out}.freqs")
 		print("")
 		del p_vec
-	
+
 	# Project samples on to existing PC space
 	if args.projection is not None:
 		# Load frequencies, loadings, and eigenvalues
@@ -323,7 +323,7 @@ def main(args, deaf):
 			shared_cy.memoryC(Z[W_b:W_e], X[:C_x], p_vec[C_b:C_e], a_vec[C_b:C_e], k_vec[W_b:W_e], c_vec[W_b:W_e])
 			V += np.dot(X[:C_x].T, U[C_b:C_e])
 		del U, X, p_vec, a_vec
-		
+
 		# Save matrices
 		if args.raw: # Only eigenvectors
 			np.savetxt(f"{args.out}.project.eigenvecs", V, fmt="%.6f")
