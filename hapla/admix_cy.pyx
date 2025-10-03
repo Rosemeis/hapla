@@ -325,7 +325,7 @@ cpdef void updateP(
 				q = &Q[i >> 1,0]
 				h = _computeH(p, q, K)
 				_innerJ(p, q, &p_thr[s], &q_thr[(i >> 1)*K], h, K)
-			_outerP(&P[l], &p_thr[0], S, B, K)
+			_outerP(&P[l], p_thr, S, B, K)
 
 		# omp critical
 		omp.omp_set_lock(&mutex)
@@ -368,7 +368,7 @@ cpdef void accelP(
 				q = &Q[i >> 1,0]
 				h = _computeH(p, q, K)
 				_innerJ(p, q, &p_thr[s], &q_thr[(i >> 1)*K], h, K)
-			_outerAccelP(&P[l], &P_new[l], &p_thr[0], S, B, K)
+			_outerAccelP(&P[l], &P_new[l], p_thr, S, B, K)
 
 		# omp critical
 		omp.omp_set_lock(&mutex)
@@ -412,7 +412,7 @@ cpdef void accelBatchP(
 				q = &Q[i >> 1,0]
 				h = _computeH(p, q, K)
 				_innerJ(p, q, &p_thr[s], &q_thr[(i >> 1)*K], h, K)
-			_outerAccelP(&P[l], &P_new[l], &p_thr[0], S, B, K)
+			_outerAccelP(&P[l], &P_new[l], p_thr, S, B, K)
 
 		# omp critical
 		omp.omp_set_lock(&mutex)
