@@ -20,13 +20,15 @@ def main():
 	parser_cluster.add_argument("-g", "--vcf", "--bcf",
 		metavar="FILE", help="Input phased genotype file in VCF/BCF format")
 	parser_cluster.add_argument("-f", "--size", type=int,
-		metavar="INT", help="Use fixed window size")
+		metavar="INT", help="Use fixed sized windows")
+	parser_cluster.add_argument("-l", "--length", type=int,
+		metavar="INT", help="Use length-based windows (in BP)")
 	parser_cluster.add_argument("-w", "--windows", metavar="FILE",
-		help="Use provided window indices")
-	parser_cluster.add_argument("-l", "--lmbda", type=float, default=0.125,
+		help="Use provided start indices for windows")
+	parser_cluster.add_argument("-p", "--lmbda", type=float, default=0.125,
 		metavar="FLOAT", help="Set lambda hyperparameter (0.125)")
 	parser_cluster.add_argument("-s", "--step", type=int,
-		metavar="INT", help="Step-size for sliding window")
+		metavar="INT", help="Step-size for sliding window using fixed sized windows")
 	parser_cluster.add_argument("-t", "--threads", type=int, default=1,
 		metavar="INT", help="Number of threads (1)")
 	parser_cluster.add_argument("-o", "--out", default="hapla.cluster",

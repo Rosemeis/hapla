@@ -2,7 +2,7 @@
 cimport numpy as np
 cimport openmp as omp
 from cython.parallel import parallel, prange
-from libc.math cimport exp, log, sqrtf
+from libc.math cimport exp, fmax, fmaxf, fmin, fminf, log, sqrtf
 from libc.stdint cimport uint8_t, uint32_t
 from libc.stdlib cimport calloc, free
 
@@ -17,13 +17,9 @@ cdef f64 ACC_MIN = 1.0
 cdef f64 ACC_MAX = 128.0
 cdef f32 FLT_MIN = 1e-5
 cdef f32 FLT_MAX = 1.0 - (1e-5)
-cdef inline f64 _fmax(f64 a, f64 b) noexcept nogil: return a if a > b else b
-cdef inline f64 _fmin(f64 a, f64 b) noexcept nogil: return a if a < b else b
-cdef inline f32 _fmaxf(f32 a, f32 b) noexcept nogil: return a if a > b else b
-cdef inline f32 _fminf(f32 a, f32 b) noexcept nogil: return a if a < b else b
-cdef inline f64 _clamp1(f64 a) noexcept nogil: return _fmax(PRO_MIN, _fmin(a, PRO_MAX))
-cdef inline f64 _clamp2(f64 a) noexcept nogil: return _fmax(ACC_MIN, _fmin(a, ACC_MAX))
-cdef inline f32 _clamp3(f32 a) noexcept nogil: return _fmaxf(FLT_MIN, _fminf(a, FLT_MAX))
+cdef inline f64 _clamp1(f64 a) noexcept nogil: return fmax(PRO_MIN, fmin(a, PRO_MAX))
+cdef inline f64 _clamp2(f64 a) noexcept nogil: return fmax(ACC_MIN, fmin(a, ACC_MAX))
+cdef inline f32 _clamp3(f32 a) noexcept nogil: return fmaxf(FLT_MIN, fminf(a, FLT_MAX))
 
 
 ##### hapla - ancestry estimation #####

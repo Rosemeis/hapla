@@ -12,9 +12,7 @@ ctypedef float f32
 
 cdef f32 PRO_MIN = 1e-5
 cdef f32 PRO_MAX = 1.0 - (1e-5)
-cdef inline f32 _fmaxf(f32 a, f32 b) noexcept nogil: return a if a > b else b
-cdef inline f32 _fminf(f32 a, f32 b) noexcept nogil: return a if a < b else b
-cdef inline f32 _clamp3(f32 a) noexcept nogil: return _fmaxf(PRO_MIN, _fminf(a, PRO_MAX))
+cdef inline f32 _clamp3(f32 a) noexcept nogil: return fmaxf(PRO_MIN, fminf(a, PRO_MAX))
 
 
 ##### hapla - haplotype clustering #####
@@ -182,11 +180,10 @@ cpdef u32 checkClust(
 			c_arg = i
 			c_max = c
 			u_max = u
-		elif c == c_max: # Choose largest for ties
-			if u > u_max:
-				c_arg = i
-				c_max = c
-				u_max = u
+		elif c == c_max and u > u_max: # Choose largest for ties
+			c_arg = i
+			c_max = c
+			u_max = u
 	if c_max >= c_lim and K < L:
 		u = u_vec[c_arg]
 		z = z_vec[c_arg]

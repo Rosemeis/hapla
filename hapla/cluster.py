@@ -26,7 +26,7 @@ def main(args, deaf):
 	assert args.threads > 0, "Please select a valid number of threads!"
 	assert (args.min_freq > 0.0) and (args.min_freq < 1.0), "Invalid cluster frequency threshold!"
 	if args.min_mac is not None:
-		assert args.min_mac > 0, "Please select a valid MAC threshold!"
+		assert args.min_mac > 1, "Please select a valid MAC threshold!"
 	assert args.max_iterations > 0, "Please select a valid number of iterations!"
 	assert (args.lmbda > 0.0) and (args.lmbda < 1.0), "Please select a valid lambda value!"
 	assert (args.max_clusters > 1) and (args.max_clusters <= 256), "Max allowed clusters exceeded!"
@@ -37,8 +37,10 @@ def main(args, deaf):
 				args.step = None
 			else:
 				assert (args.step <= args.size) and (args.step > 0), "Invalid step size for sliding window chosen!"
+	elif args.length is not None:
+		assert args.length > 0, "Invalid window size!"
 	else:
-		assert args.windows is not None, "No window option (--size or --windows)!"
+		assert args.windows is not None, "No window option (--size, --length or --windows)!"
 	start = time()
 
 	# Create log-file of used arguments
@@ -103,7 +105,7 @@ def main(args, deaf):
 	print(f"\rLoaded phased genotype data: {N} haplotypes and {M} SNPs.")
 
 	# Set up windows
-	if args.size is not None:
+	if args.size is not None: # Fixed sized windows
 		if args.step is not None:
 			W = ceil((M - args.size)/args.step)
 			w_vec = [w*args.step for w in range(W)]
@@ -114,7 +116,21 @@ def main(args, deaf):
 			print(f"Clustering {W} non-overlapping windows of {args.size} SNPs.")
 		w_vec.append(M)
 		w_vec = np.array(w_vec, dtype=np.uint32)
-	else:
+	elif args.length is not None: # Length-based windows
+		w_vec = []
+		w = 0
+		while w < M:
+			w_vec.append(w)
+			w_len = v_vec[w] + args.length
+			w_end = w
+			while (w_end < M) and (v_vec[w_end] <= w_len):
+				w_end += 1
+			w = w_end
+		W = len(w_vec)
+		w_vec.append(M)
+		w_vec = np.array(w_vec, dtype=np.uint32)
+		print(f"Clustering {W} non-overlapping windows of {args.length} BPs.")
+	else: # Pre-defined windows from external file
 		w_vec = np.genfromtxt(args.windows, dtype=np.uint32)
 		assert w_vec[-1] <= M, "Genotype and window files don't match!"
 		if w_vec[-1] != M:

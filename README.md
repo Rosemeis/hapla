@@ -1,4 +1,4 @@
-# hapla (v0.40.0)
+# hapla (v0.41.0)
 ***hapla*** is a framework for performing window-based haplotype clustering in phased genotype data. The inferred haplotype cluster alleles can be used to infer fine-scale population structure, perform polygenic prediction and haplotype cluster based association studies.
 
 ### Citation
