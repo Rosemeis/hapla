@@ -107,7 +107,7 @@ cpdef void convertPlink(
 		u8* z_vec
 	with nogil, parallel():
 		z_vec = <u8*>malloc(sizeof(u8)*N)
-		for w in prange(W, schedule='guided'):
+		for w in prange(W, schedule='static'):
 			s = c_vec[w]
 			for c in range(k_vec[w]):
 				# Create haplotype cluster alleles

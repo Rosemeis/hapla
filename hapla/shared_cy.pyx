@@ -81,7 +81,7 @@ cpdef void haplotypeAggregate(
 		size_t c, i, l, s, w
 		u8* z
 		f32 d = 1.0/<f32>N
-	for w in prange(W, schedule='guided'):
+	for w in prange(W, schedule='static'):
 		s = c_vec[w]
 		for c in range(k_vec[w]):
 			l = s + c
@@ -101,7 +101,7 @@ cpdef void estimateFreq(
 		size_t c, i, l, s, w
 		u8* z
 		f32 d = 1.0/<f32>N
-	for w in prange(W, schedule='guided'):
+	for w in prange(W, schedule='static'):
 		s = c_vec[w]
 		z = &Z[w,0]
 		for c in range(k_vec[w]):
@@ -119,7 +119,7 @@ cpdef void centerZ(
 		Py_ssize_t N = X.shape[1]
 		size_t j, l
 		f32 u
-	for j in prange(M, schedule='guided'):
+	for j in prange(M, schedule='static'):
 		l = S + j
 		u = 2.0*p[l]
 		_center(&Z_agg[l,0], &X[j,0], u, N)
@@ -133,11 +133,11 @@ cpdef void chunkZ(
 		Py_ssize_t N = X.shape[1]
 		size_t j
 		f32 d, u
-	for j in prange(M, schedule='guided'):
+	for j in prange(M, schedule='static'):
 		u = 2.0*p[j]
 		_standardize(&Z_agg[j,0], &X[j,0], u, a[j], N)
 
-# Standardize 
+# Standardize condense chunk of haplotype cluster assignment matrix
 cpdef void memoryC(
 		u8[:,::1] Z, f32[:,::1] X, const f32[::1] p, const f32[::1] a, const u32[::1] k_vec, const u32[::1] c_vec
 	) noexcept nogil:
@@ -148,7 +148,7 @@ cpdef void memoryC(
 		u8* z
 		f32 u, d
 		f32* x
-	for w in prange(W, schedule='guided'):
+	for w in prange(W, schedule='static'):
 		s = c_vec[w] - c_vec[0]
 		z = &Z[w,0]
 		for c in range(k_vec[w]):
@@ -173,7 +173,7 @@ cpdef void centerC(
 		u8* z
 		f32 u
 		f32* x
-	for w in prange(W, schedule='guided'):
+	for w in prange(W, schedule='static'):
 		s = c_vec[w] - c_vec[0]
 		z = &Z[w,0]
 		for c in range(k_vec[w]):
@@ -197,7 +197,7 @@ cpdef void predictCluster(
 		size_t i, k, z
 		u8* h
 		u32 c, d
-	for i in prange(N, schedule='guided'):
+	for i in prange(N, schedule='static'):
 		h = &X[i,0]
 		z = 0
 		c = _hammingPred(h, &R[0,0], M)
@@ -224,7 +224,7 @@ cpdef void genoCluster(
 	with nogil, parallel():
 		h1 = <u8*>calloc(M, sizeof(u8))
 		h2 = <u8*>calloc(M, sizeof(u8))
-		for i in prange(N, schedule='guided'):
+		for i in prange(N, schedule='static'):
 			z1 = 0
 			z2 = 0
 			c = M + 1

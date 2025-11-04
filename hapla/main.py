@@ -25,8 +25,8 @@ def main():
 		metavar="INT", help="Use length-based windows (in BP)")
 	parser_cluster.add_argument("-w", "--windows", metavar="FILE",
 		help="Use provided start indices for windows")
-	parser_cluster.add_argument("-p", "--lmbda", type=float, default=0.125,
-		metavar="FLOAT", help="Set lambda hyperparameter (0.125)")
+	parser_cluster.add_argument("-p", "--lmbda", type=float, default=0.1,
+		metavar="FLOAT", help="Set lambda hyperparameter (0.1)")
 	parser_cluster.add_argument("-s", "--step", type=int,
 		metavar="INT", help="Step-size for sliding window using fixed sized windows")
 	parser_cluster.add_argument("-t", "--threads", type=int, default=1,
@@ -43,6 +43,8 @@ def main():
 		metavar="INT", help="Maximum number of iterations (1000)")
 	parser_cluster.add_argument("--medians", action="store_true",
 		help="Save haplotype cluster medians")
+	parser_cluster.add_argument("--prune", action="store_true",
+		help="Prune outlier clusters prior to reclustering")
 	parser_cluster.add_argument("--plink", action="store_true",
 		help="Generate binary PLINK output")
 	parser_cluster.add_argument("--duplicate-fid", action="store_true",

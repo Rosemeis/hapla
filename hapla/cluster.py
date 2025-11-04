@@ -26,7 +26,7 @@ def main(args, deaf):
 	assert args.threads > 0, "Please select a valid number of threads!"
 	assert (args.min_freq > 0.0) and (args.min_freq < 1.0), "Invalid cluster frequency threshold!"
 	if args.min_mac is not None:
-		assert args.min_mac > 1, "Please select a valid MAC threshold!"
+		assert args.min_mac > 0, "Please select a valid MAC threshold!"
 	assert args.max_iterations > 0, "Please select a valid number of iterations!"
 	assert (args.lmbda > 0.0) and (args.lmbda < 1.0), "Please select a valid lambda value!"
 	assert (args.max_clusters > 1) and (args.max_clusters <= 256), "Max allowed clusters exceeded!"
@@ -74,7 +74,7 @@ def main(args, deaf):
 	# Import numerical libraries and cython functions
 	import numpy as np
 	from cyvcf2 import VCF
-	from math import ceil
+	from math import ceil, floor
 	from hapla import reader_cy
 	from hapla import memory_cy
 	from hapla import cluster_cy
@@ -88,7 +88,7 @@ def main(args, deaf):
 	B = ceil(N/8)
 
 	# Set haplotype cluster size threshold
-	N_mac = np.uint32(args.min_mac) if (args.min_mac is not None) else np.uint32(ceil(N*args.min_freq))
+	N_mac = np.uint32(args.min_mac if (args.min_mac is not None) else ceil(N*args.min_freq))
 
 	# Allocate arrays
 	G = np.zeros((M, B), dtype=np.uint8) if args.memory else np.zeros((M, N), dtype=np.uint8)
@@ -160,7 +160,7 @@ def main(args, deaf):
 		X = np.zeros((N, args.size), dtype=np.uint8) # Haplotypes
 		R = np.zeros((args.max_clusters, args.size), dtype=np.uint8) # Medians
 		C = np.zeros((args.max_clusters, args.size), dtype=np.uint32) # Means
-		c_lim = np.uint32(ceil(args.lmbda*float(X.shape[1]))) # SNP-based threshold
+		c_lim = np.uint32(max(floor(args.lmbda*float(X.shape[1])), 1)) # SNP-based threshold
 
 	# Optional containers
 	if args.medians:
@@ -183,7 +183,7 @@ def main(args, deaf):
 			X = np.zeros((N, w_vec[w + 1] - S), dtype=np.uint8)
 			R = np.zeros((args.max_clusters, X.shape[1]), dtype=np.uint8)
 			C = np.zeros((args.max_clusters, X.shape[1]), dtype=np.uint32)
-			c_lim = np.uint32(ceil(args.lmbda*float(X.shape[1])))
+			c_lim = np.uint32(max(floor(args.lmbda*float(X.shape[1])), 1))
 
 		# Prepare last window
 		if w == (W - 1):
@@ -192,7 +192,7 @@ def main(args, deaf):
 			X = np.zeros((N, M - S), dtype=np.uint8)
 			R = np.zeros((args.max_clusters, X.shape[1]), dtype=np.uint8)
 			C = np.zeros((args.max_clusters, X.shape[1]), dtype=np.uint32)
-			c_lim = np.uint32(ceil(args.lmbda*float(X.shape[1])))
+			c_lim = np.uint32(max(floor(args.lmbda*float(X.shape[1])), 1))
 
 		# Load haplotype window
 		if args.memory:
@@ -230,6 +230,11 @@ def main(args, deaf):
 
 		# Iterative re-clustering of haplotypes
 		if K > 2:
+			# Remove all outliers (singletons and doubletons) in one go
+			if args.prune:
+				if np.sum(n_vec > 2) > 2:
+					n_vec[n_vec <= 2] = 0
+
 			# Remove smallest clusters iterativly
 			K_tmp = np.sum(n_vec > 0, dtype=np.uint32)
 			while K_tmp > 2:
@@ -247,7 +252,7 @@ def main(args, deaf):
 					K_tmp -= 1 # Cluster removed
 					memoryview(z_tmp)[:] = memoryview(z_vec)
 
-			# Re-cluster K = 2 case
+			# Re-cluster K = 2 case for consistency
 			if (K_tmp == 2) and (N_min < N_mac):
 				cluster_cy.assignClust(X, R, C, z_vec, c_vec, n_vec, n_tmp, u_vec, U, K)
 				cluster_cy.updateN(n_vec, n_tmp, K)

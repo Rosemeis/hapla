@@ -35,7 +35,7 @@ cdef inline u32 _hammingDist(
 		size_t j
 		u32 dist = 0
 	for j in range(M):
-		dist += 1 if h[j] != r[j] else 0
+		dist += (h[j] != r[j])
 	return dist
 
 # Calculate Hamming distance and change assignments
@@ -120,7 +120,7 @@ cpdef void assignClust(
 	with nogil, parallel():
 		n_thr = <u32*>calloc(K, sizeof(u32))
 		C_thr = <u32*>calloc(K*M, sizeof(u32))
-		for i in prange(U, schedule='guided'):
+		for i in prange(U, schedule='static'):
 			h = &X[i,0]
 			z = 0
 			c = M + 1
@@ -214,11 +214,10 @@ cpdef void genClust(
 			c_arg = i
 			c_max = c
 			u_max = u
-		elif c == c_max: # Choose largest for ties
-			if u > u_max:
-				c_arg = i
-				c_max = c
-				u_max = u
+		elif c == c_max and u > u_max: # Choose largest for ties
+			c_arg = i
+			c_max = c
+			u_max = u
 	u = u_vec[c_arg]
 	z = z_vec[c_arg]
 	_updateClust(&X[c_arg,0], &R[K,0], &C[K,0], &C[z,0], u, M)
