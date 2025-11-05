@@ -2,7 +2,7 @@
 cimport numpy as np
 from cython.parallel import parallel, prange
 from libc.stdint cimport uint8_t, uint32_t
-from libc.stdlib cimport calloc, free
+from libc.stdlib cimport abort, calloc, free
 
 ctypedef uint8_t u8
 ctypedef uint32_t u32
@@ -222,8 +222,14 @@ cpdef void genoCluster(
 		u8* h2
 		f32 c, d1, d2
 	with nogil, parallel():
+		# Thread-local buffer allocation
 		h1 = <u8*>calloc(M, sizeof(u8))
+		if h1 is NULL:
+			abort()
 		h2 = <u8*>calloc(M, sizeof(u8))
+		if h2 is NULL:
+			abort()
+
 		for i in prange(N, schedule='static'):
 			z1 = 0
 			z2 = 0

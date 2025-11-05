@@ -4,7 +4,7 @@ cimport openmp as omp
 from cython.parallel import parallel, prange
 from libc.math cimport exp, fmax, fmin, log, sqrt
 from libc.stdint cimport uint8_t, uint32_t
-from libc.stdlib cimport calloc, free
+from libc.stdlib cimport abort, calloc, free
 
 ctypedef uint8_t u8
 ctypedef uint32_t u32
@@ -346,9 +346,17 @@ cpdef void viterbi(
 		f64* a_thr
 		f64* t_thr
 	with nogil, parallel():
+		# Thread-local buffer allocation
 		i_thr = <u8*>calloc(W*K, sizeof(u8))
+		if i_thr is NULL:
+			abort()
 		a_thr = <f64*>calloc(W*K, sizeof(f64))
+		if a_thr is NULL:
+			abort()
 		t_thr = <f64*>calloc(K*K, sizeof(f64))
+		if t_thr is NULL:
+			abort()
+
 		for i in prange(N, schedule='guided'):
 			_trans(t_thr, &Q[i,0], e, K)
 			_viterbi(i_thr, &E[i,0,0], a_thr, t_thr, &Q_log[i,0], W, K)
@@ -373,10 +381,20 @@ cpdef void fwdbwd(
 		f64* t_thr
 		f64* v_thr
 	with nogil, parallel():
+		# Thread-local buffer allocation
 		a_thr = <f64*>calloc(W*K, sizeof(f64))
+		if a_thr is NULL:
+			abort()
 		b_thr = <f64*>calloc(W*K, sizeof(f64))
+		if b_thr is NULL:
+			abort()
 		t_thr = <f64*>calloc(K*K, sizeof(f64))
+		if t_thr is NULL:
+			abort()
 		v_thr = <f64*>calloc(K, sizeof(f64))
+		if v_thr is NULL:
+			abort()
+
 		for i in prange(N, schedule='guided'):
 			_trans(t_thr, &Q[i,0], e, K)
 			l_fwd = _forward(&E[i,0,0], a_thr, t_thr, &Q_log[i,0], v_thr, W, K)
@@ -398,7 +416,11 @@ cpdef void voting(
 		u8 k_cnt, k_idx
 		u8* k_thr
 	with nogil, parallel():
+		# Thread-local buffer allocation
 		k_thr = <u8*>calloc(K, sizeof(u8))
+		if k_thr is NULL:
+			abort()
+
 		for i in prange(N):
 			for w in range(W):
 				for a in range(A):
@@ -450,7 +472,11 @@ cpdef void stepQ(
 		omp.omp_lock_t mutex
 	omp.omp_init_lock(&mutex)
 	with nogil, parallel():
+		# Thread-local buffer allocation
 		q_thr = <f64*>calloc(N*K, sizeof(f64))
+		if q_thr is NULL:
+			abort()
+
 		for w in prange(W, schedule='guided'):
 			l = c_vec[w]
 			for i in range(N):
@@ -482,7 +508,11 @@ cpdef void stepBatchQ(
 		omp.omp_lock_t mutex
 	omp.omp_init_lock(&mutex)
 	with nogil, parallel():
+		# Thread-local buffer allocation
 		q_thr = <f64*>calloc(N*K, sizeof(f64))
+		if q_thr is NULL:
+			abort()
+
 		for w in prange(W, schedule='guided'):
 			r = s_bat[w]
 			l = c_vec[r]

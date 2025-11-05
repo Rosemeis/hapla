@@ -4,7 +4,7 @@ cimport openmp as omp
 from cython.parallel import parallel, prange
 from libc.math cimport exp, fmax, fmaxf, fmin, fminf, log, sqrtf
 from libc.stdint cimport uint8_t, uint32_t
-from libc.stdlib cimport calloc, free
+from libc.stdlib cimport abort, calloc, free
 
 ctypedef uint8_t u8
 ctypedef uint32_t u32
@@ -97,10 +97,12 @@ cdef inline void _outerAccelP(
 	cdef:
 		size_t c, k
 		f64 a, b
-		f64* p_sum = <f64*>calloc(K, sizeof(f64))
 		f64* p_c
 		f64* p_n
 		f64* p_t
+		f64* p_sum = <f64*>calloc(K, sizeof(f64))
+	if p_sum is NULL:
+		abort()
 	for c in range(B):
 		p_c = &p[c*K]
 		p_n = &p_new[c*K]
@@ -202,10 +204,12 @@ cdef inline void _computeP(
 	cdef:
 		size_t c, k
 		f64 a, b
-		f64* p_sum = <f64*>calloc(K, sizeof(f64))
 		f64* p0
 		f64* p1
 		f64* p2
+		f64* p_sum = <f64*>calloc(K, sizeof(f64))
+	if p_sum is NULL:
+		abort()
 	for c in range(B):
 		p0 = &P0[c*K]
 		p1 = &P1[c*K]
@@ -244,8 +248,10 @@ cdef inline void _projectP(
 	cdef:
 		size_t c, k
 		f32 a, b
-		f32* p_sum = <f32*>calloc(K, sizeof(f32))
 		f32* p_c
+		f32* p_sum = <f32*>calloc(K, sizeof(f32))
+	if p_sum is NULL:
+		abort()
 	for c in range(B):
 		p_c = &p[c*K]
 		for k in range(K):
@@ -310,8 +316,14 @@ cpdef void updateP(
 		omp.omp_lock_t mutex
 	omp.omp_init_lock(&mutex)
 	with nogil, parallel():
+		# Thread-local buffer allocation
 		p_thr = <f64*>calloc(L*K, sizeof(f64))
+		if p_thr is NULL:
+			abort()
 		q_thr = <f64*>calloc(N*K, sizeof(f64))
+		if q_thr is NULL:
+			abort()
+
 		for w in prange(W, schedule='guided'):
 			l = c_vec[w]
 			B = k_vec[w]
@@ -353,8 +365,14 @@ cpdef void accelP(
 		omp.omp_lock_t mutex
 	omp.omp_init_lock(&mutex)
 	with nogil, parallel():
+		# Thread-local buffer allocation
 		p_thr = <f64*>calloc(L*K, sizeof(f64))
+		if p_thr is NULL:
+			abort()
 		q_thr = <f64*>calloc(N*K, sizeof(f64))
+		if q_thr is NULL:
+			abort()
+
 		for w in prange(W, schedule='guided'):
 			l = c_vec[w]
 			B = k_vec[w]
@@ -396,8 +414,14 @@ cpdef void accelBatchP(
 		omp.omp_lock_t mutex
 	omp.omp_init_lock(&mutex)
 	with nogil, parallel():
+		# Thread-local buffer allocation
 		p_thr = <f64*>calloc(L*K, sizeof(f64))
+		if p_thr is NULL:
+			abort()
 		q_thr = <f64*>calloc(N*K, sizeof(f64))
+		if q_thr is NULL:
+			abort()
+
 		for w in prange(W, schedule='guided'):
 			r = s_bat[w]
 			l = c_vec[r]
@@ -432,11 +456,10 @@ cpdef void jumpP(
 		f64 c1, c2
 	c1 = _qnC(&P0[0], &P1[0], &P2[0], M)
 	c2 = 1.0 - c1
-	with nogil, parallel():
-		for w in prange(W, schedule='guided'):
-			l = c_vec[w]
-			B = k_vec[w]
-			_computeP(&P0[l], &P1[l], &P2[l], c1, c2, B, K)
+	for w in prange(W, schedule='guided'):
+		l = c_vec[w]
+		B = k_vec[w]
+		_computeP(&P0[l], &P1[l], &P2[l], c1, c2, B, K)
 
 # Batch accelerated jump for P (QN)
 cpdef void jumpBatchP(
@@ -450,12 +473,11 @@ cpdef void jumpBatchP(
 		f64 c1, c2
 	c1 = _qnBatch(&P0[0], &P1[0], &P2[0], &k_vec[0], &c_vec[0], &s_bat[0], W, K)
 	c2 = 1.0 - c1
-	with nogil, parallel():
-		for w in prange(W, schedule='guided'):
-			r = s_bat[w]
-			l = c_vec[r]
-			B = k_vec[r]
-			_computeP(&P0[l], &P1[l], &P2[l], c1, c2, B, K)
+	for w in prange(W, schedule='guided'):
+		r = s_bat[w]
+		l = c_vec[r]
+		B = k_vec[r]
+		_computeP(&P0[l], &P1[l], &P2[l], c1, c2, B, K)
 
 # Update Q
 cpdef void updateQ(
@@ -507,7 +529,11 @@ cpdef void createP(
 		size_t c, k, l, w
 		f64* p_sum
 	with nogil, parallel():
+		# Thread-local buffer allocation
 		p_sum = <f64*>calloc(K, sizeof(f64))
+		if p_sum is NULL:
+			abort()
+
 		for w in prange(W, schedule='guided'):
 			l = c_vec[w]
 			B = k_vec[w]
@@ -552,11 +578,10 @@ cpdef void projectP(
 		Py_ssize_t K = P.shape[1]
 		Py_ssize_t B
 		size_t l, w
-	with nogil, parallel():
-		for w in prange(W, schedule='guided'):
-			l = c_vec[w]
-			B = k_vec[w]
-			_projectP(&P[l,0], B, K)
+	for w in prange(W, schedule='guided'):
+		l = c_vec[w]
+		B = k_vec[w]
+		_projectP(&P[l,0], B, K)
 
 # Projection function for Q (f32)
 cpdef void projectQ(
@@ -598,8 +623,14 @@ cpdef void superP(
 		f64* c_sum
 		f64* p_sum
 	with nogil, parallel():
+		# Thread-local buffer allocation
 		c_sum = <f64*>calloc(K, sizeof(f64))
+		if c_sum is NULL:
+			abort()
 		p_sum = <f64*>calloc(K, sizeof(f64))
+		if p_sum is NULL:
+			abort()
+
 		for w in prange(W, schedule='guided'):
 			l = c_vec[w]
 			B = k_vec[w]
@@ -682,7 +713,11 @@ cpdef void stepQ(
 		omp.omp_lock_t mutex
 	omp.omp_init_lock(&mutex)
 	with nogil, parallel():
+		# Thread-local buffer allocation
 		q_thr = <f64*>calloc(N*K, sizeof(f64))
+		if q_thr is NULL:
+			abort()
+
 		for w in prange(W, schedule='guided'):
 			l = c_vec[w]
 			for i in range(2*N):
@@ -715,7 +750,11 @@ cpdef void stepBatchQ(
 		omp.omp_lock_t mutex
 	omp.omp_init_lock(&mutex)
 	with nogil, parallel():
+		# Thread-local buffer allocation
 		q_thr = <f64*>calloc(N*K, sizeof(f64))
+		if q_thr is NULL:
+			abort()
+
 		for w in prange(W, schedule='guided'):
 			r = s_bat[w]
 			l = c_vec[r]

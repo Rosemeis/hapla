@@ -4,7 +4,7 @@ cimport openmp as omp
 from cython.parallel import parallel, prange
 from libc.math cimport fmaxf, fminf, log
 from libc.stdint cimport uint8_t, uint32_t
-from libc.stdlib cimport calloc, free
+from libc.stdlib cimport abort, calloc, free
 
 ctypedef uint8_t u8
 ctypedef uint32_t u32
@@ -118,8 +118,14 @@ cpdef void assignClust(
 		omp.omp_lock_t mutex
 	omp.omp_init_lock(&mutex)
 	with nogil, parallel():
+		# Thread-local buffer allocation
 		n_thr = <u32*>calloc(K, sizeof(u32))
+		if n_thr is NULL:
+			abort()
 		C_thr = <u32*>calloc(K*M, sizeof(u32))
+		if C_thr is NULL:
+			abort()
+
 		for i in prange(U, schedule='static'):
 			h = &X[i,0]
 			z = 0

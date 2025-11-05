@@ -2,7 +2,7 @@
 cimport numpy as np
 from cython.parallel import parallel, prange
 from libc.stdint cimport uint8_t, int16_t, uint32_t
-from libc.stdlib cimport malloc, free
+from libc.stdlib cimport abort, malloc, free
 
 ctypedef uint8_t u8
 ctypedef uint32_t u32
@@ -106,7 +106,11 @@ cpdef void convertPlink(
 		size_t b, c, i, j, l, n, s, w, bit
 		u8* z_vec
 	with nogil, parallel():
+		# Thread-local buffer allocation
 		z_vec = <u8*>malloc(sizeof(u8)*N)
+		if z_vec is NULL:
+			abort()
+
 		for w in prange(W, schedule='static'):
 			s = c_vec[w]
 			for c in range(k_vec[w]):
