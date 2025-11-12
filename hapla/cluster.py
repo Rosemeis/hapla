@@ -160,7 +160,7 @@ def main(args, deaf):
 		X = np.zeros((N, args.size), dtype=np.uint8) # Haplotypes
 		R = np.zeros((args.max_clusters, args.size), dtype=np.uint8) # Medians
 		C = np.zeros((args.max_clusters, args.size), dtype=np.uint32) # Means
-		c_lim = np.uint32(max(floor(args.lmbda*float(X.shape[1])), 1)) # SNP-based threshold
+		c_lim = np.uint32(ceil(args.lmbda*float(X.shape[1]))) # SNP-based threshold
 
 	# Optional containers
 	if args.medians:
@@ -183,7 +183,7 @@ def main(args, deaf):
 			X = np.zeros((N, w_vec[w + 1] - S), dtype=np.uint8)
 			R = np.zeros((args.max_clusters, X.shape[1]), dtype=np.uint8)
 			C = np.zeros((args.max_clusters, X.shape[1]), dtype=np.uint32)
-			c_lim = np.uint32(max(floor(args.lmbda*float(X.shape[1])), 1))
+			c_lim = np.uint32(ceil(args.lmbda*float(X.shape[1])))
 
 		# Prepare last window
 		if w == (W - 1):
@@ -192,7 +192,7 @@ def main(args, deaf):
 			X = np.zeros((N, M - S), dtype=np.uint8)
 			R = np.zeros((args.max_clusters, X.shape[1]), dtype=np.uint8)
 			C = np.zeros((args.max_clusters, X.shape[1]), dtype=np.uint32)
-			c_lim = np.uint32(max(floor(args.lmbda*float(X.shape[1])), 1))
+			c_lim = np.uint32(ceil(args.lmbda*float(X.shape[1])))
 
 		# Load haplotype window
 		if args.memory:

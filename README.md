@@ -1,4 +1,4 @@
-# hapla (v0.50.1)
+# hapla (v0.51.0)
 ***hapla*** is a framework for performing window-based haplotype clustering in phased genotype data. The inferred haplotype cluster alleles can be used to infer fine-scale population structure, perform polygenic prediction and haplotype cluster based association studies.
 
 ### Citation
@@ -73,7 +73,7 @@ hapla cluster --bcf data.chr1.bcf --threads 8 --out hapla.chr1 --plink
 #	- hapla.chr1.fam
 ```
 
-The number of inferred haplotype clusters will depend on the chosen window size (`--size`), the number of allowed clusters per window (`--max-clusters`), as well as $\lambda$ (`--lmbda`) and the minimum haplotype cluster size. $\lambda$ represents the fraction of the specified window size in SNPs, which is required to create a new cluster based on Hamming distance, with a default setting of `--lmbda 0.0625`.  The minimum haplotype cluster size can be adjusted using either `--min-freq` or `--min-mac`. The default setting is a minimum haplotype cluster frequency of at least 0.005 for the cluster to be retained (`--min-freq 0.005`), using `--min-mac` will override any setting for `--min-freq`. Smaller clusters will be iteratively removed until all inferred clusters meet the frequency/count criterion.
+The number of inferred haplotype clusters will depend on the chosen window size (`--size`), the number of allowed clusters per window (`--max-clusters`), as well as $\lambda$ (`--lmbda`) and the minimum haplotype cluster size. $\lambda$ represents the fraction of the specified window size in SNPs, which is required to create a new cluster based on Hamming distance, with a default setting of `--lmbda 0.1`.  The minimum haplotype cluster size can be adjusted using either `--min-freq` or `--min-mac`. The default setting is a minimum haplotype cluster frequency of at least 0.005 for the cluster to be retained (`--min-freq 0.005`), using `--min-mac` will override any setting for `--min-freq`. Smaller clusters will be iteratively removed until all inferred clusters meet the frequency/count criterion.
 
 For larger sample sizes (N > 1000), prune outlier clusters (singletons and doubletons) before re-clustering step, using the `--prune` option, to speed up the haplotype clustering while producing nearly identical clustering results.
 
