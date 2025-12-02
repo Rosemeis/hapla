@@ -2,7 +2,7 @@
 cimport numpy as np
 cimport openmp as omp
 from cython.parallel import parallel, prange
-from libc.math cimport exp, fmax, fmaxf, fmin, fminf, log, sqrtf
+from libc.math cimport fmax, fmaxf, fmin, fminf, log, sqrtf
 from libc.stdint cimport uint8_t, uint32_t
 from libc.stdlib cimport abort, calloc, free
 
