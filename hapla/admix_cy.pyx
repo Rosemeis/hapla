@@ -14,7 +14,7 @@ ctypedef double f64
 cdef f64 PRO_MIN = 1e-5
 cdef f64 PRO_MAX = 1.0 - (1e-5)
 cdef f64 ACC_MIN = 1.0
-cdef f64 ACC_MAX = 128.0
+cdef f64 ACC_MAX = 96.0
 cdef f32 FLT_MIN = 1e-5
 cdef f32 FLT_MAX = 1.0 - (1e-5)
 cdef inline f64 _clamp1(f64 a) noexcept nogil: return fmax(PRO_MIN, fmin(a, PRO_MAX))
@@ -72,9 +72,11 @@ cdef inline void _outerP(
 	cdef:
 		size_t c, k
 		f64 a, b
-		f64* p_sum = <f64*>calloc(K, sizeof(f64))
 		f64* p_c
 		f64* p_t
+		f64* p_sum = <f64*>calloc(K, sizeof(f64))
+	if p_sum is NULL:
+		abort()
 	for c in range(B):
 		p_c = &p[c*K]
 		p_t = &p_thr[c*K]
