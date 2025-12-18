@@ -30,30 +30,34 @@ cpdef void readBit(
 
 # Convert 1-bit into full array and initialize cluster mean
 cpdef void convertBit(
-		const u8[:,::1] G, u8[:,::1] H, u32[:,::1] C, u32[::1] p_vec, u32[::1] d_vec, u32[::1] a_tmp, u32[::1] b_tmp, 
+		u8[:,::1] G, u32[:,::1] H, u32[:,::1] C, u32[::1] p_vec, u32[::1] d_vec, u32[::1] a_tmp, u32[::1] b_tmp, 
 		u32[::1] d_tmp, u32[::1] e_tmp, const u32 S
 	) noexcept nogil:
 	cdef:
 		Py_ssize_t B = G.shape[1]
 		Py_ssize_t M = H.shape[0]
 		Py_ssize_t N = H.shape[1]
-		size_t b, h, i, j, k, s, u, v, bit
+		size_t b, i, j, k, u, v, bit
 		u8 mask = 1
-		u8 g, byte
-		u32 f, l, p, q
+		u8 byte
+		u8* g
+		u32 a, f, l, p, q
+		u32* c = &C[0,0]
+		u32* h
 	# Populate haplotype matrix and cluster mean
 	for j in range(M):
-		h = 0
-		s = S + j
-		C[0,j] = 0
+		c[j] = 0
+		i = 0
+		h = &H[j,0]
+		g = &G[S + j,0]
 		for b in range(B):
-			byte = G[s,b]
+			byte = g[b]
 			for bit in range(8):
-				g = (byte >> bit) & mask
-				H[j,h] = g
-				C[0,j] += g
-				h += 1
-				if h == N:
+				a = (byte >> bit) & mask
+				h[i] = a
+				c[j] += a
+				i += 1
+				if i == N:
 					break
 	
 		# Populate suffix arrays
@@ -66,7 +70,7 @@ cpdef void convertBit(
 				p = l
 			if l > q:
 				q = l
-			if H[j,f] == 0:
+			if h[f] == 0:
 				a_tmp[u] = f
 				d_tmp[u] = p
 				u += 1
@@ -85,7 +89,7 @@ cpdef void convertBit(
 
 # Extract unique haplotypes from suffix arrays
 cpdef u32 uniqueBit(
-		const u8[:,::1] H, u8[:,::1] X, const u32[::1] p_vec, const u32[::1] d_vec, u32[::1] u_vec
+		const u32[:,::1] H, u32[:,::1] X, const u32[::1] p_vec, const u32[::1] d_vec, u32[::1] u_vec
 	) noexcept nogil:
 	cdef:
 		Py_ssize_t N = X.shape[0]

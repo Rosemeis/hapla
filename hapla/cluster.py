@@ -74,7 +74,7 @@ def main(args, deaf):
 	# Import numerical libraries and cython functions
 	import numpy as np
 	from cyvcf2 import VCF
-	from math import ceil, floor
+	from math import ceil
 	from hapla import reader_cy
 	from hapla import memory_cy
 	from hapla import cluster_cy
@@ -140,7 +140,7 @@ def main(args, deaf):
 
 	# Containers
 	Z = np.zeros((W, N), dtype=np.uint8) # Chromosome-based cluster assignments
-	z_vec = np.zeros(N, dtype=np.uint8) # Window-based cluster assignments 
+	z_vec = np.zeros(N, dtype=np.uint32) # Window-based cluster assignments 
 	k_vec = np.zeros(W, dtype=np.uint32) # Number of clusters in windows
 	c_vec = np.zeros(N, dtype=np.uint32) # Cost vector
 	u_vec = np.zeros(N, dtype=np.uint32) # Count of unique haplotypes
@@ -156,9 +156,9 @@ def main(args, deaf):
 	n_tmp = np.zeros_like(n_vec) # Help vector (size)
 	if args.size is not None: # Window length-based
 		if args.memory:
-			H = np.zeros((args.size, N), dtype=np.uint8) # Haplotypes transposed
-		X = np.zeros((N, args.size), dtype=np.uint8) # Haplotypes
-		R = np.zeros((args.max_clusters, args.size), dtype=np.uint8) # Medians
+			H = np.zeros((args.size, N), dtype=np.uint32) # Haplotypes transposed
+		X = np.zeros((N, args.size), dtype=np.uint32) # Haplotypes
+		R = np.zeros((args.max_clusters, args.size), dtype=np.uint32) # Medians
 		C = np.zeros((args.max_clusters, args.size), dtype=np.uint32) # Means
 		c_lim = np.uint32(ceil(args.lmbda*float(X.shape[1]))) # SNP-based threshold
 
@@ -179,18 +179,18 @@ def main(args, deaf):
 		# Prepare containers if window indices provided
 		if args.size is None:
 			if args.memory:
-				H = np.zeros((w_vec[w + 1] - S, N), dtype=np.uint8)
-			X = np.zeros((N, w_vec[w + 1] - S), dtype=np.uint8)
-			R = np.zeros((args.max_clusters, X.shape[1]), dtype=np.uint8)
+				H = np.zeros((w_vec[w + 1] - S, N), dtype=np.uint32)
+			X = np.zeros((N, w_vec[w + 1] - S), dtype=np.uint32)
+			R = np.zeros((args.max_clusters, X.shape[1]), dtype=np.uint32)
 			C = np.zeros((args.max_clusters, X.shape[1]), dtype=np.uint32)
 			c_lim = np.uint32(ceil(args.lmbda*float(X.shape[1])))
 
 		# Prepare last window
 		if w == (W - 1):
 			if args.memory:
-				H = np.zeros((M - S, N), dtype=np.uint8)
-			X = np.zeros((N, M - S), dtype=np.uint8)
-			R = np.zeros((args.max_clusters, X.shape[1]), dtype=np.uint8)
+				H = np.zeros((M - S, N), dtype=np.uint32)
+			X = np.zeros((N, M - S), dtype=np.uint32)
+			R = np.zeros((args.max_clusters, X.shape[1]), dtype=np.uint32)
 			C = np.zeros((args.max_clusters, X.shape[1]), dtype=np.uint32)
 			c_lim = np.uint32(ceil(args.lmbda*float(X.shape[1])))
 
@@ -267,7 +267,7 @@ def main(args, deaf):
 		if args.medians:
 			cluster_cy.estimateLoglike(R, C, L, n_vec, K)
 			with open(f"{args.out}.bcm", "ab") as f:
-				R[:K].tofile(f)
+				R[:K].astype(np.uint8).tofile(f)
 			with open(f"{args.out}.blk", "ab") as f:
 				L[:K,:K].tofile(f)
 

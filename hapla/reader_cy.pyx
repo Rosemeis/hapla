@@ -29,16 +29,18 @@ cpdef void convertHap(
 	cdef:
 		Py_ssize_t M = C.shape[1]
 		Py_ssize_t N = G.shape[1]
-		size_t i, j, k, s, u, v
+		size_t i, j, k, u, v
+		u8* g
 		u32 f, l, p, q
+		u32* c = &C[0,0]
 	for j in range(M):
-		s = S + j
+		c[j] = 0
 		u = v = 0
 		p = q = j + 1
-		C[0,j] = 0
+		g = &G[S + j,0]
 		for i in range(N):
 			# Add to cluster mean
-			C[0,j] += G[s,i]
+			c[j] += g[i]
 
 			# Suffix array updates
 			f = p_vec[i]
@@ -47,7 +49,7 @@ cpdef void convertHap(
 				p = l
 			if l > q:
 				q = l
-			if G[s,f] == 0:
+			if g[f] == 0:
 				a_tmp[u] = f
 				d_tmp[u] = p
 				u += 1
@@ -66,7 +68,7 @@ cpdef void convertHap(
 
 # Extract unique haplotypes from suffix arrays
 cpdef u32 uniqueHap(
-		const u8[:,::1] G, u8[:,::1] X, const u32[::1] p_vec, const u32[::1] d_vec, u32[::1] u_vec, const u32 S
+		const u8[:,::1] G, u32[:,::1] X, const u32[::1] p_vec, const u32[::1] d_vec, u32[::1] u_vec, const u32 S
 	) noexcept nogil:
 	cdef:
 		Py_ssize_t N = X.shape[0]

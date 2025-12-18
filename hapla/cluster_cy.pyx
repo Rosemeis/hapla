@@ -19,65 +19,65 @@ cdef inline f32 _clamp3(f32 a) noexcept nogil: return fmaxf(PRO_MIN, fminf(a, PR
 ### Inline functions
 # Inner function for marginal medians
 cdef inline void _marginal(
-		u8* r, u32* c, const u32 n, const Py_ssize_t M
+		u32* r, u32* c, const u32 n, const Py_ssize_t M
 	) noexcept nogil:
 	cdef:
 		size_t j
 	for j in range(M):
-		r[j] = 1 if c[j] > n else 0
+		r[j] = c[j] > n
 		c[j] = 0
 
 # Calculate Hamming distance
 cdef inline u32 _hammingDist(
-		const u8* h, const u8* r, const Py_ssize_t M
+		const u32* h, const u32* r, const Py_ssize_t M
 	) noexcept nogil:
 	cdef:
 		size_t j
-		u32 dist = 0
+		u32 d = 0
 	for j in range(M):
-		dist += (h[j] != r[j])
-	return dist
+		d += h[j]^r[j]
+	return d
 
 # Calculate Hamming distance and change assignments
 cdef inline u32 _hammingCheck(
-		const u8* z_vec, u8* z_pre, const Py_ssize_t U
+		const u32* z_vec, u32* z_pre, const Py_ssize_t U
 	) noexcept nogil:
 	cdef:
 		size_t i
-		u8 z1, z2
-		u32 dist = 0
+		u32 z
+		u32 d = 0
 	for i in range(U):
-		z1 = z_pre[i]
-		z2 = z_vec[i]
-		z_pre[i] = z2 if z1 != z2 else z1
-		dist += 1 if z1 != z2 else 0
-	return dist
+		z = z_vec[i]
+		d += (z != z_pre[i])
+		z_pre[i] = z
+	return d
 
 # Add haplotype contribution to frequency vector
 cdef inline void _addHaplo(
-		const u8* h, u32* c, const u32 u, const Py_ssize_t M
+		const u32* h, u32* c, const u32 u, const Py_ssize_t M
 	) noexcept nogil:
 	cdef:
 		size_t j
 	for j in range(M):
-		c[j] += u if h[j] == 1 else 0
+		c[j] += u*h[j]
 
 # Update cluster information
 cdef inline void _updateClust(
-		const u8* X, u8* R, u32* A, u32* B, const u32 u, const Py_ssize_t M
+		const u32* X, u32* R, u32* A, u32* B, const u32 u, const Py_ssize_t M
 	) noexcept nogil:
 	cdef:
 		size_t j
-		u8 x
+		u32 d, x
 	for j in range(M):
 		x = X[j]
+		d = u*x
 		R[j] = x
-		A[j] = u if x == 1 else 0
-		B[j] -= u if x == 1 else 0
+		A[j] = d
+		B[j] -= d
 
 # Estimate log-likelihood between cluster medians based on frequencies
 cdef inline f32 _logLike(
-		const u8* r, const u32* c, const f32 n, const Py_ssize_t M
+		const u32* r, const u32* c, const f32 n, const Py_ssize_t M
 	) noexcept nogil:
 	cdef:
 		size_t j
@@ -94,7 +94,7 @@ cdef inline f32 _logLike(
 ### Standard functions
 # Compute marginal medians and cluster variances
 cpdef void marginalMedians(
-		u8[:,::1] R, u32[:,::1] C, const u32[::1] n_vec, const Py_ssize_t K
+		u32[:,::1] R, u32[:,::1] C, const u32[::1] n_vec, const Py_ssize_t K
 	) noexcept nogil:
 	cdef:
 		Py_ssize_t M = R.shape[1]
@@ -105,14 +105,14 @@ cpdef void marginalMedians(
 
 # Compute distances and perform cluster assignment
 cpdef void assignClust(
-		u8[:,::1] X, const u8[:,::1] R, u32[:,::1] C, u8[::1] z_vec, u32[::1] c_vec, const u32[::1] n_vec, 
+		u32[:,::1] X, const u32[:,::1] R, u32[:,::1] C, u32[::1] z_vec, u32[::1] c_vec, const u32[::1] n_vec, 
 		u32[::1] n_tmp, const u32[::1] u_vec, const Py_ssize_t U, const Py_ssize_t K
 	) noexcept nogil:
 	cdef:
 		Py_ssize_t M = X.shape[1]
 		size_t i, k, x, y, z
-		u8* h
 		u32 c, d, u
+		u32* h
 		u32* n_thr
 		u32* C_thr
 		omp.omp_lock_t mutex
@@ -168,7 +168,7 @@ cpdef void updateN(
 
 # Check and generate new cluster
 cpdef u32 checkClust(
-		const u8[:,::1] X, u8[:,::1] R, u32[:,::1] C, u8[::1] z_vec, const u32[::1] c_vec, u32[::1] n_vec, 
+		const u32[:,::1] X, u32[:,::1] R, u32[:,::1] C, u32[::1] z_vec, const u32[::1] c_vec, u32[::1] n_vec, 
 		const u32[::1] u_vec, const u32 c_lim, const Py_ssize_t U, const Py_ssize_t K
 	) noexcept nogil:
 	cdef:
@@ -203,7 +203,7 @@ cpdef u32 checkClust(
 
 # Generate new cluster from no check
 cpdef void genClust(
-		const u8[:,::1] X, u8[:,::1] R, u32[:,::1] C, u8[::1] z_vec, const u32[::1] c_vec, u32[::1] n_vec, 
+		const u32[:,::1] X, u32[:,::1] R, u32[:,::1] C, u32[::1] z_vec, const u32[::1] c_vec, u32[::1] n_vec, 
 		const u32[::1] u_vec, const Py_ssize_t U, const Py_ssize_t K
 	) noexcept nogil:
 	cdef:
@@ -233,7 +233,7 @@ cpdef void genClust(
 	
 # Convergence check through hamming distance
 cpdef u32 countDist(
-		const u8[::1] z_vec, u8[::1] z_tmp, const Py_ssize_t U
+		const u32[::1] z_vec, u32[::1] z_tmp, const Py_ssize_t U
 	) noexcept nogil:
 	return _hammingCheck(&z_vec[0], &z_tmp[0], U)
 
@@ -257,13 +257,13 @@ cpdef u32 findZero(
 
 # Fix index of medians
 cpdef void medianFix(
-		u8[:,::1] R, u32[:,::1] C, u8[::1] z_vec, u32[::1] n_vec, const Py_ssize_t K, const Py_ssize_t U
+		u32[:,::1] R, u32[:,::1] C, u32[::1] z_vec, u32[::1] n_vec, const Py_ssize_t K, const Py_ssize_t U
 	) noexcept nogil:
 	cdef:
 		Py_ssize_t M = R.shape[1]
 		size_t c = 0
 		size_t i, j, k
-		u8 z
+		u32 z
 	for k in range(K):
 		if n_vec[k] > 0:
 			if k != c:
@@ -279,16 +279,16 @@ cpdef void medianFix(
 
 # Fix haplotype cluster assignments
 cpdef void assignFix(
-		u8[:,::1] Z, const u8[::1] z_vec, const u32[::1] p_vec, const u32[::1] d_vec, const size_t w
+		u8[:,::1] Z, const u32[::1] z_vec, const u32[::1] p_vec, const u32[::1] d_vec, const size_t w
 	) noexcept nogil:
 	cdef:
 		Py_ssize_t N = Z.shape[1]
 		size_t u = 0
 		size_t i
-		u8 z = z_vec[0]
+		u8 z = <u8>z_vec[0]
 	for i in range(N):
 		if d_vec[i] != 0:
-			z = z_vec[u]
+			z = <u8>z_vec[u]
 			u += 1
 		Z[w,p_vec[i]] = z
 
@@ -310,7 +310,7 @@ cpdef void resetArrays(
 
 # Estimate log-likelihoods between cluster medians
 cpdef void estimateLoglike(
-		u8[:,::1] R, u32[:,::1] C, f32[:,::1] L, u32[::1] n_vec, Py_ssize_t K
+		u32[:,::1] R, u32[:,::1] C, f32[:,::1] L, u32[::1] n_vec, Py_ssize_t K
 	) noexcept nogil:
 	cdef:
 		Py_ssize_t M = R.shape[1]
