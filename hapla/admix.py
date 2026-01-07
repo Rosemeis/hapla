@@ -325,17 +325,16 @@ def main(args, deaf):
 	if not args.no_freqs and (args.projection is None):
 		if F > 1: # Save P file for each file (chromosome)
 			for p in np.arange(F):
-				P_tmp = P[c_vec[f_vec[p]]:c_vec[f_vec[p + 1]]]
-				P_tmp.shape = (P_tmp.shape[0]//args.K, args.K)
+				P_tmp = P[c_vec[f_vec[p]]:c_vec[f_vec[p + 1]]].reshape(P_tmp.shape[0]//args.K, args.K)
 				np.savetxt(f"{args.out}.K{args.K}.s{args.seed}.{args.prefix}{p + 1}.P", P_tmp, fmt="%.6f")
+			del P_tmp
 			with open(f"{args.out}.K{args.K}.s{args.seed}.pfilelist", "w") as f:
 				for p in np.arange(F):
 					f.write(f"{args.out}.K{args.K}.s{args.seed}.{args.prefix}{p + 1}.P\n")
 			print(f"Saved P matrices as {args.out}.K{args.K}.s{args.seed}.{args.prefix}{{1..{F}}}.P")
 			print(f"Saved P matrix filelist as {args.out}.K{args.K}.s{args.seed}.pfilelist")
 		else: # Single file (chromosome)
-			P.shape = (M, args.K)
-			np.savetxt(f"{args.out}.K{args.K}.s{args.seed}.P", P, fmt="%.6f")
+			np.savetxt(f"{args.out}.K{args.K}.s{args.seed}.P", P.reshape(M, args.K), fmt="%.6f")
 			print(f"Saved P matrix as {args.out}.K{args.K}.s{args.seed}.P")
 
 	# Print elapsed time for computation
