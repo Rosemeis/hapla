@@ -2,7 +2,7 @@
 cimport numpy as np
 cimport openmp as omp
 from cython.parallel import parallel, prange
-from libc.math cimport exp, fmax, fmin, log
+from libc.math cimport exp, fmax, fmin, log, INFINITY
 from libc.stdint cimport uint8_t, uint32_t
 from libc.stdlib cimport abort, calloc, free
 
@@ -32,6 +32,8 @@ cdef inline f64 _logsumexp(
 	for k in range(1, K):
 		if vec[k] > max_v:
 			max_v = vec[k]
+	if max_v == -INFINITY:
+		return -INFINITY
 	for k in range(K):
 		sum_v += exp(vec[k] - max_v)
 	return log(sum_v) + max_v
@@ -179,8 +181,9 @@ cdef inline void _viterbi(
 		f64* e
 		f64* t
 	# First step
+	e = &E[0]
 	for k1 in range(K):
-		A[k1] = E[k1] + q[k1]
+		A[k1] = e[k1] + q[k1]
 
 	# Loop through sequence
 	for w in range(1, W):
@@ -227,8 +230,9 @@ cdef inline f64 _forward(
 		f64* e
 		f64* t
 	# Forward calculations
+	e = &E[0]
 	for k1 in range(K):
-		A[k1] = E[k1] + q[k1]
+		A[k1] = e[k1] + q[k1]
 	for w in range(1, W):
 		a = &A[(w - 1)*K]
 		e = &E[w*K]
