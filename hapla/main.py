@@ -187,6 +187,8 @@ def main():
 		metavar="INT", help="Number of initial mini-batches (8)")
 	parser_fatash.add_argument("--admix-check", type=int, default=5,
 		metavar="INT", help="Number of iterations between convergence checks (5)")
+	parser_fatash.add_argument("--simple-transition", action="store_true",
+		help="Use simplified transition probabibilities in HMM")
 
 	# Parse arguments
 	args = parser.parse_args()

@@ -169,6 +169,21 @@ cdef inline void _trans(
 			else:
 				t[k2] = log((1.0 - e)*q[k1])
 
+# Compute transition probabilities (simplified version)
+cdef inline void _transSimple(
+		f64* T, const f64* q, const f64 e, const Py_ssize_t K
+	) noexcept nogil:
+	cdef:
+		size_t k1, k2
+		f64* t
+	for k1 in range(K):
+		t = &T[k1*K]
+		for k2 in range(K):
+			if k1 == k2:
+				t[k2] = log(e)
+			else:
+				t[k2] = log((1.0 - e)*q[k1])
+
 # Compute Viterbi scores
 cdef inline void _viterbi(
 		u8* I, f64* E, f64* A, f64* T, f64* q, const Py_ssize_t W, const Py_ssize_t K
@@ -338,7 +353,7 @@ cpdef void softEmissions(
 ## Multithreaded functions
 # Viterbi algorithm
 cpdef void viterbi(
-		f64[:,:,::1] E, u8[:,::1] D, f64[:,::1] Q, f64[:,::1] Q_log, const f64 alpha
+		f64[:,:,::1] E, u8[:,::1] D, f64[:,::1] Q, f64[:,::1] Q_log, const f64 alpha , bint simpleTransition
 	) noexcept nogil:
 	cdef:
 		Py_ssize_t N = E.shape[0]
@@ -362,7 +377,10 @@ cpdef void viterbi(
 			abort()
 
 		for i in prange(N, schedule='guided'):
-			_trans(t_thr, &Q[i,0], e, K)
+			if simpleTransition:
+				_transSimple(t_thr, &Q[i,0], e, K)
+			else:
+				_trans(t_thr, &Q[i,0], e, K)
 			_viterbi(i_thr, &E[i,0,0], a_thr, t_thr, &Q_log[i,0], W, K)
 			_decode(i_thr, &D[i,0], &a_thr[(W - 1)*K], W, K)
 		free(i_thr)
@@ -371,7 +389,7 @@ cpdef void viterbi(
 
 # Forward-backward algorithm
 cpdef void fwdbwd(
-		f64[:,:,::1] E, f64[:,:,::1] L, f64[:,::1] Q, f64[:,::1] Q_log, const f64 alpha
+		f64[:,:,::1] E, f64[:,:,::1] L, f64[:,::1] Q, f64[:,::1] Q_log, const f64 alpha, bint simpleTransition
 	) noexcept nogil:
 	cdef:
 		Py_ssize_t N = E.shape[0]
@@ -400,7 +418,10 @@ cpdef void fwdbwd(
 			abort()
 
 		for i in prange(N, schedule='guided'):
-			_trans(t_thr, &Q[i,0], e, K)
+			if simpleTransition:
+				_transSimple(t_thr, &Q[i,0], e, K)
+			else:
+				_trans(t_thr, &Q[i,0], e, K)
 			l_fwd = _forward(&E[i,0,0], a_thr, t_thr, &Q_log[i,0], v_thr, W, K)
 			_backward(&E[i,0,0], &L[i,0,0], a_thr, b_thr, t_thr, v_thr, l_fwd, W, K)
 		free(a_thr)

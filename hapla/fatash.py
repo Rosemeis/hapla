@@ -253,12 +253,12 @@ def main(args, deaf):
 				print(f"with majority voting across {len(alpha)} alphas.")
 				D_bag = np.zeros((len(alpha), N, W_chr), dtype=np.uint8)
 				for a in range(len(alpha)):
-					fatash_cy.viterbi(E_chr, D_bag[a], Q_chr, Q_log, alpha[a])
+					fatash_cy.viterbi(E_chr, D_bag[a], Q_chr, Q_log, alpha[a], args.simple_transition)
 				fatash_cy.voting(D_bag, D_ind, K)
 				del D_bag
 			else:
 				print("with fixed alpha.")
-				fatash_cy.viterbi(E_chr, D_ind, Q_chr, Q_log, args.alpha)
+				fatash_cy.viterbi(E_chr, D_ind, Q_chr, Q_log, args.alpha, args.simple_transition)
 		else: # Compute posterior decoding
 			L_ind = np.zeros((N, W_chr, K))
 			if args.alpha is None:
@@ -266,15 +266,24 @@ def main(args, deaf):
 				print(f"with majority voting across {len(alpha)} alphas.")
 				D_ind = np.zeros((N, W_chr), dtype=np.uint8)
 				D_bag = np.zeros((len(alpha), N, W_chr), dtype=np.uint8)
+				L_bag = np.zeros((len(alpha), N, W_chr), dtype=float)
 				for a in range(len(alpha)):
-					fatash_cy.fwdbwd(E_chr, L_ind, Q_chr, Q_log, alpha[a])
+					fatash_cy.fwdbwd(E_chr, L_ind, Q_chr, Q_log, alpha[a], args.simple_transition)
 					D_bag[a] = L_ind.argmax(axis=2).astype(np.uint8)
+					L_bag[a] = L_ind.max(axis=2)
 				fatash_cy.voting(D_bag, D_ind, K)
+				L_bag = np.where((D_bag == D_ind[None, :, :]), L_bag, np.nan)
+				np.savetxt(f"{args.out}.{args.prefix}{z + 1}.prob", np.nanmedian(L_bag, axis=0) * np.mean(np.isfinite(L_bag), axis=0), fmt="%.3f")
+				print(f"Saved weighted median posterior probabilities as {args.out}.{args.prefix}{z + 1}.prob")
 				del D_bag
+				del L_bag
 			else:
 				print("with fixed alpha.")
-				fatash_cy.fwdbwd(E_chr, L_ind, Q_chr, Q_log, args.alpha)
+				fatash_cy.fwdbwd(E_chr, L_ind, Q_chr, Q_log, args.alpha, args.simple_transition)
 				D_ind = L_ind.argmax(axis=2).astype(np.uint8)
+
+				np.savetxt(f"{args.out}.prob", L_ind.max(axis=2), fmt="%.3f")
+				print(f"Saved posterior probabilities as {args.out}.prob")
 			del L_ind
 		del E_chr
 
