@@ -9,6 +9,7 @@ Paper in [*Nature Communications*](https://doi.org/10.1038/s41467-024-55477-3)\
 Preprint available on [medRxiv](https://doi.org/10.1101/2024.04.30.24306654)
 
 ***hapla admix***\
+Paper in [*HGG Advances*](https://doi.org/10.1016/j.xhgg.2026.100561)\
 Preprint available on [bioRxiv](https://doi.org/10.1101/2025.09.02.673718)
 
 ## Installation
