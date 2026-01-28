@@ -1,4 +1,4 @@
-# hapla (v0.52.0)
+# hapla (v0.60.0)
 ***hapla*** is a framework for performing window-based haplotype clustering in phased genotype data. The inferred haplotype cluster alleles can be used to infer fine-scale population structure, perform polygenic prediction and haplotype cluster based association studies.
 
 ### Citation
@@ -59,8 +59,8 @@ hapla cluster --bcf data.chr1.bcf --size 16 --step 8 --threads 8 --out hapla.chr
 # Cluster haplotypes in all chromosomes and save output path in a filelist
 for c in {1..22}
 do
-	hapla cluster --bcf data.chr${c}.bcf --size 16 --threads 8 --out hapla.chr${c}
-	echo "hapla.chr${c}" >> hapla.filelist
+    hapla cluster --bcf data.chr${c}.bcf --size 16 --threads 8 --out hapla.chr${c}
+    echo "hapla.chr${c}" >> hapla.filelist
 done
 ```
 
