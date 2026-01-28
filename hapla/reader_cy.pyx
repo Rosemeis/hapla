@@ -23,7 +23,7 @@ cpdef void readVar(
 
 # Initialize cluster mean and suffix arrays
 cpdef void convertHap(
-        const u8[:,::1] G, u32[:,::1] C, u32[::1] p_vec, u32[::1] d_vec, u32[::1] a_tmp, u32[::1] b_tmp, 
+        u8[:,::1] G, u32[:,::1] C, u32[::1] p_vec, u32[::1] d_vec, u32[::1] a_tmp, u32[::1] b_tmp, 
         u32[::1] d_tmp, u32[::1] e_tmp, const u32 S
     ) noexcept nogil:
     cdef:
