@@ -1,4 +1,4 @@
-# hapla (v0.60.0)
+# hapla (v0.61.0)
 ***hapla*** is a framework for performing window-based haplotype clustering in phased genotype data. The inferred haplotype cluster alleles can be used to infer fine-scale population structure, perform polygenic prediction and haplotype cluster based association studies.
 
 ### Citation
@@ -84,14 +84,14 @@ For larger sample sizes (N > 1000), prune outlier clusters (singletons and doubl
 Predict haplotype cluster assignments using pre-computed cluster medians in a new set of haplotypes (VCF/BCF format). SNP sets must be overlapping.
 ```bash
 # Cluster haplotypes in a chromosome with 'hapla cluster' and save cluster medians (--medians)
-hapla cluster --bcf ref.chr1.bcf --size 8 --threads 64 --out ref.chr1 --medians
+hapla cluster --bcf ref.chr1.bcf --size 8 --threads 8 --out ref.chr1 --medians
 # Saves haplotype cluster medians (besides standard binary hapla format)
 #	- ref.chr1.bcm
 #	- ref.chr1.blk
 #	- ref.chr1.wix
 
 # Predict assignments in a set of new haplotypes using haplotype cluster medians
-hapla predict --bcf new.chr1.bcf  --ref ref.chr1 --threads 64 --out new.chr1
+hapla predict --bcf new.chr1.bcf  --ref ref.chr1 --threads 8 --out new.chr1
 # Saves predicted haplotype cluster assignments in binary hapla format
 #	- new.chr1.bca
 #	- new.chr1.ids
@@ -102,14 +102,14 @@ Using `--medians` in `hapla cluster` outputs three extra files. A **.bcm**-file 
 (Prototype) Predict haplotype cluster assignments using pre-computed cluster medians in an *unphased* genotype dataset (VCF/BCF or binary PLINK format). SNP sets must be overlapping. **NOT** suitable for local ancestry inference.
 ```bash
 # Predict assignments in an unphased genotype dataset in VCF/BCF format (same command as above)
-hapla predict --bcf new.chr1.bcf  --ref ref.chr1 --threads 64 --out new.chr1
+hapla predict --bcf new.chr1.bcf  --ref ref.chr1 --threads 8 --out new.chr1
 # Saves predicted haplotype cluster assignments in binary hapla format
 #	- new.chr1.bca
 #	- new.chr1.ids
 #	- new.chr1.win
 
 # Predict assignments in an unphased genotype dataset in binary PLINK format (provide with file-prefix)
-hapla predict --bfile new.chr1 --ref ref.chr1 --threads 64 --out new.chr1
+hapla predict --bfile new.chr1 --ref ref.chr1 --threads 8 --out new.chr1
 # Saves predicted haplotype cluster assignments in binary hapla format
 #	- new.chr1.bca
 #	- new.chr1.ids
@@ -122,13 +122,13 @@ hapla predict --bfile new.chr1 --ref ref.chr1 --threads 64 --out new.chr1
 Infer population structure and estimate genome-wide relationship matrix (GRM) using haplotype cluster alleles.
 ```bash
 # Perform PCA on a single chromosome and extract top 20 eigenvectors
-hapla struct --clusters hapla.chr1 --threads 64 --pca 20 --out hapla.chr1
+hapla struct --clusters hapla.chr1 --threads 32 --pca 20 --out hapla.chr1
 # Saves eigenvalues and eigenvectors in text-format
 #	- hapla.chr1.eigenvecs
 #	- hapla.chr1.eigenvals
 
 # Perform PCA on all chromosomes (genome-wide) using filelist and extract top 20 eigenvectors. Save loadings and haplotype cluster frequencies.
-hapla struct --filelist hapla.filelist --threads 64 --pca 20 --out hapla --loadings
+hapla struct --filelist hapla.filelist --threads 32 --pca 20 --out hapla --loadings
 # Saves eigenvalues and eigenvectors in text-format
 #	- hapla.eigenvecs
 #	- hapla.eigenvals
@@ -136,14 +136,14 @@ hapla struct --filelist hapla.filelist --threads 64 --pca 20 --out hapla --loadi
 #	- hapla.freqs
 
 # Construct genome-wide relationship matrix (GRM)
-hapla struct --filelist hapla.filelist --threads 64 --grm --out hapla
+hapla struct --filelist hapla.filelist --threads 32 --grm --out hapla
 # Saves the GRM in binary GCTA format (float)
 #	- hapla.grm.bin
 #	- hapla.grm.N.bin
 #	- hapla.grm.id
 
 # Project samples on to existing PC space and extract eigenvectors
-hapla struct --filelist new.filelist --threads 64 --out new --projection hapla
+hapla struct --filelist new.filelist --threads 32 --out new --projection hapla
 # Saves eigenvalues and eigenvectors in text-format
 #	- new.project.eigenvecs
 ```
@@ -154,25 +154,25 @@ hapla struct --filelist new.filelist --threads 64 --out new --projection hapla
 Estimate ancestry proportions and ancestral haplotype cluster frequencies with a pre-specified number of sources (K). Using a modified `fastmixture` and `HaploNet` model for use with our haplotype clusters. Projection and supervised modes are also available.
 ```bash
 # Estimate ancestry proportions assuming K=3 ancestral sources for a single chromosome
-hapla admix --clusters hapla.chr1 --K 3 --seed 1 --threads 64 --out hapla.chr1
+hapla admix --clusters hapla.chr1 --K 3 --seed 1 --threads 32 --out hapla.chr1
 # Saves Q and P matrices in text-format
 #	- hapla.chr1.K3.s1.Q
 #	- hapla.chr1.K3.s1.P
 
 # Estimate ancestry proportions assuming K=3 ancestral sources using filelist with all chromosomes
-hapla admix --filelist hapla.filelist --K 3 --seed 1 --threads 64 --out hapla
+hapla admix --filelist hapla.filelist --K 3 --seed 1 --threads 32 --out hapla
 # Saves Q matrix and file-specific P matrices in text-format, including a filelist of the P matrices
 #	- hapla.K3.s1.Q
 #	- hapla.K3.s1.chr{1..22}.P
 #	- hapla.K3.s1.pfilelist
 
 # Estimate ancestry proportions in projection mode assuming K=3 ancestral sources using filelist with all chromosomes. Provide previously estimated ancestral haplotype cluster frequencies.
-hapla admix --filelist new.filelist --K 3 --seed 1 --threads 64 --projection hapla.K3.s1.pfilelist --out new
+hapla admix --filelist new.filelist --K 3 --seed 1 --threads 32 --projection hapla.K3.s1.pfilelist --out new
 # Saves Q matrix in text-format
 #	- new.project.K3.s1.Q
 
 # Estimate ancestry proportions in supervised mode assuming K=3 ancestral sources using filelist with all chromosomes. Provide a single column text-file with population labels of the samples as integers, where 0 indicates no label.
-hapla admix --filelist hapla.filelist --K 3 --seed 1 --threads 64 --supervised hapla.labels --out hapla.super
+hapla admix --filelist hapla.filelist --K 3 --seed 1 --threads 32 --supervised hapla.labels --out hapla.super
 # Saves Q and P matrices in text-format, including a filelist of the P matrices
 #	- hapla.super.K3.s1.Q
 #	- hapla.super.K3.s1.chr{1..22}.P
@@ -185,12 +185,12 @@ hapla admix --filelist hapla.filelist --K 3 --seed 1 --threads 64 --supervised h
 Infer local ancestry tracts using the admixture estimation from `hapla admix` in a hidden markov model. Based on a modified fastPHASE model for use with our haplotype clusters.
 ```bash
 # Infer local ancestry tracts for a single chromosome (posterior decoding)
-hapla fatash --clusters hapla.chr1 --qfile hapla.chr1.K3.s1.Q --pfile hapla.chr1.K3.s1.P --threads 16 --out hapla.chr1
+hapla fatash --clusters hapla.chr1 --qfile hapla.chr1.K3.s1.Q --pfile hapla.chr1.K3.s1.P --threads 32 --out hapla.chr1
 # Saves posterior decoding path in text-format
 #	- hapla.chr1.path
 
 # Infer local ancestry tracts using filelist with all chromosomes (Viterbi decoding)
-hapla fatash --filelist hapla.filelist --qfile hapla.K3.s1.Q --pfilelist hapla.K3.s1.pfilelist --threads 16 --out hapla --viterbi
+hapla fatash --filelist hapla.filelist --qfile hapla.K3.s1.Q --pfilelist hapla.K3.s1.pfilelist --threads 32 --out hapla --viterbi
 # Saves Viterbi decoding paths in text-files
 #	- hapla.chr{1..22}.path
 ```
