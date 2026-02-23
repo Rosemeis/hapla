@@ -311,7 +311,7 @@ cpdef void hardEmissions(
     ) noexcept nogil:
     cdef:
         Py_ssize_t N = E.shape[0]
-        Py_ssize_t W = E.shape[1]
+        Py_ssize_t W = Z.shape[1]
         Py_ssize_t K = E.shape[2]
         size_t i, k, w
         f64* e
@@ -330,7 +330,7 @@ cpdef void softEmissions(
     ) noexcept nogil:
     cdef:
         Py_ssize_t N = E.shape[0]
-        Py_ssize_t W = E.shape[1]
+        Py_ssize_t W = Z.shape[1]
         Py_ssize_t K = E.shape[2]
         Py_ssize_t B
         size_t c, i, k, s, w, x, z
