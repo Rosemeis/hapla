@@ -132,7 +132,7 @@ def main(args, deaf):
 
             # Add haplotype cluster assignments to container
             z_tmp = np.fromfile(f, dtype=np.uint8)
-            z_tmp.shape = (w_vec[z], 2 * N)
+            z_tmp = z_tmp.reshape(w_vec[z], 2 * N)
             Z[B : (B + w_vec[z]), :] = z_tmp
             B += w_vec[z]
         print(f"\rParsed file {z + 1}/{F}", end="")

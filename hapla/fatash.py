@@ -32,6 +32,7 @@ def main(args, deaf):
         assert args.pfile is not None, "Input formats don't match!"
     assert args.qfile is not None, "No Q file provided (--qfile)!"
     assert args.threads > 0, "Please select a valid number of threads!"
+    assert args.block > 0, "Please select a valid block size!"
     if args.alpha is not None:
         assert args.alpha > 0.0, "Please select a valid alpha value!"
     assert args.alpha_min < args.alpha_max, "Please select valid alpha exponents!"
@@ -46,6 +47,14 @@ def main(args, deaf):
         assert args.admix_batches > 0, "Please select a valid number of mini-batches!"
         assert args.admix_check > 0, (
             "Please select a valid value for convergence check!"
+        )
+    if args.min_length is not None:
+        assert args.min_length > 0, "Please select a valid minimum window length!"
+    if args.max_length is not None:
+        assert args.max_length > 0, "Please select a valid maximum window length!"
+    if args.quantile is not None:
+        assert (args.quantile > 0.0) and (args.quantile < 1.0), (
+            "Please select a valid quantile for window length boundaries!"
         )
     mode = "Viterbi" if args.viterbi else "posterior"
     start = time()
@@ -183,7 +192,7 @@ def main(args, deaf):
 
             # Add haplotype cluster assignments to container
             Z_chr = np.fromfile(f, dtype=np.uint8)
-            Z_chr.shape = (W_chr, N)
+            Z_chr = Z_chr.reshape(W_chr, N)
         assert np.max(k_chr) == (np.max(Z_chr) + 1), "Number of clusters doesn't match!"
 
         # Estimate chromosome-specific ancestry proportions
@@ -258,6 +267,41 @@ def main(args, deaf):
                 M_chr = np.fromfile(f, dtype=np.float32)
         del magic
 
+        # Enforce window length requirements
+        if (
+            (args.min_length is not None)
+            or (args.max_length is not None)
+            or (args.quantile is not None)
+        ):
+            # Load window information
+            l_vec = np.loadtxt(
+                f"{Z_list[z]}.win", dtype=np.uint32, skiprows=1, usecols=3
+            )
+
+            # Define window length boundaries
+            if args.quantile is not None:
+                q_min = (1.0 - args.quantile) / 2.0
+                q_max = 1.0 - q_min
+                b_chr = np.logical_and(
+                    l_vec >= np.quantile(l_vec, q_min),
+                    l_vec <= np.quantile(l_vec, q_max),
+                )
+            elif args.min_length is None:
+                b_chr = l_vec <= args.max_length
+            elif args.max_length is None:
+                b_chr = l_vec >= args.min_length
+            else:
+                b_chr = np.logical_and(
+                    l_vec >= args.min_length, l_vec <= args.max_length
+                )
+            b_chr = b_chr.astype(np.uint8)
+            print(
+                f"Excluding information from {W_chr - np.sum(b_chr)}/{W_chr} windows!"
+            )
+            del l_vec
+        else:  # Include all window information
+            b_chr = np.ones(W_chr, dtype=np.uint8)
+
         # Compute emission probabilities
         B_chr = ceil(W_chr / args.block)  # Number of blocks
         Z_chr = np.ascontiguousarray(Z_chr.T)  # Transpose for easier computations
@@ -267,12 +311,12 @@ def main(args, deaf):
             x_chr = np.insert(np.cumsum(k_chr * k_chr, dtype=np.uint32), 0, 0)
             fatash_cy.createLikes(M_chr, k_chr, x_chr)
             fatash_cy.softEmissions(
-                Z_chr, E_chr, P_chr, M_chr, k_chr, c_chr, x_chr, args.block
+                Z_chr, E_chr, P_chr, M_chr, b_chr, k_chr, c_chr, x_chr, args.block
             )
             del M_chr, x_chr
         else:
-            fatash_cy.hardEmissions(Z_chr, E_chr, P_chr, c_chr, args.block)
-        del Z_chr, P_chr, k_chr, c_chr
+            fatash_cy.hardEmissions(Z_chr, E_chr, P_chr, b_chr, c_chr, args.block)
+        del Z_chr, P_chr, b_chr, k_chr, c_chr
 
         # Multi-threaded HMM inference
         print(f"Performing {mode} decoding ", end="")

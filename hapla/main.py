@@ -403,7 +403,25 @@ def main():
         type=int,
         metavar="INT",
         default=1,
-        help="Number of genomic windows in block to increase smoothness"
+        help="Number of genomic windows in block to increase smoothness (1)"
+    )
+    parser_fatash.add_argument(
+        "--min-length",
+        type=int,
+        metavar="INT",
+        help="Minimum window length in BP to include in HMM"
+    )
+    parser_fatash.add_argument(
+        "--max-length",
+        type=int,
+        metavar="INT",
+        help="Maximum window length in BP to include in HMM"
+    )
+    parser_fatash.add_argument(
+        "--quantile",
+        type=float,
+        metavar="FLOAT",
+        help="Quantile of window lengths to include in HMM"
     )
     parser_fatash.add_argument(
         "--alpha",
@@ -451,7 +469,7 @@ def main():
         "--alpha-num",
         type=int,
         default=5,
-        help="Number of alpha values to evaluate"
+        help="Number of alpha values to evaluate (5)"
     )
     parser_fatash.add_argument(
         "--admix-seed",

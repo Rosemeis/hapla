@@ -14,7 +14,7 @@ ctypedef double f64
 cdef f64 PRO_MIN = 1e-5
 cdef f64 PRO_MAX = 1.0 - (1e-5)
 cdef f64 ACC_MIN = 1.0
-cdef f64 ACC_MAX = 128.0
+cdef f64 ACC_MAX = 96.0
 cdef inline f64 _clamp1(f64 a) noexcept nogil: return fmax(PRO_MIN, fmin(a, PRO_MAX))
 cdef inline f64 _clamp2(f64 a) noexcept nogil: return fmax(ACC_MIN, fmin(a, ACC_MAX))
 
@@ -23,7 +23,8 @@ cdef inline f64 _clamp2(f64 a) noexcept nogil: return fmax(ACC_MIN, fmin(a, ACC_
 ### Inline functions
 # Safe log-sum-exp for array
 cdef inline f64 _logsumexp(
-        const f64* vec, const Py_ssize_t K
+        const f64* vec, 
+        const Py_ssize_t K
     ) noexcept nogil:
     cdef:
         size_t k
@@ -40,14 +41,15 @@ cdef inline f64 _logsumexp(
 
 # Inner normalization function for likelihoods
 cdef inline void _normLikes(
-        f32* L, const u32 B
+        f32* L, 
+        const u32 B
     ) noexcept nogil:
     cdef:
         size_t c1, c2
         f32 sumC, tmpC
         f32* l
     for c1 in range(B):
-        l = &L[c1*B]
+        l = &L[c1 * B]
         sumC = 0.0
         for c2 in range(B):
             tmpC = exp(l[c2])
@@ -58,45 +60,55 @@ cdef inline void _normLikes(
 
 # Estimate individual allele frequency
 cdef inline f64 _computeL(
-        const f64* p, const f64* q, const Py_ssize_t K
+        const f64* p, 
+        const f64* q, 
+        const Py_ssize_t K
     ) noexcept nogil:
     cdef:
         size_t k
         f64 h = 0.0
     for k in range(K):
-        h += p[k]*q[k]
+        h += p[k] * q[k]
     return log(h)
 
 # Estimate inverse individual allele frequency
 cdef inline f64 _computeH(
-        const f64* p, const f64* q, const Py_ssize_t K
+        const f64* p, 
+        const f64* q, 
+        const Py_ssize_t K
     ) noexcept nogil:
     cdef:
         size_t k
         f64 h = 0.0
     for k in range(K):
-        h += p[k]*q[k]
-    return 1.0/h
+        h += p[k] * q[k]
+    return 1.0 / h
 
 # Inner loop updates for temp Q
 cdef inline void _innerQ(
-        const f64* p, f64* q_thr, const f64 h, const Py_ssize_t K
+        const f64* p, 
+        f64* q_thr, 
+        const f64 h, 
+        const Py_ssize_t K
     ) noexcept nogil:
     cdef:
         size_t k
     for k in range(K):
-        q_thr[k] += p[k]*h
+        q_thr[k] += p[k] * h
 
 # Outer loop update for Q
 cdef inline void _outerQ(
-        f64* q, f64* q_tmp, const f64 S, const Py_ssize_t K
+        f64* q, 
+        f64* q_tmp, 
+        const f64 S, 
+        const Py_ssize_t K
     ) noexcept nogil:
     cdef:
         size_t k
         f64 sumQ = 0.0
         f64 a, b
     for k in range(K):
-        a = q[k]*q_tmp[k]*S
+        a = q[k] * q_tmp[k] * S
         b = _clamp1(a)
         sumQ += b
         q[k] = b
@@ -106,14 +118,18 @@ cdef inline void _outerQ(
 
 # Outer loop accelerated update for Q
 cdef inline void _outerAccelQ(
-        const f64* q, f64* q_new, f64* q_tmp, const f64 S, const Py_ssize_t K
+        const f64* q, 
+        f64* q_new, 
+        f64* q_tmp, 
+        const f64 S, 
+        const Py_ssize_t K
     ) noexcept nogil:
     cdef:
         size_t k
         f64 sumQ = 0.0
         f64 a, b
     for k in range(K):
-        a = q[k]*q_tmp[k]*S
+        a = q[k] * q_tmp[k] * S
         b = _clamp1(a)
         sumQ += b
         q_new[k] = b
@@ -123,7 +139,10 @@ cdef inline void _outerAccelQ(
 
 # Estimate QN factor
 cdef inline f64 _qnC(
-        const f64* v0, const f64* v1, const f64* v2, const Py_ssize_t I
+        const f64* v0, 
+        const f64* v1, 
+        const f64* v2, 
+        const Py_ssize_t I
     ) noexcept nogil:
     cdef:
         size_t i
@@ -133,21 +152,26 @@ cdef inline f64 _qnC(
     for i in prange(I, schedule='guided'):
         u = v1[i] - v0[i]
         v = v2[i] - v1[i] - u
-        sum1 += u*u
-        sum2 += u*v
-    f = -(sum1/sum2)
+        sum1 += u * u
+        sum2 += u * v
+    f = -(sum1 / sum2)
     return _clamp2(f)
 
 # Estimate QN jump in Q
 cdef inline void _computeQ(
-        f64* q0, const f64* q1, const f64* q2, const f64 c1, const f64 c2, const Py_ssize_t K
+        f64* q0, 
+        const f64* q1, 
+        const f64* q2, 
+        const f64 c1, 
+        const f64 c2, 
+        const Py_ssize_t K
     ) noexcept nogil:
     cdef:
         size_t k
         f64 sumQ = 0.0
         f64 a, b
     for k in range(K):
-        a = c2*q1[k] + c1*q2[k]
+        a = c2 * q1[k] + c1 * q2[k]
         b = _clamp1(a)
         sumQ += b
         q0[k] = b
@@ -156,37 +180,49 @@ cdef inline void _computeQ(
 
 # Compute transition probabilities (T[k1,k2] = P(z_w = k1 | z_{w-1} = k2))
 cdef inline void _trans(
-        f64* T, const f64* q, const f64 e, const Py_ssize_t K
+        f64* T, 
+        const f64* q, 
+        const f64 e, 
+        const Py_ssize_t K
     ) noexcept nogil:
     cdef:
         size_t k1, k2
         f64* t
     for k1 in range(K):
-        t = &T[k1*K]
+        t = &T[k1 * K]
         for k2 in range(K):
             if k1 == k2:
-                t[k2] = log((1.0 - e)*q[k1] + e)
+                t[k2] = log((1.0 - e) * q[k1] + e)
             else:
-                t[k2] = log((1.0 - e)*q[k1])
+                t[k2] = log((1.0 - e) * q[k1])
 
 # Compute transition probabilities (simplified version)
 cdef inline void _simple(
-        f64* T, const f64* q, const f64 e, const Py_ssize_t K
+        f64* T, 
+        const f64* q, 
+        const f64 e, 
+        const Py_ssize_t K
     ) noexcept nogil:
     cdef:
         size_t k1, k2
         f64* t
     for k1 in range(K):
-        t = &T[k1*K]
+        t = &T[k1 * K]
         for k2 in range(K):
             if k1 == k2:
                 t[k2] = log(e)
             else:
-                t[k2] = log((1.0 - e)*q[k1])
+                t[k2] = log((1.0 - e) * q[k1])
 
 # Compute Viterbi scores
 cdef inline void _viterbi(
-        u8* I, f64* E, f64* A, f64* T, f64* q, const Py_ssize_t W, const Py_ssize_t K
+        u8* I, 
+        f64* E, 
+        f64* A, 
+        f64* T, 
+        f64* q, 
+        const Py_ssize_t W, 
+        const Py_ssize_t K
     ) noexcept nogil:
     cdef:
         size_t w, k1, k2
@@ -202,15 +238,15 @@ cdef inline void _viterbi(
 
     # Loop through sequence
     for w in range(1, W):
-        a = &A[w*K]
-        e = &E[w*K]
-        i = &I[w*K]
+        a = &A[w * K]
+        e = &E[w * K]
+        i = &I[w * K]
         for k1 in range(K):
-            t = &T[k1*K]
-            a[k1] = A[(w - 1)*K] + t[0]
+            t = &T[k1 * K]
+            a[k1] = A[(w - 1) * K] + t[0]
             i[k1] = 0
             for k2 in range(1, K):
-                tmp_k = A[(w - 1)*K + k2] + t[k2]
+                tmp_k = A[(w - 1) * K + k2] + t[k2]
                 if tmp_k > a[k1]:
                     a[k1] = tmp_k
                     i[k1] = k2
@@ -218,7 +254,11 @@ cdef inline void _viterbi(
 
 # Decode Viterbi path
 cdef inline void _decode(
-        u8* I, u8* d, f64* a, const Py_ssize_t W, const Py_ssize_t K
+        u8* I, 
+        u8* d, 
+        f64* a, 
+        const Py_ssize_t W, 
+        const Py_ssize_t K
     ) noexcept nogil:
     cdef:
         size_t k, w
@@ -233,11 +273,17 @@ cdef inline void _decode(
 
     # Decode full path
     for w in range(W - 2, -1, -1):
-        d[w] = I[(w + 1)*K + d[w + 1]]
+        d[w] = I[(w + 1) * K + d[w + 1]]
 
 # Compute forward scores
 cdef inline f64 _forward(
-        f64* E, f64* A, f64* T, f64* q, f64* v, const Py_ssize_t W, const Py_ssize_t K
+        f64* E, 
+        f64* A, 
+        f64* T, 
+        f64* q, 
+        f64* v, 
+        const Py_ssize_t W, 
+        const Py_ssize_t K
     ) noexcept nogil:
     cdef:
         size_t w, k1, k2
@@ -249,13 +295,13 @@ cdef inline f64 _forward(
     for k1 in range(K):
         A[k1] = e[k1] + q[k1]
     for w in range(1, W):
-        a = &A[(w - 1)*K]
-        e = &E[w*K]
+        a = &A[(w - 1) * K]
+        e = &E[w * K]
         for k1 in range(K):
-            t = &T[k1*K]
+            t = &T[k1 * K]
             for k2 in range(K):
                 v[k2] = a[k2] + t[k2]
-            A[w*K + k1] = _logsumexp(v, K) + e[k1]
+            A[w * K + k1] = _logsumexp(v, K) + e[k1]
 
     # Forward log-likelihood
     a = &A[(W - 1)*K]
@@ -265,7 +311,15 @@ cdef inline f64 _forward(
 
 # Compute backward scores
 cdef inline void _backward(
-        f64* E, f64* L, f64* A, f64* B, f64* T, f64* v, const f64 l_fwd, const Py_ssize_t W, const Py_ssize_t K
+        f64* E, 
+        f64* L, 
+        f64* A, 
+        f64* B, 
+        f64* T, 
+        f64* v, 
+        const f64 l_fwd, 
+        const Py_ssize_t W, 
+        const Py_ssize_t K
     ) noexcept nogil:
     cdef:
         size_t w, k1, k2
@@ -274,22 +328,22 @@ cdef inline void _backward(
         f64* e
         f64* l
     # Backward calculations
-    b = &B[(W - 1)*K]
+    b = &B[(W - 1) * K]
     for k1 in range(K):
         b[k1] = 0.0
     for w in range(W - 2, -1, -1):
-        b = &B[(w + 1)*K]
-        e = &E[(w + 1)*K]
+        b = &B[(w + 1) * K]
+        e = &E[(w + 1) * K]
         for k1 in range(K):
             for k2 in range(K):
-                v[k2] = b[k2] + e[k2] + T[k2*K + k1]
-            B[w*K + k1] = _logsumexp(v, K)
+                v[k2] = b[k2] + e[k2] + T[k2 * K + k1]
+            B[w * K + k1] = _logsumexp(v, K)
 
     # Compute posterior probabilities
     for w in range(W):
-        a = &A[w*K]
-        b = &B[w*K]
-        l = &L[w*K]
+        a = &A[w * K]
+        b = &B[w * K]
+        l = &L[w * K]
         for k1 in range(K):
             l[k1] = exp(a[k1] + b[k1] - l_fwd)
 
@@ -297,7 +351,9 @@ cdef inline void _backward(
 ### Standard functions
 # Convert log-likes to normalized likes
 cpdef void createLikes(
-        f32[::1] L, const u32[::1] k_vec, const u32[::1] x_vec
+        f32[::1] L, 
+        const u32[::1] k_vec, 
+        const u32[::1] x_vec
     ) noexcept nogil:
     cdef:
         Py_ssize_t W = k_vec.shape[0]
@@ -307,7 +363,12 @@ cpdef void createLikes(
 
 # Calculate emission probabilities using hard calls
 cpdef void hardEmissions(
-         const u8[:,::1] Z, f64[:,:,::1] E, f64[::1] P, const u32[::1] c_vec, const Py_ssize_t blk
+         const u8[:,::1] Z, 
+         f64[:,:,::1] E, 
+         f64[::1] P, 
+         const u8[::1] b_vec, 
+         const u32[::1] c_vec, 
+         const Py_ssize_t blk
     ) noexcept nogil:
     cdef:
         Py_ssize_t N = E.shape[0]
@@ -318,15 +379,22 @@ cpdef void hardEmissions(
         f64* p
     for i in prange(N, schedule='guided'):
         for w in range(W):
-            e = &E[i,w//blk,0]
-            p = &P[c_vec[w] + Z[i,w]*K]
+            e = &E[i,w // blk, 0]
+            p = &P[c_vec[w] + Z[i, w] * K]
             for k in range(K):
-                e[k] += log(p[k])
+                e[k] += log(p[k]) if b_vec[w] else 0.0
 
 # Calculate emission probabilities using cluster probabilities
 cpdef void softEmissions(
-        const u8[:,::1] Z, f64[:,:,::1] E, f64[::1] P, f32[::1] L, const u32[::1] k_vec, const u32[::1] c_vec, 
-        const u32[::1] x_vec, const Py_ssize_t blk
+        const u8[:, ::1] Z, 
+        f64[:, :, ::1] E, 
+        f64[::1] P, 
+        f32[::1] L, 
+        const u8[::1] b_vec, 
+        const u32[::1] k_vec,
+        const u32[::1] c_vec, 
+        const u32[::1] x_vec, 
+        const Py_ssize_t blk
     ) noexcept nogil:
     cdef:
         Py_ssize_t N = E.shape[0]
@@ -339,23 +407,28 @@ cpdef void softEmissions(
         f64* p
     for i in prange(N, schedule='guided'):
         for w in range(W):
-            z = Z[i,w]
+            z = Z[i, w]
             s = c_vec[w]
             x = x_vec[w]
             B = k_vec[w]
-            l = &L[x + z*B]
-            p = &P[c_vec[w] + z*K]
+            l = &L[x + z * B]
+            p = &P[c_vec[w] + z * K]
             for k in range(K):
                 e = 0.0
                 for c in range(B):
                     e += <f64>l[c]*p[k]
-                E[i,w//blk,k] += log(e)
+                E[i, w // blk,k] += log(e) if b_vec[w] else 0.0
 
 
 ## Multithreaded functions
 # Viterbi algorithm
 cpdef void viterbi(
-        f64[:,:,::1] E, u8[:,::1] D, f64[:,::1] Q, f64[:,::1] Q_log, const f64 alpha, bint simple
+        f64[:, :, ::1] E, 
+        u8[:, ::1] D, 
+        f64[:, ::1] Q, 
+        f64[:, ::1] Q_log, 
+        const f64 alpha, 
+        bint simple
     ) noexcept nogil:
     cdef:
         Py_ssize_t N = E.shape[0]
@@ -368,30 +441,31 @@ cpdef void viterbi(
         f64* t_thr
     with nogil, parallel():
         # Thread-local buffer allocation
-        i_thr = <u8*>calloc(W*K, sizeof(u8))
-        if i_thr is NULL:
-            abort()
-        a_thr = <f64*>calloc(W*K, sizeof(f64))
-        if a_thr is NULL:
-            abort()
-        t_thr = <f64*>calloc(K*K, sizeof(f64))
-        if t_thr is NULL:
+        i_thr = <u8*>calloc(W * K, sizeof(u8))
+        a_thr = <f64*>calloc(W * K, sizeof(f64))
+        t_thr = <f64*>calloc(K * K, sizeof(f64))
+        if (i_thr is NULL) or (a_thr is NULL) or (t_thr is NULL):
             abort()
 
         for i in prange(N, schedule='guided'):
             if simple:
-                _simple(t_thr, &Q[i,0], e, K)
+                _simple(t_thr, &Q[i, 0], e, K)
             else:
-                _trans(t_thr, &Q[i,0], e, K)
-            _viterbi(i_thr, &E[i,0,0], a_thr, t_thr, &Q_log[i,0], W, K)
-            _decode(i_thr, &D[i,0], &a_thr[(W - 1)*K], W, K)
+                _trans(t_thr, &Q[i, 0], e, K)
+            _viterbi(i_thr, &E[i, 0, 0], a_thr, t_thr, &Q_log[i, 0], W, K)
+            _decode(i_thr, &D[i, 0], &a_thr[(W - 1) * K], W, K)
         free(i_thr)
         free(a_thr)
         free(t_thr)
 
 # Forward-backward algorithm
 cpdef void fwdbwd(
-        f64[:,:,::1] E, f64[:,:,::1] L, f64[:,::1] Q, f64[:,::1] Q_log, const f64 alpha, bint simple
+        f64[:, :, ::1] E, 
+        f64[:, :, ::1] L, 
+        f64[:, ::1] Q, 
+        f64[:, ::1] Q_log, 
+        const f64 alpha, 
+        bint simple
     ) noexcept nogil:
     cdef:
         Py_ssize_t N = E.shape[0]
@@ -406,26 +480,20 @@ cpdef void fwdbwd(
         f64* v_thr
     with nogil, parallel():
         # Thread-local buffer allocation
-        a_thr = <f64*>calloc(W*K, sizeof(f64))
-        if a_thr is NULL:
-            abort()
-        b_thr = <f64*>calloc(W*K, sizeof(f64))
-        if b_thr is NULL:
-            abort()
-        t_thr = <f64*>calloc(K*K, sizeof(f64))
-        if t_thr is NULL:
-            abort()
+        a_thr = <f64*>calloc(W * K, sizeof(f64))
+        b_thr = <f64*>calloc(W * K, sizeof(f64))
+        t_thr = <f64*>calloc(K * K, sizeof(f64))
         v_thr = <f64*>calloc(K, sizeof(f64))
-        if v_thr is NULL:
+        if (a_thr is NULL) or (b_thr is NULL) or (t_thr is NULL) or (v_thr is NULL):
             abort()
 
         for i in prange(N, schedule='guided'):
             if simple:
-                _simple(t_thr, &Q[i,0], e, K)
+                _simple(t_thr, &Q[i, 0], e, K)
             else:
-                _trans(t_thr, &Q[i,0], e, K)
-            l_fwd = _forward(&E[i,0,0], a_thr, t_thr, &Q_log[i,0], v_thr, W, K)
-            _backward(&E[i,0,0], &L[i,0,0], a_thr, b_thr, t_thr, v_thr, l_fwd, W, K)
+                _trans(t_thr, &Q[i, 0], e, K)
+            l_fwd = _forward(&E[i, 0, 0], a_thr, t_thr, &Q_log[i, 0], v_thr, W, K)
+            _backward(&E[i, 0, 0], &L[i, 0, 0], a_thr, b_thr, t_thr, v_thr, l_fwd, W, K)
         free(a_thr)
         free(b_thr)
         free(t_thr)
@@ -433,7 +501,9 @@ cpdef void fwdbwd(
 
 # Majority voting across multiple alpha values
 cpdef void voting(
-        const u8[:,:,::1] B, u8[:,::1] D, const Py_ssize_t K
+        const u8[:, :, ::1] B, 
+        u8[:, ::1] D, 
+        const Py_ssize_t K
     ) noexcept nogil:
     cdef:
         Py_ssize_t A = B.shape[0]
@@ -451,7 +521,7 @@ cpdef void voting(
         for i in prange(N):
             for w in range(W):
                 for a in range(A):
-                    k_thr[B[a,i,w]] += 1
+                    k_thr[B[a, i, w]] += 1
                 k_cnt = k_thr[0]
                 k_idx = 0
                 k_thr[0] = 0
@@ -460,14 +530,18 @@ cpdef void voting(
                         k_cnt = k_thr[k]
                         k_idx = k
                     k_thr[k] = 0
-                D[i,w] = k_idx
+                D[i, w] = k_idx
         free(k_thr)
 
 
 ## Estimate file-specific ancestry proportions
 # Log-likelihood
 cpdef f64 loglike(
-        u8[:,::1] Z, f64[::1] P, const f64[:,::1] Q, const u32[::1] c_vec, const Py_ssize_t M
+        u8[:, ::1] Z, 
+        f64[::1] P, 
+        const f64[:, ::1] Q, 
+        const u32[::1] c_vec, 
+        const Py_ssize_t M
     ) noexcept nogil:
     cdef:
         Py_ssize_t W = Z.shape[0]
@@ -481,12 +555,16 @@ cpdef f64 loglike(
         l = c_vec[w]
         p = &P[l]
         for i in range(N):
-            r += _computeL(&p[Z[w,i]*K], &Q[i,0], K)
-    return r/((<f64>M)*(<f64>N))
+            r += _computeL(&p[Z[w, i] * K], &Q[i, 0], K)
+    return r / (<f64>M * <f64>N)
 
 # Update Q temp arrays
 cpdef void stepQ(
-        u8[:,::1] Z, f64[::1] P, const f64[:,::1] Q, f64[:,::1] Q_tmp, const u32[::1] c_vec
+        u8[:, ::1] Z, 
+        f64[::1] P, 
+        const f64[:, ::1] Q, 
+        f64[:, ::1] Q_tmp, 
+        const u32[::1] c_vec
     ) noexcept nogil:
     cdef:
         Py_ssize_t W = Z.shape[0]
@@ -500,29 +578,34 @@ cpdef void stepQ(
     omp.omp_init_lock(&mutex)
     with nogil, parallel():
         # Thread-local buffer allocation
-        q_thr = <f64*>calloc(N*K, sizeof(f64))
+        q_thr = <f64*>calloc(N * K, sizeof(f64))
         if q_thr is NULL:
             abort()
 
         for w in prange(W, schedule='guided'):
             l = c_vec[w]
             for i in range(N):
-                p = &P[l + Z[w,i]*K]
-                h = _computeH(p, &Q[i,0], K)
-                _innerQ(p, &q_thr[i*K], h, K)
+                p = &P[l + Z[w, i] * K]
+                h = _computeH(p, &Q[i, 0], K)
+                _innerQ(p, &q_thr[i * K], h, K)
 
         # omp critical
         omp.omp_set_lock(&mutex)
         for x in range(N):
             for y in range(K):
-                Q_tmp[x,y] += q_thr[x*K + y]
+                Q_tmp[x, y] += q_thr[x * K + y]
         omp.omp_unset_lock(&mutex)
         free(q_thr)
     omp.omp_destroy_lock(&mutex)
 
 # Batch accelerate update Q temp arrays
 cpdef void stepBatchQ(
-        u8[:,::1] Z, f64[::1] P, const f64[:,::1] Q, f64[:,::1] Q_tmp, const u32[::1] c_vec, const u32[::1] s_bat
+        u8[:, ::1] Z, 
+        f64[::1] P, 
+        const f64[:, ::1] Q, 
+        f64[:, ::1] Q_tmp, 
+        const u32[::1] c_vec, 
+        const u32[::1] s_bat
     ) noexcept nogil:
     cdef:
         Py_ssize_t W = s_bat.shape[0]
@@ -536,7 +619,7 @@ cpdef void stepBatchQ(
     omp.omp_init_lock(&mutex)
     with nogil, parallel():
         # Thread-local buffer allocation
-        q_thr = <f64*>calloc(N*K, sizeof(f64))
+        q_thr = <f64*>calloc(N * K, sizeof(f64))
         if q_thr is NULL:
             abort()
 
@@ -544,53 +627,60 @@ cpdef void stepBatchQ(
             r = s_bat[w]
             l = c_vec[r]
             for i in range(N):
-                p = &P[l + Z[r,i]*K]
-                h = _computeH(p, &Q[i,0], K)
-                _innerQ(p, &q_thr[i*K], h, K)
+                p = &P[l + Z[r, i]*K]
+                h = _computeH(p, &Q[i, 0], K)
+                _innerQ(p, &q_thr[i * K], h, K)
 
         # omp critical
         omp.omp_set_lock(&mutex)
         for x in range(N):
             for y in range(K):
-                Q_tmp[x,y] += q_thr[x*K + y]
+                Q_tmp[x, y] += q_thr[x * K + y]
         omp.omp_unset_lock(&mutex)
         free(q_thr)
     omp.omp_destroy_lock(&mutex)
 
 # Update Q
 cpdef void updateQ(
-        f64[:,::1] Q, f64[:,::1] Q_tmp, const Py_ssize_t W
+        f64[:, ::1] Q, 
+        f64[:, ::1] Q_tmp, 
+        const Py_ssize_t W
     ) noexcept nogil:
     cdef:
         Py_ssize_t N = Q.shape[0]
         Py_ssize_t K = Q.shape[1]
         size_t i, k
-        f64 S = 1.0/<f64>W
+        f64 S = 1.0 / <f64>W
     for i in prange(N, schedule='guided'):
-        _outerQ(&Q[i,0], &Q_tmp[i,0], S, K)
+        _outerQ(&Q[i, 0], &Q_tmp[i, 0], S, K)
 
 # Accelerated update Q
 cpdef void accelQ(
-        const f64[:,::1] Q, f64[:,::1] Q_new, f64[:,::1] Q_tmp, const Py_ssize_t W
+        const f64[:, ::1] Q, 
+        f64[:, ::1] Q_new, 
+        f64[:, ::1] Q_tmp, 
+        const Py_ssize_t W
     ) noexcept nogil:
     cdef:
         Py_ssize_t N = Q.shape[0]
         Py_ssize_t K = Q.shape[1]
         size_t i, k
-        f64 S = 1.0/<f64>W
+        f64 S = 1.0 / <f64>W
     for i in prange(N, schedule='guided'):
-        _outerAccelQ(&Q[i,0], &Q_new[i,0], &Q_tmp[i,0], S, K)
+        _outerAccelQ(&Q[i, 0], &Q_new[i, 0], &Q_tmp[i, 0], S, K)
 
 # Accelerated jump for Q (QN)
 cpdef void jumpQ(
-        f64[:,::1] Q0, const f64[:,::1] Q1, const f64[:,::1] Q2
+        f64[:, ::1] Q0, 
+        const f64[:, ::1] Q1, 
+        const f64[:, ::1] Q2
     ) noexcept nogil:
     cdef:
         Py_ssize_t N = Q0.shape[0]
         Py_ssize_t K = Q0.shape[1]
         size_t i, k
         f64 a, c1, c2
-    c1 = _qnC(&Q0[0,0], &Q1[0,0], &Q2[0,0], N*K)
+    c1 = _qnC(&Q0[0, 0], &Q1[0, 0], &Q2[0, 0], N * K)
     c2 = 1.0 - c1
     for i in prange(N, schedule='guided'):
-        _computeQ(&Q0[i,0], &Q1[i,0], &Q2[i,0], c1, c2, K)
+        _computeQ(&Q0[i, 0], &Q1[i, 0], &Q2[i, 0], c1, c2, K)

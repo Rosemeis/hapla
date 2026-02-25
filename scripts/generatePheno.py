@@ -47,7 +47,7 @@ with open(f"{args.bfile}.bed", "rb") as bed:
 B = ceil(N / 4)
 assert (D.shape[0] % B) == 0, "bim file doesn't match!"
 M = D.shape[0] // B
-D.shape = (M, B)
+D = D.reshape(M, B)
 print(f"\rLoaded genotype data: {N} samples and {M} SNPs.")
 
 ### Simulate phenotypes

@@ -135,7 +135,7 @@ def main(args, deaf):
             D = np.fromfile(bed, dtype=np.uint8, offset=3)
         assert (D.shape[0] % B) == 0, "bim file doesn't match!"
         M = D.shape[0] // B
-        D.shape = (M, B)
+        D = D.reshape(M, B)
 
         # Expand genotypes into 8-bit array
         if not args.memory:
@@ -199,7 +199,7 @@ def main(args, deaf):
 
         # Load haplotype window
         R_mat = R_arr[B : (B + k_win * b_win)]
-        R_mat.shape = (k_win, b_win)
+        R_mat = R_mat.reshape(k_win, b_win)
         if not unphased:  # Haplotypes
             X = np.zeros((N, R_mat.shape[1]), dtype=np.uint8)
             memory_cy.expandBit(

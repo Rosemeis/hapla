@@ -9,7 +9,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hapla"
-version = "0.61.0"
+version = "0.62.0"
 description = "Framework for haplotype clustering in phased genotype data"
 readme = "README.md"
 requires-python = ">=3.10"
