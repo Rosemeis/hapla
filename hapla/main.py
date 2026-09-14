@@ -467,6 +467,27 @@ def main():
         help="Use genome-wide ancestry proportions across all chromosomes",
     )
     parser_fatash.add_argument(
+        "--refine-iterations",
+        type=int,
+        default=0,
+        metavar="INT",
+        help="Number of posterior-based P/Q refinement iterations (0)",
+    )
+    parser_fatash.add_argument(
+        "--refine-p-weight",
+        type=float,
+        default=1,
+        metavar="FLOAT",
+        help="Weight of posterior-updated P during refinement (1)",
+    )
+    parser_fatash.add_argument(
+        "--refine-q-weight",
+        type=float,
+        default=1,
+        metavar="FLOAT",
+        help="Weight of posterior-updated Q during refinement (1)",
+    )
+    parser_fatash.add_argument(
         "--alpha-min",
         type=int,
         default=4,

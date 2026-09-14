@@ -42,6 +42,19 @@ def main(args, deaf):
     assert args.alpha_num % 2 != 0, (
         "Please select an uneven number alpha values to avoid ties!"
     )
+    assert args.refine_iterations >= 0, "Please select valid refinement iterations!"
+    assert 0.0 <= args.refine_p_weight <= 1.0, (
+        "Please select a valid P refinement weight!"
+    )
+    assert 0.0 <= args.refine_q_weight <= 1.0, (
+        "Please select a valid Q refinement weight!"
+    )
+    if args.refine_iterations:
+        assert not args.genome_wide, "Refinement is incompatible with --genome-wide!"
+        assert not args.viterbi, "Refinement requires posterior decoding!"
+        assert args.alpha is None, "Refinement requires the alpha ensemble!"
+        assert not args.medians, "Refinement currently requires hard cluster calls!"
+        assert args.block == 1, "Refinement currently requires --block 1!"
     if not args.genome_wide:
         assert args.admix_seed >= 0, "Please select a valid seed!"
         assert args.admix_iter > 0, "Please select a valid number of iterations!"
@@ -304,9 +317,38 @@ def main(args, deaf):
         else:  # Include all window information
             b_chr = np.ones(W_chr, dtype=np.uint8)
 
-        # Compute emission probabilities
+        # Refine P and Q from alpha-averaged ancestry posteriors
         B_chr = ceil(W_chr / args.block)  # Number of blocks
         Z_chr = np.ascontiguousarray(Z_chr.T)  # Transpose for easier computations
+        if args.refine_iterations:
+            assert np.sum(b_chr) > 0, "Refinement requires at least one window!"
+            P_base = np.copy(P_chr)
+            Q_base = np.copy(Q_chr)
+            alpha = np.logspace(-args.alpha_max, -args.alpha_min, args.alpha_num)
+            for r in range(args.refine_iterations):
+                ts = time()
+                E_ref = np.zeros((N, W_chr, K))
+                L_ref = np.zeros_like(E_ref)
+                L_tmp = np.zeros_like(E_ref)
+                fatash_cy.hardEmissions(Z_chr, E_ref, P_chr, b_chr, c_chr, 1)
+                for a in alpha:
+                    fatash_cy.fwdbwd(E_ref, L_tmp, Q_chr, Q_log, a, args.simple)
+                    L_ref += L_tmp
+                L_ref /= len(alpha)
+                fatash_cy.refineParams(
+                    Z_chr, L_ref, P_base, P_chr, Q_base, Q_chr,
+                    b_chr, k_chr, c_chr,
+                    args.refine_p_weight, args.refine_q_weight
+                )
+                Q_log = np.log(Q_chr)
+                del E_ref, L_ref, L_tmp
+                print(
+                    f"Refinement iteration {r + 1}/{args.refine_iterations}."
+                    f"\t\t({time() - ts:.1f}s)"
+                )
+            del P_base, Q_base
+
+        # Compute emission probabilities
         E_chr = np.zeros((N, B_chr, K))  # Emission probabilities
         if args.medians:
             # Normalize log-likelihoods

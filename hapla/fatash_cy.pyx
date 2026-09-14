@@ -419,6 +419,113 @@ cpdef void softEmissions(
                     e += <f64>l[c]*p[k]
                 E[i, w // blk,k] += log(e) if b_vec[w] else 0.0
 
+# Update cluster frequencies for one window from ancestry posteriors
+cdef inline void _refineP(
+        const u8[:, ::1] Z,
+        const f64[:, :, ::1] G,
+        const f64* p0,
+        f64* p,
+        f64* count,
+        const Py_ssize_t w,
+        const Py_ssize_t N,
+        const Py_ssize_t K,
+        const Py_ssize_t C,
+        const f64 eta
+    ) noexcept nogil:
+    cdef:
+        size_t c, i, k
+        f64 den, norm, value
+    for c in range(C * K):
+        count[c] = 0.0
+    for i in range(N):
+        for k in range(K):
+            count[Z[i, w] * K + k] += G[i, w, k]
+    for k in range(K):
+        den = 0.0
+        for c in range(C):
+            den += count[c * K + k]
+        norm = 0.0
+        for c in range(C):
+            value = (1.0 - eta) * p0[c * K + k] + eta * count[c * K + k] / den
+            p[c * K + k] = fmax(PRO_MIN, value)
+            norm += p[c * K + k]
+        for c in range(C):
+            p[c * K + k] /= norm
+
+# Update ancestry proportions for one haplotype from ancestry posteriors
+cdef inline void _refineQ(
+        const f64* g,
+        const f64* q0,
+        f64* q,
+        const u8* b,
+        const Py_ssize_t W,
+        const Py_ssize_t K,
+        const f64 den,
+        const f64 eta
+    ) noexcept nogil:
+    cdef:
+        size_t k, w
+        f64 norm = 0.0
+        f64 value
+    for k in range(K):
+        value = 0.0
+        for w in range(W):
+            value += g[w * K + k] if b[w] else 0.0
+        q[k] = fmax(PRO_MIN, (1.0 - eta) * q0[k] + eta * value / den)
+        norm += q[k]
+    for k in range(K):
+        q[k] /= norm
+
+# Update cluster frequencies and haplotype ancestry proportions from posteriors
+cpdef void refineParams(
+        const u8[:, ::1] Z,
+        const f64[:, :, ::1] G,
+        const f64[::1] P0,
+        f64[::1] P,
+        const f64[:, ::1] Q0,
+        f64[:, ::1] Q,
+        const u8[::1] b_vec,
+        const u32[::1] k_vec,
+        const u32[::1] c_vec,
+        const f64 eta_p,
+        const f64 eta_q
+    ) noexcept nogil:
+    cdef:
+        Py_ssize_t N = Z.shape[0]
+        Py_ssize_t W = Z.shape[1]
+        Py_ssize_t K = G.shape[2]
+        Py_ssize_t Cmax = 0
+        size_t c, i, w
+        f64 den = 0.0
+        f64* count
+
+    for w in range(W):
+        if k_vec[w] > Cmax:
+            Cmax = k_vec[w]
+
+    with nogil, parallel():
+        count = <f64*>calloc(Cmax * K, sizeof(f64))
+        if count is NULL:
+            abort()
+
+        for w in prange(W, schedule='guided'):
+            if b_vec[w]:
+                _refineP(
+                    Z, G, &P0[c_vec[w]], &P[c_vec[w]], count,
+                    w, N, K, k_vec[w], eta_p
+                )
+            else:
+                for c in range(k_vec[w] * K):
+                    P[c_vec[w] + c] = P0[c_vec[w] + c]
+        free(count)
+
+    for w in range(W):
+        den += b_vec[w]
+    for i in prange(N, schedule='guided'):
+        _refineQ(
+            &G[i, 0, 0], &Q0[i, 0], &Q[i, 0], &b_vec[0], W, K, den, eta_q
+        )
+
 
 ## Multithreaded functions
 # Viterbi algorithm
