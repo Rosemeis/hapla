@@ -606,6 +606,63 @@ cpdef void fwdbwd(
         free(t_thr)
         free(v_thr)
 
+# Alpha-averaged forward-backward algorithm
+cpdef void fwdbwdMean(
+        f64[:, :, ::1] E,
+        f64[:, :, ::1] L,
+        f64[:, ::1] Q,
+        f64[:, ::1] Q_log,
+        const f64[::1] alpha,
+        bint simple
+    ) noexcept nogil:
+    cdef:
+        Py_ssize_t N = E.shape[0]
+        Py_ssize_t W = E.shape[1]
+        Py_ssize_t K = E.shape[2]
+        Py_ssize_t A = alpha.shape[0]
+        size_t a, i, j
+        f64 e, l_fwd
+        f64* l
+        f64* a_thr
+        f64* b_thr
+        f64* l_thr
+        f64* t_thr
+        f64* v_thr
+    with nogil, parallel():
+        a_thr = <f64*>calloc(W * K, sizeof(f64))
+        b_thr = <f64*>calloc(W * K, sizeof(f64))
+        l_thr = <f64*>calloc(W * K, sizeof(f64))
+        t_thr = <f64*>calloc(K * K, sizeof(f64))
+        v_thr = <f64*>calloc(K, sizeof(f64))
+        if ((a_thr is NULL) or (b_thr is NULL) or (l_thr is NULL)
+                or (t_thr is NULL) or (v_thr is NULL)):
+            abort()
+
+        for i in prange(N, schedule='guided'):
+            l = &L[i, 0, 0]
+            for a in range(A):
+                e = exp(-alpha[a])
+                if simple:
+                    _simple(t_thr, &Q[i, 0], e, K)
+                else:
+                    _trans(t_thr, &Q[i, 0], e, K)
+                l_fwd = _forward(
+                    &E[i, 0, 0], a_thr, t_thr, &Q_log[i, 0], v_thr, W, K
+                )
+                _backward(
+                    &E[i, 0, 0], l_thr, a_thr, b_thr, t_thr, v_thr,
+                    l_fwd, W, K
+                )
+                for j in range(W * K):
+                    l[j] += l_thr[j]
+            for j in range(W * K):
+                l[j] /= A
+        free(a_thr)
+        free(b_thr)
+        free(l_thr)
+        free(t_thr)
+        free(v_thr)
+
 # Majority voting across multiple alpha values
 cpdef void voting(
         const u8[:, :, ::1] B, 

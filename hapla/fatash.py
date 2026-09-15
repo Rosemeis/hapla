@@ -329,19 +329,17 @@ def main(args, deaf):
                 ts = time()
                 E_ref = np.zeros((N, W_chr, K))
                 L_ref = np.zeros_like(E_ref)
-                L_tmp = np.zeros_like(E_ref)
                 fatash_cy.hardEmissions(Z_chr, E_ref, P_chr, b_chr, c_chr, 1)
-                for a in alpha:
-                    fatash_cy.fwdbwd(E_ref, L_tmp, Q_chr, Q_log, a, args.simple)
-                    L_ref += L_tmp
-                L_ref /= len(alpha)
+                fatash_cy.fwdbwdMean(
+                    E_ref, L_ref, Q_chr, Q_log, alpha, args.simple
+                )
                 fatash_cy.refineParams(
                     Z_chr, L_ref, P_base, P_chr, Q_base, Q_chr,
                     b_chr, k_chr, c_chr,
                     args.refine_p_weight, args.refine_q_weight
                 )
                 Q_log = np.log(Q_chr)
-                del E_ref, L_ref, L_tmp
+                del E_ref, L_ref
                 print(
                     f"Refinement iteration {r + 1}/{args.refine_iterations}."
                     f"\t\t({time() - ts:.1f}s)"
