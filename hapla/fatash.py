@@ -33,6 +33,8 @@ def main(args, deaf):
     assert args.qfile is not None, "No Q file provided (--qfile)!"
     assert args.threads > 0, "Please select a valid number of threads!"
     assert args.block > 0, "Please select a valid block size!"
+    if args.phase_correct is not None:
+        assert args.phase_correct >= 0, "Please select a valid window distance!"
     if args.alpha is not None:
         assert args.alpha > 0.0, "Please select a valid alpha value!"
     assert args.alpha_min < args.alpha_max, "Please select valid alpha exponents!"
@@ -40,6 +42,19 @@ def main(args, deaf):
     assert args.alpha_num % 2 != 0, (
         "Please select an uneven number alpha values to avoid ties!"
     )
+    assert args.refine_iterations >= 0, "Please select valid refinement iterations!"
+    assert 0.0 <= args.refine_p_weight <= 1.0, (
+        "Please select a valid P refinement weight!"
+    )
+    assert 0.0 <= args.refine_q_weight <= 1.0, (
+        "Please select a valid Q refinement weight!"
+    )
+    if args.refine_iterations:
+        assert not args.genome_wide, "Refinement is incompatible with --genome-wide!"
+        assert not args.viterbi, "Refinement requires posterior decoding!"
+        assert args.alpha is None, "Refinement requires the alpha ensemble!"
+        assert not args.medians, "Refinement currently requires hard cluster calls!"
+        assert args.block == 1, "Refinement currently requires --block 1!"
     if not args.genome_wide:
         assert args.admix_seed >= 0, "Please select a valid seed!"
         assert args.admix_iter > 0, "Please select a valid number of iterations!"
@@ -302,9 +317,36 @@ def main(args, deaf):
         else:  # Include all window information
             b_chr = np.ones(W_chr, dtype=np.uint8)
 
-        # Compute emission probabilities
+        # Refine P and Q from alpha-averaged ancestry posteriors
         B_chr = ceil(W_chr / args.block)  # Number of blocks
         Z_chr = np.ascontiguousarray(Z_chr.T)  # Transpose for easier computations
+        if args.refine_iterations:
+            assert np.sum(b_chr) > 0, "Refinement requires at least one window!"
+            P_base = np.copy(P_chr)
+            Q_base = np.copy(Q_chr)
+            alpha = np.logspace(-args.alpha_max, -args.alpha_min, args.alpha_num)
+            for r in range(args.refine_iterations):
+                ts = time()
+                E_ref = np.zeros((N, W_chr, K))
+                L_ref = np.zeros_like(E_ref)
+                fatash_cy.hardEmissions(Z_chr, E_ref, P_chr, b_chr, c_chr, 1)
+                fatash_cy.fwdbwdMean(
+                    E_ref, L_ref, Q_chr, Q_log, alpha, args.simple
+                )
+                fatash_cy.refineParams(
+                    Z_chr, L_ref, P_base, P_chr, Q_base, Q_chr,
+                    b_chr, k_chr, c_chr,
+                    args.refine_p_weight, args.refine_q_weight
+                )
+                Q_log = np.log(Q_chr)
+                del E_ref, L_ref
+                print(
+                    f"Refinement iteration {r + 1}/{args.refine_iterations}."
+                    f"\t\t({time() - ts:.1f}s)"
+                )
+            del P_base, Q_base
+
+        # Compute emission probabilities
         E_chr = np.zeros((N, B_chr, K))  # Emission probabilities
         if args.medians:
             # Normalize log-likelihoods
@@ -351,27 +393,15 @@ def main(args, deaf):
                         L_bag[a] = L_ind.max(axis=2)
                 fatash_cy.voting(D_bag, D_ind, K)
 
-                # Save posterior probabilities
+                # Compute posterior probabilities
                 if args.save_posteriors:
-                    L_bag = np.where((D_bag == D_ind[None, :, :]), L_bag, np.nan)
-                    L_bag = np.nanmedian(L_bag, axis=0) * np.mean(
-                        np.isfinite(L_bag), axis=0
+                    L_prob = np.where(
+                        (D_bag == D_ind[None, :, :]), L_bag, np.nan
                     )
-                    if args.block > 1:  # Convert blocks back to windows
-                        L_bag = np.repeat(
-                            L_bag,
-                            np.append(
-                                np.full(L_bag.shape[1] - 1, args.block),
-                                W_chr - ((B_chr - 1) * args.block),
-                            ),
-                            axis=1,
-                        )
-
-                    # Save matrices
-                    np.savetxt(f"{f_out}.prob", L_bag, fmt="%.3f")
-                    print(
-                        f"Saved weighted median posterior probabilities as {f_out}.prob"
+                    L_prob = np.nanmedian(L_prob, axis=0) * np.mean(
+                        np.isfinite(L_prob), axis=0
                     )
+                    prob_mode = "weighted median posterior probabilities"
                     del L_bag
                 del D_bag
             else:
@@ -379,34 +409,41 @@ def main(args, deaf):
                 fatash_cy.fwdbwd(E_chr, L_ind, Q_chr, Q_log, args.alpha, args.simple)
                 D_ind = L_ind.argmax(axis=2).astype(np.uint8)
 
-                # Save posterior probabilities
+                # Compute posterior probabilities
                 if args.save_posteriors:
-                    if args.block > 1:  # Convert blocks back to windows
-                        L_ind = np.repeat(
-                            L_ind.max(axis=2),
-                            np.append(
-                                np.full(L_ind.shape[1] - 1, args.block),
-                                W_chr - ((B_chr - 1) * args.block),
-                            ),
-                            axis=1,
-                        )
-
-                    # Save matrices
-                    np.savetxt(f"{f_out}.prob", L_ind, fmt="%.3f")
-                    print(f"Saved posterior probabilities as {f_out}.prob")
+                    L_prob = L_ind.max(axis=2)
+                    prob_mode = "posterior probabilities"
             del L_ind
         del E_chr
 
         # Convert blocks back to windows
         if args.block > 1:
-            D_ind = np.repeat(
-                D_ind,
-                np.append(
-                    np.full(D_ind.shape[1] - 1, args.block),
-                    W_chr - ((B_chr - 1) * args.block),
-                ),
-                axis=1,
+            r_chr = np.append(
+                np.full(D_ind.shape[1] - 1, args.block),
+                W_chr - ((B_chr - 1) * args.block),
             )
+            D_ind = np.repeat(D_ind, r_chr, axis=1)
+            if args.save_posteriors and not args.viterbi:
+                L_prob = np.repeat(L_prob, r_chr, axis=1)
+            del r_chr
+
+        # Correct reciprocal phase switches
+        if args.phase_correct is not None:
+            if args.save_posteriors and not args.viterbi:
+                corrected = fatash_cy.phaseCorrect(
+                    D_ind, L_prob, args.phase_correct, True
+                )
+            else:
+                corrected = fatash_cy.phaseCorrect(
+                    D_ind, np.empty((0, 0)), args.phase_correct, False
+                )
+            print(f"Corrected {corrected} reciprocal phase switch(es).")
+
+        # Save posterior probabilities
+        if args.save_posteriors and not args.viterbi:
+            np.savetxt(f"{f_out}.prob", L_prob, fmt="%.3f")
+            print(f"Saved {prob_mode} as {f_out}.prob")
+            del L_prob
 
         # Save matrices
         np.savetxt(f"{f_out}.path", D_ind, fmt="%i")

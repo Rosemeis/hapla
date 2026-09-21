@@ -269,6 +269,11 @@ def main():
         "-o", "--out", default="hapla.admix", metavar="OUTPUT", help="Output prefix"
     )
     parser_admix.add_argument(
+        "--keep",
+        metavar="FILE",
+        help="File with sample IDs to include, one ID per line",
+    )
+    parser_admix.add_argument(
         "--seed", type=int, default=42, metavar="INT", help="Random seed (42)"
     )
     parser_admix.add_argument(
@@ -443,6 +448,14 @@ def main():
         help="Save posterior probabilities from posterior decoding",
     )
     parser_fatash.add_argument(
+        "--phase-correct",
+        nargs="?",
+        const=0,
+        type=int,
+        metavar="INT",
+        help="Correct reciprocal phase switches within a window distance (0)",
+    )
+    parser_fatash.add_argument(
         "--prefix",
         default="chr",
         metavar="OUTPUT",
@@ -452,6 +465,27 @@ def main():
         "--genome-wide",
         action="store_true",
         help="Use genome-wide ancestry proportions across all chromosomes",
+    )
+    parser_fatash.add_argument(
+        "--refine-iterations",
+        type=int,
+        default=0,
+        metavar="INT",
+        help="Number of posterior-based P/Q refinement iterations (0)",
+    )
+    parser_fatash.add_argument(
+        "--refine-p-weight",
+        type=float,
+        default=1,
+        metavar="FLOAT",
+        help="Weight of posterior-updated P during refinement (1)",
+    )
+    parser_fatash.add_argument(
+        "--refine-q-weight",
+        type=float,
+        default=1,
+        metavar="FLOAT",
+        help="Weight of posterior-updated Q during refinement (1)",
     )
     parser_fatash.add_argument(
         "--alpha-min",
@@ -510,6 +544,41 @@ def main():
         "--simple",
         action="store_true",
         help="Use simplified transition probabibilities in HMM",
+    )
+
+    # hapla eval
+    parser_eval = subparsers.add_parser("eval")
+    parser_eval.add_argument("--version", action="version", version=f"v{__version__}")
+    parser_eval.add_argument(
+        "-f",
+        "--filelist",
+        metavar="FILE",
+        help="Filelist with paths to haplotype cluster alleles files",
+    )
+    parser_eval.add_argument(
+        "-z",
+        "--clusters",
+        metavar="FILE",
+        help="Path to a single haplotype cluster alleles file",
+    )
+    parser_eval.add_argument(
+        "-q", "--qfile", metavar="FILE", help="Path to file with ancestry proportions"
+    )
+    parser_eval.add_argument(
+        "--keep",
+        metavar="FILE",
+        help="File with sample IDs to include, one ID per line, in Q row order",
+    )
+    parser_eval.add_argument(
+        "-t",
+        "--threads",
+        type=int,
+        default=1,
+        metavar="INT",
+        help="Number of threads (1)",
+    )
+    parser_eval.add_argument(
+        "-o", "--out", default="hapla.eval", metavar="OUTPUT", help="Output prefix"
     )
 
     # Parse arguments
@@ -573,6 +642,18 @@ def main():
 
             deaf = vars(parser_fatash.parse_args([]))
             fatash.main(args, deaf)
+
+
+    # hapla eval
+    if sys.argv[1] == "eval":
+        if len(sys.argv) < 3:
+            parser_eval.print_help()
+            sys.exit()
+        else:
+            from hapla import eval
+
+            deaf = vars(parser_eval.parse_args([]))
+            eval.main(args, deaf)
 
 
 ##### Define main #####

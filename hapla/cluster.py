@@ -263,7 +263,13 @@ def main(args, deaf):
 
             # Remove smallest clusters iterativly
             K_tmp = np.sum(n_vec > 0, dtype=np.uint32)
-            while K_tmp > 2:
+            N_min = N
+            reclust_converged = K_tmp <= 2
+            for _ in i_vec:
+                if K_tmp <= 2:
+                    reclust_converged = True
+                    break
+
                 # Re-assign haplotypes
                 cluster_cy.marginalMedians(R, C, n_vec, K)
                 cluster_cy.assignClust(X, R, C, z_vec, c_vec, n_vec, n_tmp, u_vec, U, K)
@@ -273,10 +279,24 @@ def main(args, deaf):
                 N_min = cluster_cy.findZero(n_vec, N, N_mac, K)
                 if N_min >= N_mac:  # Ensure convergence
                     if cluster_cy.countDist(z_vec, z_tmp, U) == 0:
+                        reclust_converged = True
                         break
                 else:
                     K_tmp -= 1  # Cluster removed
                     memoryview(z_tmp)[:] = memoryview(z_vec)
+                    if K_tmp <= 2:
+                        reclust_converged = True
+                        break
+
+            if not reclust_converged:
+                warn_msg = (
+                    "Warning: iterative re-clustering did not converge within "
+                    f"{args.max_iterations} iterations in window {w + 1}/{W}; "
+                    "continuing with current assignments."
+                )
+                print(f"\n{warn_msg}")
+                with open(f"{args.out}.log", "a") as log:
+                    log.write(f"{warn_msg}\n")
 
             # Re-cluster K = 2 case for consistency
             if (K_tmp == 2) and (N_min < N_mac):

@@ -511,6 +511,178 @@ cpdef void accelBatchP(
         free(q_thr)
     omp.omp_destroy_lock(&mutex)
 
+# Update P and Q temp arrays with missing assignments
+cpdef void updatePMiss(
+        u8[:, ::1] Z, 
+        const u8[:, ::1] Z_miss, 
+        f64[::1] P, 
+        f64[:, ::1] Q, 
+        f64[:, ::1] Q_tmp, 
+        const u32[::1] k_vec, 
+        const u32[::1] c_vec, 
+        const u32[::1] w_obs, 
+        const u32 L
+    ) noexcept nogil:
+    cdef:
+        Py_ssize_t W = Z.shape[0]
+        Py_ssize_t N = Q.shape[0]
+        Py_ssize_t K = Q.shape[1]
+        Py_ssize_t B
+        size_t i, l, s, w, x, y
+        f64 S
+        f64 h
+        f64* p
+        f64* q
+        f64* p_thr
+        f64* q_thr
+        omp.omp_lock_t mutex
+    omp.omp_init_lock(&mutex)
+    with nogil, parallel():
+        p_thr = <f64*>calloc(L * K, sizeof(f64))
+        q_thr = <f64*>calloc(N * K, sizeof(f64))
+        if (p_thr is NULL) or (q_thr is NULL):
+            abort()
+
+        for w in prange(W, schedule='guided'):
+            if w_obs[w] == 0:
+                continue
+            l = c_vec[w]
+            B = k_vec[w]
+            S = 1.0 / <f64>w_obs[w]
+            for i in range(N << 1):
+                if Z_miss[w, i] == 0:
+                    s = Z[w, i] * K
+                    p = &P[l + s]
+                    q = &Q[i >> 1, 0]
+                    h = _computeH(p, q, K)
+                    _innerJ(p, q, &p_thr[s], &q_thr[(i >> 1) * K], h, K)
+            _outerP(&P[l], p_thr, S, B, K)
+
+        omp.omp_set_lock(&mutex)
+        for x in range(N):
+            for y in range(K):
+                Q_tmp[x, y] += q_thr[x * K + y]
+        omp.omp_unset_lock(&mutex)
+        free(p_thr)
+        free(q_thr)
+    omp.omp_destroy_lock(&mutex)
+
+# Accelerated update P and Q temp arrays with missing assignments
+cpdef void accelPMiss(
+        u8[:, ::1] Z, 
+        const u8[:, ::1] Z_miss, 
+        f64[::1] P, 
+        f64[::1] P_new, 
+        f64[:, ::1] Q, 
+        f64[:, ::1] Q_tmp, 
+        const u32[::1] k_vec, 
+        const u32[::1] c_vec, 
+        const u32[::1] w_obs, 
+        const u32 L
+    ) noexcept nogil:
+    cdef:
+        Py_ssize_t W = Z.shape[0]
+        Py_ssize_t N = Q.shape[0]
+        Py_ssize_t K = Q.shape[1]
+        Py_ssize_t B
+        size_t i, l, s, w, x, y
+        f64 S
+        f64 h
+        f64* p
+        f64* q
+        f64* p_thr
+        f64* q_thr
+        omp.omp_lock_t mutex
+    omp.omp_init_lock(&mutex)
+    with nogil, parallel():
+        p_thr = <f64*>calloc(L * K, sizeof(f64))
+        q_thr = <f64*>calloc(N * K, sizeof(f64))
+        if (p_thr is NULL) or (q_thr is NULL):
+            abort()
+
+        for w in prange(W, schedule='guided'):
+            if w_obs[w] == 0:
+                continue
+            l = c_vec[w]
+            B = k_vec[w]
+            S = 1.0 / <f64>w_obs[w]
+            for i in range(N << 1):
+                if Z_miss[w, i] == 0:
+                    s = Z[w, i] * K
+                    p = &P[l + s]
+                    q = &Q[i >> 1, 0]
+                    h = _computeH(p, q, K)
+                    _innerJ(p, q, &p_thr[s], &q_thr[(i >> 1) * K], h, K)
+            _outerAccelP(&P[l], &P_new[l], p_thr, S, B, K)
+
+        omp.omp_set_lock(&mutex)
+        for x in range(N):
+            for y in range(K):
+                Q_tmp[x, y] += q_thr[x * K + y]
+        omp.omp_unset_lock(&mutex)
+        free(p_thr)
+        free(q_thr)
+    omp.omp_destroy_lock(&mutex)
+
+# Batch accelerated update P and Q temp arrays with missing assignments
+cpdef void accelBatchPMiss(
+        u8[:, ::1] Z, 
+        const u8[:, ::1] Z_miss, 
+        f64[::1] P, 
+        f64[::1] P_new, 
+        f64[:, ::1] Q, 
+        f64[:, ::1] Q_tmp, 
+        const u32[::1] k_vec, 
+        const u32[::1] c_vec, 
+        const u32[::1] s_bat, 
+        const u32[::1] w_obs, 
+        const u32 L
+    ) noexcept nogil:
+    cdef:
+        Py_ssize_t W = s_bat.shape[0]
+        Py_ssize_t N = Q.shape[0]
+        Py_ssize_t K = Q.shape[1]
+        Py_ssize_t B
+        size_t i, l, r, s, w, x, y
+        f64 S
+        f64 h
+        f64* p
+        f64* q
+        f64* p_thr
+        f64* q_thr
+        omp.omp_lock_t mutex
+    omp.omp_init_lock(&mutex)
+    with nogil, parallel():
+        p_thr = <f64*>calloc(L * K, sizeof(f64))
+        q_thr = <f64*>calloc(N * K, sizeof(f64))
+        if (p_thr is NULL) or (q_thr is NULL):
+            abort()
+
+        for w in prange(W, schedule='guided'):
+            r = s_bat[w]
+            if w_obs[r] == 0:
+                continue
+            l = c_vec[r]
+            B = k_vec[r]
+            S = 1.0 / <f64>w_obs[r]
+            for i in range(N << 1):
+                if Z_miss[r, i] == 0:
+                    s = Z[r, i] * K
+                    p = &P[l + s]
+                    q = &Q[i >> 1, 0]
+                    h = _computeH(p, q, K)
+                    _innerJ(p, q, &p_thr[s], &q_thr[(i >> 1) * K], h, K)
+            _outerAccelP(&P[l], &P_new[l], p_thr, S, B, K)
+
+        omp.omp_set_lock(&mutex)
+        for x in range(N):
+            for y in range(K):
+                Q_tmp[x, y] += q_thr[x * K + y]
+        omp.omp_unset_lock(&mutex)
+        free(p_thr)
+        free(q_thr)
+    omp.omp_destroy_lock(&mutex)
+
 # Accelerated jump for P (QN)
 cpdef void jumpP(
         f64[::1] P0, 
@@ -584,6 +756,46 @@ cpdef void accelQ(
         f64 S = 1.0 / <f64>(W << 1)
     for i in prange(N, schedule='guided'):
         _outerAccelQ(&Q[i, 0], &Q_new[i, 0], &Q_tmp[i, 0], S, K)
+
+# Update Q with observed assignment counts
+cpdef void updateQMiss(
+        f64[:, ::1] Q, 
+        f64[:, ::1] Q_tmp, 
+        const u32[::1] q_obs
+    ) noexcept nogil:
+    cdef:
+        Py_ssize_t N = Q.shape[0]
+        Py_ssize_t K = Q.shape[1]
+        size_t i, k
+        f64 S
+    for i in prange(N, schedule='guided'):
+        if q_obs[i] > 0:
+            S = 1.0 / <f64>q_obs[i]
+            _outerQ(&Q[i, 0], &Q_tmp[i, 0], S, K)
+        else:
+            for k in range(K):
+                Q_tmp[i, k] = 0.0
+
+# Accelerated update Q with observed assignment counts
+cpdef void accelQMiss(
+        const f64[:, ::1] Q, 
+        f64[:, ::1] Q_new, 
+        f64[:, ::1] Q_tmp, 
+        const u32[::1] q_obs
+    ) noexcept nogil:
+    cdef:
+        Py_ssize_t N = Q.shape[0]
+        Py_ssize_t K = Q.shape[1]
+        size_t i, k
+        f64 S
+    for i in prange(N, schedule='guided'):
+        if q_obs[i] > 0:
+            S = 1.0 / <f64>q_obs[i]
+            _outerAccelQ(&Q[i, 0], &Q_new[i, 0], &Q_tmp[i, 0], S, K)
+        else:
+            for k in range(K):
+                Q_new[i, k] = Q[i, k]
+                Q_tmp[i, k] = 0.0
 
 # Accelerated jump for Q (QN)
 cpdef void jumpQ(
@@ -659,6 +871,30 @@ cpdef f64 loglike(
             r += _computeL(&p[Z[w, i] * K], &Q[i >> 1, 0], K)
     return r * ((<f64>K) / ((<f64>M) * (<f64>N)))
 
+# Log-likelihood with missing assignments skipped
+cpdef f64 loglikeMiss(
+        u8[:, ::1] Z, 
+        const u8[:, ::1] Z_miss, 
+        f64[::1] P, 
+        const f64[:, ::1] Q, 
+        const u32[::1] c_vec
+    ) noexcept nogil:
+    cdef:
+        Py_ssize_t W = Z.shape[0]
+        Py_ssize_t N = Z.shape[1]
+        Py_ssize_t K = Q.shape[1]
+        Py_ssize_t M = P.shape[0]
+        size_t i, l, w
+        f64 r = 0.0
+        f64* p
+    for w in prange(W, schedule='guided'):
+        l = c_vec[w]
+        p = &P[l]
+        for i in range(N):
+            if Z_miss[w, i] == 0:
+                r += _computeL(&p[Z[w, i] * K], &Q[i >> 1, 0], K)
+    return r * ((<f64>K) / ((<f64>M) * (<f64>N)))
+
 # Projection function for P (f32)
 cpdef void projectP(
         f32[:, ::1] P, 
@@ -732,6 +968,59 @@ cpdef void superP(
             for i in range(N):
                 y = z[i >> 1]
                 if y > 0:
+                    P[l + Z[w, i], y - 1] += 1.0
+                    c_sum[y - 1] += 1.0
+            for c in range(B):
+                p = &P[l + c, 0]
+                for k in range(K):
+                    a = p[k]
+                    if c_sum[k] > 0.0:
+                        a = a / c_sum[k]
+                    b = _clamp1(a)
+                    p_sum[k] += b
+                    p[k] = b
+            for c in range(B):
+                p = &P[l + c, 0]
+                for k in range(K):
+                    p[k] /= p_sum[k]
+            for k in range(K):
+                c_sum[k] = 0.0
+                p_sum[k] = 0.0
+        free(c_sum)
+        free(p_sum)
+
+# Initialize P based on supervised samples while skipping missing assignments
+cpdef void superPMiss(
+        u8[:, ::1] Z, 
+        const u8[:, ::1] Z_miss, 
+        f64[:, ::1] P, 
+        const u32[::1] k_vec, 
+        const u32[::1] c_vec, 
+        u8[::1] z
+    ) noexcept nogil:
+    cdef:
+        Py_ssize_t W = Z.shape[0]
+        Py_ssize_t N = Z.shape[1]
+        Py_ssize_t K = P.shape[1]
+        Py_ssize_t B
+        size_t c, k, i, l, w
+        u8 y
+        f64 a, b
+        f64* p
+        f64* c_sum
+        f64* p_sum
+    with nogil, parallel():
+        c_sum = <f64*>calloc(K, sizeof(f64))
+        p_sum = <f64*>calloc(K, sizeof(f64))
+        if (c_sum is NULL) or (p_sum is NULL):
+            abort()
+
+        for w in prange(W, schedule='guided'):
+            l = c_vec[w]
+            B = k_vec[w]
+            for i in range(N):
+                y = z[i >> 1]
+                if y > 0 and Z_miss[w, i] == 0:
                     P[l + Z[w, i], y - 1] += 1.0
                     c_sum[y - 1] += 1.0
             for c in range(B):
@@ -839,6 +1128,47 @@ cpdef void stepQ(
         free(q_thr)
     omp.omp_destroy_lock(&mutex)
 
+# Update Q temp arrays in projection mode with missing assignments
+cpdef void stepQMiss(
+        u8[:, ::1] Z, 
+        const u8[:, ::1] Z_miss, 
+        f64[::1] P, 
+        const f64[:, ::1] Q, 
+        f64[:, ::1] Q_tmp, 
+        const u32[::1] c_vec
+    ) noexcept nogil:
+    cdef:
+        Py_ssize_t W = Z.shape[0]
+        Py_ssize_t N = Q.shape[0]
+        Py_ssize_t K = Q.shape[1]
+        size_t i, l, s, w, x, y
+        f64 h
+        f64* p
+        f64* q_thr
+        omp.omp_lock_t mutex
+    omp.omp_init_lock(&mutex)
+    with nogil, parallel():
+        q_thr = <f64*>calloc(N * K, sizeof(f64))
+        if q_thr is NULL:
+            abort()
+
+        for w in prange(W, schedule='guided'):
+            l = c_vec[w]
+            for i in range(N << 1):
+                if Z_miss[w, i] == 0:
+                    s = l + Z[w, i] * K
+                    p = &P[s]
+                    h = _computeH(p, &Q[i >> 1, 0], K)
+                    _innerQ(p, &q_thr[(i >> 1) * K], h, K)
+
+        omp.omp_set_lock(&mutex)
+        for x in range(N):
+            for y in range(K):
+                Q_tmp[x, y] += q_thr[x * K + y]
+        omp.omp_unset_lock(&mutex)
+        free(q_thr)
+    omp.omp_destroy_lock(&mutex)
+
 # Batch accelerate update Q temp arrays in projection mode
 cpdef void stepBatchQ(
         u8[:, ::1] Z, 
@@ -874,6 +1204,49 @@ cpdef void stepBatchQ(
                 _innerQ(p, &q_thr[(i >> 1) * K], h, K)
 
         # omp critical
+        omp.omp_set_lock(&mutex)
+        for x in range(N):
+            for y in range(K):
+                Q_tmp[x, y] += q_thr[x * K + y]
+        omp.omp_unset_lock(&mutex)
+        free(q_thr)
+    omp.omp_destroy_lock(&mutex)
+
+# Batch accelerate update Q temp arrays in projection mode with missing assignments
+cpdef void stepBatchQMiss(
+        u8[:, ::1] Z, 
+        const u8[:, ::1] Z_miss, 
+        f64[::1] P, 
+        const f64[:, ::1] Q, 
+        f64[:, ::1] Q_tmp, 
+        const u32[::1] c_vec, 
+        const u32[::1] s_bat
+    ) noexcept nogil:
+    cdef:
+        Py_ssize_t W = s_bat.shape[0]
+        Py_ssize_t N = Q.shape[0]
+        Py_ssize_t K = Q.shape[1]
+        size_t i, l, r, s, w, x, y
+        f64 h
+        f64* p
+        f64* q_thr
+        omp.omp_lock_t mutex
+    omp.omp_init_lock(&mutex)
+    with nogil, parallel():
+        q_thr = <f64*>calloc(N * K, sizeof(f64))
+        if q_thr is NULL:
+            abort()
+
+        for w in prange(W, schedule='guided'):
+            r = s_bat[w]
+            l = c_vec[r]
+            for i in range(N << 1):
+                if Z_miss[r, i] == 0:
+                    s = l + Z[r, i] * K
+                    p = &P[s]
+                    h = _computeH(p, &Q[i >> 1, 0], K)
+                    _innerQ(p, &q_thr[(i >> 1) * K], h, K)
+
         omp.omp_set_lock(&mutex)
         for x in range(N):
             for y in range(K):

@@ -101,7 +101,7 @@ cpdef void haplotypeAggregate(
         size_t c, i, l, s, w
         u8* z
         f32 d = 1.0 / <f32>N
-    for w in prange(W, schedule='static'):
+    for w in range(W):
         s = c_vec[w]
         for c in range(k_vec[w]):
             l = s + c
@@ -132,6 +132,37 @@ cpdef void estimateFreq(
             for i in range(N):
                 p[l] += 1.0 if z[i] == c else 0.0
             p[l] *= d
+
+# Estimate haplotype cluster frequencies with missing assignments
+cpdef void estimateFreqMiss(
+        u8[:, ::1] Z, 
+        const u8[:, ::1] Z_miss, 
+        f32[::1] p, 
+        const u32[::1] k_vec, 
+        const u32[::1] c_vec
+    ) noexcept nogil:
+    cdef:
+        Py_ssize_t W = Z.shape[0]
+        Py_ssize_t N = Z.shape[1]
+        size_t c, i, l, s, w
+        u32 obs
+        u8* z
+        const u8* m
+        f32 d
+    for w in range(W):
+        s = c_vec[w]
+        z = &Z[w, 0]
+        m = &Z_miss[w, 0]
+        obs = 0
+        for i in range(N):
+            obs += 1 if m[i] == 0 else 0
+        if obs > 0:
+            d = 1.0 / <f32>obs
+            for c in range(k_vec[w]):
+                l = s + c
+                for i in range(N):
+                    p[l] += 1.0 if (m[i] == 0 and z[i] == c) else 0.0
+                p[l] *= d
 
 # Center expanded batch haplotype cluster assignment matrix
 cpdef void centerZ(
@@ -221,6 +252,40 @@ cpdef void centerC(
             for i in range(N):
                 x[i] = (1.0 - u) if z[i << 1] == c else (0.0 - u)
                 x[i] += (1.0 - u) if z[(i << 1) + 1] == c else (0.0 - u)
+
+# Center batch haplotype cluster assignment matrix with missing assignments
+cpdef void centerCMiss(
+        u8[:, ::1] Z, 
+        const u8[:, ::1] Z_miss, 
+        f32[:, ::1] X, 
+        const f32[::1] p, 
+        const u32[::1] k_vec, 
+        const u32[::1] c_vec
+    ) noexcept nogil:
+    cdef:
+        Py_ssize_t W = Z.shape[0]
+        Py_ssize_t N = X.shape[1]
+        size_t c, i, l, s, h0, h1, w
+        u8* z
+        const u8* m
+        f32 u
+        f32* x
+    for w in prange(W, schedule='static'):
+        s = c_vec[w] - c_vec[0]
+        z = &Z[w, 0]
+        m = &Z_miss[w, 0]
+        for c in range(k_vec[w]):
+            l = s + c
+            u = p[l]
+            x = &X[l, 0]
+            for i in range(N):
+                h0 = i << 1
+                h1 = h0 + 1
+                x[i] = 0.0
+                if m[h0] == 0:
+                    x[i] += (1.0 - u) if z[h0] == c else (0.0 - u)
+                if m[h1] == 0:
+                    x[i] += (1.0 - u) if z[h1] == c else (0.0 - u)
 
 
 ### hapla predict

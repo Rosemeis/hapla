@@ -24,6 +24,8 @@ def main(args, deaf):
         "No input data (--filelist or --clusters)!"
     )
     assert args.K > 1, "Please select K > 1!"
+    if args.keep is not None:
+        assert os.path.isfile(args.keep), "Keep file doesn't exist!"
     assert args.threads > 0, "Please select a valid number of threads!"
     assert args.seed >= 0, "Please select a valid seed!"
     assert args.iter > 0, "Please select a valid number of iterations!"
@@ -76,6 +78,21 @@ def main(args, deaf):
     from hapla import admix_cy
     from hapla import shared_cy
 
+    def missing_file(z):
+        for suffix in (".bcmis", ".bca.miss", ".miss"):
+            m_file = f"{z}{suffix}"
+            if os.path.isfile(m_file):
+                return m_file
+        return None
+
+    def read_keep_ids(k_file):
+        ids = np.genfromtxt(k_file, dtype=np.str_, comments=None)
+        ids = np.asarray(ids)
+        if ids.ndim == 0:
+            ids = ids.reshape(1)
+        assert ids.ndim == 1, "Keep file must contain one sample ID per line!"
+        return np.atleast_1d(ids).astype(np.str_)
+
     # Prepare list of data files
     if args.filelist is not None:
         W = 0  # Counter for windows
@@ -89,13 +106,13 @@ def main(args, deaf):
                 assert os.path.isfile(f"{z}.ids"), "ids file doesn't exist!"
                 assert os.path.isfile(f"{z}.win"), "win file doesn't exist!"
                 if W == 0:  # First file
-                    z_ids = np.genfromtxt(f"{z}.ids", dtype=np.str_)
+                    z_ids = np.atleast_1d(np.genfromtxt(f"{z}.ids", dtype=np.str_))
                     k_vec = np.genfromtxt(f"{z}.win", dtype=np.uint32, usecols=[5])
-                    N = z_ids.shape[0]
+                    N_all = z_ids.shape[0]
                     W = k_vec.shape[0]
                     w_list = [W]
                 else:  # Loop files
-                    t_ids = np.genfromtxt(f"{z}.ids", dtype=np.str_)
+                    t_ids = np.atleast_1d(np.genfromtxt(f"{z}.ids", dtype=np.str_))
                     assert np.sum(z_ids != t_ids) == 0, (
                         "Samples don't match across files!"
                     )
@@ -106,7 +123,7 @@ def main(args, deaf):
         F = len(Z_list)
         w_vec = np.array(w_list, dtype=np.uint32)
         f_vec = np.insert(np.cumsum(w_vec, dtype=np.uint32), 0, 0)
-        del z_ids, t_ids, k_tmp, w_list
+        del w_list
     else:  # Single file (chromosome)
         F = 1
         Z_list = [args.clusters]
@@ -114,14 +131,34 @@ def main(args, deaf):
         assert os.path.isfile(f"{Z_list[0]}.ids"), "ids file doesn't exist!"
         assert os.path.isfile(f"{Z_list[0]}.win"), "win file doesn't exist!"
         k_vec = np.genfromtxt(f"{Z_list[0]}.win", dtype=np.uint32, usecols=[5])
-        N = np.genfromtxt(f"{Z_list[0]}.ids", dtype=np.str_).shape[0]
+        z_ids = np.atleast_1d(np.genfromtxt(f"{Z_list[0]}.ids", dtype=np.str_))
+        N_all = z_ids.shape[0]
         W = k_vec.shape[0]
         w_vec = np.array([W], dtype=np.uint32)
+
+    # Select samples from keep file
+    if args.keep is not None:
+        keep_ids = read_keep_ids(args.keep)
+        keep_idx = np.flatnonzero(np.isin(z_ids, keep_ids)).astype(np.uint32)
+        assert keep_idx.shape[0] > 0, "No samples from keep file found in ids file!"
+        hap_idx = np.empty(keep_idx.shape[0] * 2, dtype=np.uint32)
+        hap_idx[0::2] = 2 * keep_idx
+        hap_idx[1::2] = 2 * keep_idx + 1
+        N = keep_idx.shape[0]
+        print(f"Keeping {N}/{N_all} samples from {args.keep}.")
+        del keep_ids
+    else:
+        keep_idx = None
+        hap_idx = None
+        N = N_all
+    q_ids = z_ids if keep_idx is None else z_ids[keep_idx]
     print(f"Parsing {F} file(s).")
 
     # Load haplotype cluster assignments from binary hapla format
     B = 0
     Z = np.zeros((W, 2 * N), dtype=np.uint8)
+    Z_miss = None
+    miss_count = 0
     for z in np.arange(F):
         with open(f"{Z_list[z]}.bca", "rb") as f:
             # Check magic numbers
@@ -132,11 +169,47 @@ def main(args, deaf):
 
             # Add haplotype cluster assignments to container
             z_tmp = np.fromfile(f, dtype=np.uint8)
-            z_tmp = z_tmp.reshape(w_vec[z], 2 * N)
+            z_tmp = z_tmp.reshape(w_vec[z], 2 * N_all)
+            if hap_idx is not None:
+                z_tmp = z_tmp[:, hap_idx]
             Z[B : (B + w_vec[z]), :] = z_tmp
+
+            # Add missingness sidecar mask when present
+            m_file = missing_file(Z_list[z])
+            if m_file is not None:
+                m_tmp = np.fromfile(m_file, dtype=np.uint8)
+                m_size = w_vec[z] * 2 * N_all
+                if m_tmp.shape[0] == (m_size + 3):
+                    assert np.allclose(
+                        m_tmp[:3], np.array([7, 9, 14], dtype=np.uint8)
+                    ), "Magic number doesn't match missingness mask format!"
+                    m_tmp = m_tmp[3:]
+                assert m_tmp.shape[0] == m_size, (
+                    "Missingness mask doesn't match cluster assignments!"
+                )
+                m_tmp = m_tmp.reshape(w_vec[z], 2 * N_all)
+                if hap_idx is not None:
+                    m_tmp = m_tmp[:, hap_idx]
+                m_tmp = (m_tmp > 0).astype(np.uint8)
+                if np.any(m_tmp):
+                    if Z_miss is None:
+                        Z_miss = np.zeros_like(Z)
+                    Z_miss[B : (B + w_vec[z]), :] = m_tmp
+                    miss_count += np.sum(m_tmp, dtype=np.uint64)
             B += w_vec[z]
         print(f"\rParsed file {z + 1}/{F}", end="")
     del magic, z_tmp
+    has_missing = Z_miss is not None
+    if has_missing:
+        H_obs = (Z_miss.reshape(W, N, 2) == 0).sum(axis=2, dtype=np.uint32)
+        q_obs = np.sum(H_obs, axis=0, dtype=np.uint32)
+        w_obs = np.sum(Z_miss == 0, axis=1, dtype=np.uint32)
+        obs_count = np.sum(w_obs, dtype=np.uint64)
+    else:
+        H_obs = None
+        q_obs = None
+        w_obs = None
+        obs_count = np.uint64(W * 2 * N)
 
     # Count haplotype cluster alleles
     M = np.sum(k_vec, dtype=np.uint32)
@@ -150,6 +223,12 @@ def main(args, deaf):
         + f"- {W} windows\n"
         + f"- {M} clusters\n"
     )
+    if has_missing:
+        print(
+            "Detected missingness sidecar mask:\n"
+            + f"- {miss_count} missing assignments\n"
+            + f"- {obs_count} observed assignments\n"
+        )
 
     # Set up parameters
     rng = np.random.default_rng(args.seed)
@@ -160,6 +239,8 @@ def main(args, deaf):
             "Population assignment file doesn't exist!"
         )
         y = np.genfromtxt(args.supervised, dtype=np.uint8).reshape(-1)
+        if args.keep is not None and y.shape[0] == N_all:
+            y = y[keep_idx]
         assert y.shape[0] == N, "Number of samples differ between files!"
         assert np.max(y) <= args.K, "Wrong number of ancestral sources!"
         assert np.min(y) >= 0, "Wrong format for population assignments!"
@@ -176,7 +257,10 @@ def main(args, deaf):
         Q /= np.sum(Q, axis=1, keepdims=True)
         P[:, x] = 0.0
         c_tmp = np.insert(np.cumsum(k_vec, dtype=np.uint32), 0, 0)
-        admix_cy.superP(Z, P, k_vec, c_tmp, y)
+        if has_missing:
+            admix_cy.superPMiss(Z, Z_miss, P, k_vec, c_tmp, y)
+        else:
+            admix_cy.superP(Z, P, k_vec, c_tmp, y)
         admix_cy.superQ(Q, y)
         P = P.flatten()
         del x, c_tmp
@@ -233,13 +317,35 @@ def main(args, deaf):
             ts = time()
             p_vec = np.zeros(M, dtype=np.float32)
             c_tmp = np.insert(np.cumsum(k_vec, dtype=np.uint32), 0, 0)
-            shared_cy.estimateFreq(Z, p_vec, k_vec, c_tmp)
+            if has_missing:
+                shared_cy.estimateFreqMiss(Z, Z_miss, p_vec, k_vec, c_tmp)
+            else:
+                shared_cy.estimateFreq(Z, p_vec, k_vec, c_tmp)
             if F > 1:  # Initialize based on subsampled chromosomes/files
                 W_s = f_vec[ceil(F / args.subsampling)]
-                U_s, S, V = functions.centerSVD(
-                    Z, p_vec, k_vec, c_tmp, W_s, args.K, args.chunk, args.power, rng
-                )
-                U_r = functions.centerSub(Z, S, V, p_vec, k_vec, c_tmp, W_s, args.chunk)
+                if has_missing:
+                    U_s, S, V = functions.centerSVDMiss(
+                        Z,
+                        Z_miss,
+                        p_vec,
+                        k_vec,
+                        c_tmp,
+                        W_s,
+                        args.K,
+                        args.chunk,
+                        args.power,
+                        rng,
+                    )
+                    U_r = functions.centerSubMiss(
+                        Z, Z_miss, S, V, p_vec, k_vec, c_tmp, W_s, args.chunk
+                    )
+                else:
+                    U_s, S, V = functions.centerSVD(
+                        Z, p_vec, k_vec, c_tmp, W_s, args.K, args.chunk, args.power, rng
+                    )
+                    U_r = functions.centerSub(
+                        Z, S, V, p_vec, k_vec, c_tmp, W_s, args.chunk
+                    )
                 P, Q = functions.factorSub(
                     U_s,
                     U_r,
@@ -255,9 +361,23 @@ def main(args, deaf):
                 )
                 del U_s, U_r
             else:
-                U, S, V = functions.centerSVD(
-                    Z, p_vec, k_vec, c_tmp, W, args.K, args.chunk, args.power, rng
-                )
+                if has_missing:
+                    U, S, V = functions.centerSVDMiss(
+                        Z,
+                        Z_miss,
+                        p_vec,
+                        k_vec,
+                        c_tmp,
+                        W,
+                        args.K,
+                        args.chunk,
+                        args.power,
+                        rng,
+                    )
+                else:
+                    U, S, V = functions.centerSVD(
+                        Z, p_vec, k_vec, c_tmp, W, args.K, args.chunk, args.power, rng
+                    )
                 P, Q = functions.factorALS(
                     U, S, V, p_vec, k_vec, c_tmp, args.als_iter, args.als_tole, rng
                 )
@@ -276,20 +396,35 @@ def main(args, deaf):
         P2 = np.zeros_like(P)
 
     # Estimate initial log-likelihood
-    L_pre = admix_cy.loglike(Z, P, Q, c_vec)
+    if has_missing:
+        L_pre = admix_cy.loglikeMiss(Z, Z_miss, P, Q, c_vec)
+    else:
+        L_pre = admix_cy.loglike(Z, P, Q, c_vec)
     print(f"Initial log-like: {L_pre * L_nrm:.1f}")
 
     # Accelerated priming iteration
     ts = time()
     print("Priming iteration.", end="", flush=True)
     if args.projection is None:
-        functions.steps(Z, P, Q, Q_tmp, k_vec, c_vec, y, L)
-        functions.quasi(Z, P, Q, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, y, L)
-        functions.steps(Z, P, Q, Q_tmp, k_vec, c_vec, y, L)
+        if has_missing:
+            functions.stepsMiss(Z, Z_miss, P, Q, Q_tmp, k_vec, c_vec, y, L, w_obs, q_obs)
+            functions.quasiMiss(
+                Z, Z_miss, P, Q, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, y, L, w_obs, q_obs
+            )
+            functions.stepsMiss(Z, Z_miss, P, Q, Q_tmp, k_vec, c_vec, y, L, w_obs, q_obs)
+        else:
+            functions.steps(Z, P, Q, Q_tmp, k_vec, c_vec, y, L)
+            functions.quasi(Z, P, Q, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, y, L)
+            functions.steps(Z, P, Q, Q_tmp, k_vec, c_vec, y, L)
     else:
-        functions.proSteps(Z, P, Q, Q_tmp, c_vec)
-        functions.proQuasi(Z, P, Q, Q_tmp, Q1, Q2, c_vec)
-        functions.proSteps(Z, P, Q, Q_tmp, c_vec)
+        if has_missing:
+            functions.proStepsMiss(Z, Z_miss, P, Q, Q_tmp, c_vec, q_obs)
+            functions.proQuasiMiss(Z, Z_miss, P, Q, Q_tmp, Q1, Q2, c_vec, q_obs)
+            functions.proStepsMiss(Z, Z_miss, P, Q, Q_tmp, c_vec, q_obs)
+        else:
+            functions.proSteps(Z, P, Q, Q_tmp, c_vec)
+            functions.proQuasi(Z, P, Q, Q_tmp, Q1, Q2, c_vec)
+            functions.proSteps(Z, P, Q, Q_tmp, c_vec)
     print(f"\rPriming iteration.\t\t({time() - ts:.1f}s)\n")
 
     # Set up mini-batch parameters
@@ -312,26 +447,102 @@ def main(args, deaf):
                 s_end = W if b == (args.batches - 1) else (b + 1) * W_bat
                 s_bat = s_win[s_beg:s_end]
                 if args.projection is None:
-                    functions.batQuasi(
-                        Z, P, Q, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, s_bat, y, L
+                    if has_missing:
+                        functions.batQuasiMiss(
+                            Z,
+                            Z_miss,
+                            P,
+                            Q,
+                            Q_tmp,
+                            P1,
+                            P2,
+                            Q1,
+                            Q2,
+                            k_vec,
+                            c_vec,
+                            s_bat,
+                            y,
+                            L,
+                            w_obs,
+                            H_obs,
+                        )
+                    else:
+                        functions.batQuasi(
+                            Z, P, Q, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, s_bat, y, L
+                        )
+                else:
+                    if has_missing:
+                        functions.proBatchMiss(
+                            Z, Z_miss, P, Q, Q_tmp, Q1, Q2, c_vec, s_bat, H_obs
+                        )
+                    else:
+                        functions.proBatch(Z, P, Q, Q_tmp, Q1, Q2, c_vec, s_bat)
+            if args.projection is None:
+                if has_missing:
+                    functions.quasiMiss(
+                        Z,
+                        Z_miss,
+                        P,
+                        Q,
+                        Q_tmp,
+                        P1,
+                        P2,
+                        Q1,
+                        Q2,
+                        k_vec,
+                        c_vec,
+                        y,
+                        L,
+                        w_obs,
+                        q_obs,
                     )
                 else:
-                    functions.proBatch(Z, P, Q, Q_tmp, Q1, Q2, c_vec, s_bat)
-            if args.projection is None:
-                functions.quasi(Z, P, Q, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, y, L)
+                    functions.quasi(Z, P, Q, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, y, L)
             else:
-                functions.proQuasi(Z, P, Q, Q_tmp, Q1, Q2, c_vec)
+                if has_missing:
+                    functions.proQuasiMiss(Z, Z_miss, P, Q, Q_tmp, Q1, Q2, c_vec, q_obs)
+                else:
+                    functions.proQuasi(Z, P, Q, Q_tmp, Q1, Q2, c_vec)
         else:  # Full updates
             if args.projection is None:
-                functions.quasi(Z, P, Q, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, y, L)
-                functions.steps(Z, P, Q, Q_tmp, k_vec, c_vec, y, L)
+                if has_missing:
+                    functions.quasiMiss(
+                        Z,
+                        Z_miss,
+                        P,
+                        Q,
+                        Q_tmp,
+                        P1,
+                        P2,
+                        Q1,
+                        Q2,
+                        k_vec,
+                        c_vec,
+                        y,
+                        L,
+                        w_obs,
+                        q_obs,
+                    )
+                    functions.stepsMiss(
+                        Z, Z_miss, P, Q, Q_tmp, k_vec, c_vec, y, L, w_obs, q_obs
+                    )
+                else:
+                    functions.quasi(Z, P, Q, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, y, L)
+                    functions.steps(Z, P, Q, Q_tmp, k_vec, c_vec, y, L)
             else:
-                functions.proSteps(Z, P, Q, Q_tmp, c_vec)
-                functions.proQuasi(Z, P, Q, Q_tmp, Q1, Q2, c_vec)
+                if has_missing:
+                    functions.proStepsMiss(Z, Z_miss, P, Q, Q_tmp, c_vec, q_obs)
+                    functions.proQuasiMiss(Z, Z_miss, P, Q, Q_tmp, Q1, Q2, c_vec, q_obs)
+                else:
+                    functions.proSteps(Z, P, Q, Q_tmp, c_vec)
+                    functions.proQuasi(Z, P, Q, Q_tmp, Q1, Q2, c_vec)
 
         # Log-likelihood convergence check
         if ((it + 1) % args.check) == 0:
-            L_cur = admix_cy.loglike(Z, P, Q, c_vec)
+            if has_missing:
+                L_cur = admix_cy.loglikeMiss(Z, Z_miss, P, Q, c_vec)
+            else:
+                L_cur = admix_cy.loglike(Z, P, Q, c_vec)
             print(
                 f"({it + 1})\tLog-like: {L_cur * L_nrm:.1f}\t({time() - ts:.1f}s)",
                 flush=True,
@@ -347,11 +558,35 @@ def main(args, deaf):
                         print("Running standard updates.")
                     L_pre = L_cur
                     if args.projection is None:
-                        functions.quasi(
-                            Z, P, Q, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, y, L
-                        )
+                        if has_missing:
+                            functions.quasiMiss(
+                                Z,
+                                Z_miss,
+                                P,
+                                Q,
+                                Q_tmp,
+                                P1,
+                                P2,
+                                Q1,
+                                Q2,
+                                k_vec,
+                                c_vec,
+                                y,
+                                L,
+                                w_obs,
+                                q_obs,
+                            )
+                        else:
+                            functions.quasi(
+                                Z, P, Q, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, y, L
+                            )
                     else:
-                        functions.proQuasi(Z, P, Q, Q_tmp, Q1, Q2, c_vec)
+                        if has_missing:
+                            functions.proQuasiMiss(
+                                Z, Z_miss, P, Q, Q_tmp, Q1, Q2, c_vec, q_obs
+                            )
+                        else:
+                            functions.proQuasi(Z, P, Q, Q_tmp, Q1, Q2, c_vec)
                 else:
                     L_bat = L_cur
             else:  # Check for convergence
@@ -365,7 +600,9 @@ def main(args, deaf):
 
     # Save output
     np.savetxt(f"{f_out}.Q", Q, fmt="%.6f")
+    np.savetxt(f"{f_out}.ids", q_ids, fmt="%s")
     print(f"Saved Q matrix as {f_out}.Q")
+    print(f"Saved Q sample IDs as {f_out}.ids")
     if not args.no_freqs and (args.projection is None):
         if F > 1:  # Save P file for each file (chromosome)
             for p in np.arange(F):
@@ -396,6 +633,7 @@ def main(args, deaf):
         log.write(f"\nFinal log-likelihood: {L_cur:.1f}\n")
         log.write(f"Converged in {it + 1} iterations.\n")
         log.write(f"\nSaved Q matrix as {args.out}.{p_out}K{args.K}.s{args.seed}.Q\n")
+        log.write(f"Saved Q sample IDs as {f_out}.ids\n")
         if not args.no_freqs and (args.projection is None):
             if F > 1:
                 log.write(f"Saved P matrices as {f_out}.{args.prefix}{{1..{F}}}.P\n")

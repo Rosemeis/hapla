@@ -38,6 +38,7 @@ If you run into issues with your installation on a HPC system, it could be due t
 - `hapla struct`
 - `hapla admix`
 - `hapla fatash`
+- `hapla eval`
 
 
 ### Haplotype clustering
@@ -193,4 +194,26 @@ hapla fatash --clusters hapla.chr1 --qfile hapla.chr1.K3.s1.Q --pfile hapla.chr1
 hapla fatash --filelist hapla.filelist --qfile hapla.K3.s1.Q --pfilelist hapla.K3.s1.pfilelist --threads 32 --out hapla --viterbi
 # Saves Viterbi decoding paths in text-files
 #	- hapla.chr{1..22}.path
+```
+
+Reciprocal ancestry switches between an individual's haplotypes can optionally be phase-corrected with `--phase-correct [INT]`. Without an integer, only simultaneous breakpoints are corrected; the integer allows breakpoints up to that many windows apart. Phase correction is disabled by default.
+
+
+### Evaluation of ancestry estimation (Prototype)
+***hapla eval***\
+Evaluate the fit of `hapla admix` ancestry proportions using correlations of residuals.
+```bash
+# Evaluate ancestry proportions from a single chromosome
+hapla eval --clusters hapla.chr1 --qfile hapla.chr1.K3.s1.Q --threads 32 --out hapla.chr1
+# Saves empirical, model-expected, and corrected residual correlations in text-format
+#	- hapla.chr1.bhat
+#	- hapla.chr1.chat
+#	- hapla.chr1.corres
+
+# Evaluate ancestry proportions using filelist with all chromosomes
+hapla eval --filelist hapla.filelist --qfile hapla.K3.s1.Q --threads 32 --out hapla
+# Saves empirical, model-expected, and corrected residual correlations in text-format
+#	- hapla.bhat
+#	- hapla.chat
+#	- hapla.corres
 ```

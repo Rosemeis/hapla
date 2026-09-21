@@ -138,49 +138,29 @@ cpdef void assignClust(
     ) noexcept nogil:
     cdef:
         Py_ssize_t M = X.shape[1]
-        size_t i, k, x, y, z
+        size_t i, k, z
         u32 c, d, u
         u32* h
-        u32* n_thr
-        u32* C_thr
-        omp.omp_lock_t mutex
-    omp.omp_init_lock(&mutex)
-    with nogil, parallel():
-        # Thread-local buffer allocation
-        n_thr = <u32*>calloc(K, sizeof(u32))
-        C_thr = <u32*>calloc(K*M, sizeof(u32))
-        if (n_thr is NULL) or (C_thr is NULL):
-            abort()
+    # Phase 1: assign unique haplotypes independently in parallel.
+    for i in prange(U, schedule='static'):
+        h = &X[i, 0]
+        z = 0
+        c = M + 1
+        for k in range(K):
+            if n_vec[k] > 0:
+                d = _hammingDist(h, &R[k, 0], M)
+                if d <= c:
+                    z = k
+                    c = d
+        z_vec[i] = z
+        c_vec[i] = c
 
-        for i in prange(U, schedule='static'):
-            h = &X[i, 0]
-            z = 0
-            c = M + 1
-            for k in range(K):
-                if n_vec[k] > 0:
-                    d = _hammingDist(h, &R[k, 0], M)
-                    if d <= c:
-                        z = k
-                        c = d
-            z_vec[i] = z
-            c_vec[i] = c
-
-            # Add individual contributions to temporary arrays
-            u = u_vec[i]
-            n_thr[z] += u
-            _addHaplo(h, &C_thr[z * M], u, M)
-        
-        # omp critical
-        omp.omp_set_lock(&mutex)
-        for x in range(K):
-            if n_vec[x] > 0:
-                n_tmp[x] += n_thr[x]
-                for y in range(M):
-                    C[x, y] += C_thr[x * M + y]
-        omp.omp_unset_lock(&mutex)
-        free(n_thr)
-        free(C_thr)
-    omp.omp_destroy_lock(&mutex)
+    # Phase 2: aggregate assignments without per-thread buffers or a mutex.
+    for i in range(U):
+        z = z_vec[i]
+        u = u_vec[i]
+        n_tmp[z] += u
+        _addHaplo(&X[i, 0], &C[z, 0], u, M)
 
 # Copy and reset size of clusters
 cpdef void updateN(

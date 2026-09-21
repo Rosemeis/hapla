@@ -419,6 +419,113 @@ cpdef void softEmissions(
                     e += <f64>l[c]*p[k]
                 E[i, w // blk,k] += log(e) if b_vec[w] else 0.0
 
+# Update cluster frequencies for one window from ancestry posteriors
+cdef inline void _refineP(
+        const u8[:, ::1] Z,
+        const f64[:, :, ::1] G,
+        const f64* p0,
+        f64* p,
+        f64* count,
+        const Py_ssize_t w,
+        const Py_ssize_t N,
+        const Py_ssize_t K,
+        const Py_ssize_t C,
+        const f64 eta
+    ) noexcept nogil:
+    cdef:
+        size_t c, i, k
+        f64 den, norm, value
+    for c in range(C * K):
+        count[c] = 0.0
+    for i in range(N):
+        for k in range(K):
+            count[Z[i, w] * K + k] += G[i, w, k]
+    for k in range(K):
+        den = 0.0
+        for c in range(C):
+            den += count[c * K + k]
+        norm = 0.0
+        for c in range(C):
+            value = (1.0 - eta) * p0[c * K + k] + eta * count[c * K + k] / den
+            p[c * K + k] = fmax(PRO_MIN, value)
+            norm += p[c * K + k]
+        for c in range(C):
+            p[c * K + k] /= norm
+
+# Update ancestry proportions for one haplotype from ancestry posteriors
+cdef inline void _refineQ(
+        const f64* g,
+        const f64* q0,
+        f64* q,
+        const u8* b,
+        const Py_ssize_t W,
+        const Py_ssize_t K,
+        const f64 den,
+        const f64 eta
+    ) noexcept nogil:
+    cdef:
+        size_t k, w
+        f64 norm = 0.0
+        f64 value
+    for k in range(K):
+        value = 0.0
+        for w in range(W):
+            value += g[w * K + k] if b[w] else 0.0
+        q[k] = fmax(PRO_MIN, (1.0 - eta) * q0[k] + eta * value / den)
+        norm += q[k]
+    for k in range(K):
+        q[k] /= norm
+
+# Update cluster frequencies and haplotype ancestry proportions from posteriors
+cpdef void refineParams(
+        const u8[:, ::1] Z,
+        const f64[:, :, ::1] G,
+        const f64[::1] P0,
+        f64[::1] P,
+        const f64[:, ::1] Q0,
+        f64[:, ::1] Q,
+        const u8[::1] b_vec,
+        const u32[::1] k_vec,
+        const u32[::1] c_vec,
+        const f64 eta_p,
+        const f64 eta_q
+    ) noexcept nogil:
+    cdef:
+        Py_ssize_t N = Z.shape[0]
+        Py_ssize_t W = Z.shape[1]
+        Py_ssize_t K = G.shape[2]
+        Py_ssize_t Cmax = 0
+        size_t c, i, w
+        f64 den = 0.0
+        f64* count
+
+    for w in range(W):
+        if k_vec[w] > Cmax:
+            Cmax = k_vec[w]
+
+    with nogil, parallel():
+        count = <f64*>calloc(Cmax * K, sizeof(f64))
+        if count is NULL:
+            abort()
+
+        for w in prange(W, schedule='guided'):
+            if b_vec[w]:
+                _refineP(
+                    Z, G, &P0[c_vec[w]], &P[c_vec[w]], count,
+                    w, N, K, k_vec[w], eta_p
+                )
+            else:
+                for c in range(k_vec[w] * K):
+                    P[c_vec[w] + c] = P0[c_vec[w] + c]
+        free(count)
+
+    for w in range(W):
+        den += b_vec[w]
+    for i in prange(N, schedule='guided'):
+        _refineQ(
+            &G[i, 0, 0], &Q0[i, 0], &Q[i, 0], &b_vec[0], W, K, den, eta_q
+        )
+
 
 ## Multithreaded functions
 # Viterbi algorithm
@@ -499,6 +606,63 @@ cpdef void fwdbwd(
         free(t_thr)
         free(v_thr)
 
+# Alpha-averaged forward-backward algorithm
+cpdef void fwdbwdMean(
+        f64[:, :, ::1] E,
+        f64[:, :, ::1] L,
+        f64[:, ::1] Q,
+        f64[:, ::1] Q_log,
+        const f64[::1] alpha,
+        bint simple
+    ) noexcept nogil:
+    cdef:
+        Py_ssize_t N = E.shape[0]
+        Py_ssize_t W = E.shape[1]
+        Py_ssize_t K = E.shape[2]
+        Py_ssize_t A = alpha.shape[0]
+        size_t a, i, j
+        f64 e, l_fwd
+        f64* l
+        f64* a_thr
+        f64* b_thr
+        f64* l_thr
+        f64* t_thr
+        f64* v_thr
+    with nogil, parallel():
+        a_thr = <f64*>calloc(W * K, sizeof(f64))
+        b_thr = <f64*>calloc(W * K, sizeof(f64))
+        l_thr = <f64*>calloc(W * K, sizeof(f64))
+        t_thr = <f64*>calloc(K * K, sizeof(f64))
+        v_thr = <f64*>calloc(K, sizeof(f64))
+        if ((a_thr is NULL) or (b_thr is NULL) or (l_thr is NULL)
+                or (t_thr is NULL) or (v_thr is NULL)):
+            abort()
+
+        for i in prange(N, schedule='guided'):
+            l = &L[i, 0, 0]
+            for a in range(A):
+                e = exp(-alpha[a])
+                if simple:
+                    _simple(t_thr, &Q[i, 0], e, K)
+                else:
+                    _trans(t_thr, &Q[i, 0], e, K)
+                l_fwd = _forward(
+                    &E[i, 0, 0], a_thr, t_thr, &Q_log[i, 0], v_thr, W, K
+                )
+                _backward(
+                    &E[i, 0, 0], l_thr, a_thr, b_thr, t_thr, v_thr,
+                    l_fwd, W, K
+                )
+                for j in range(W * K):
+                    l[j] += l_thr[j]
+            for j in range(W * K):
+                l[j] /= A
+        free(a_thr)
+        free(b_thr)
+        free(l_thr)
+        free(t_thr)
+        free(v_thr)
+
 # Majority voting across multiple alpha values
 cpdef void voting(
         const u8[:, :, ::1] B, 
@@ -532,6 +696,75 @@ cpdef void voting(
                     k_thr[k] = 0
                 D[i, w] = k_idx
         free(k_thr)
+
+# Correct reciprocal phase switches in pairs of haplotypes
+cpdef u32 phaseCorrect(
+        u8[:, ::1] D,
+        f64[:, ::1] L,
+        const u32 distance,
+        bint probabilities
+    ) noexcept nogil:
+    cdef:
+        Py_ssize_t N = D.shape[0] // 2
+        Py_ssize_t W = D.shape[1]
+        Py_ssize_t pending, position
+        size_t i, j, w
+        u32 corrected = 0
+        u8 p0, p1, x0, x1, old, new, pending_old, pending_new
+        f64 tmp
+        bint change0, change1, match, phase
+    for i in prange(N, schedule='guided'):
+        j = 2 * i
+        p0 = D[j, 0]
+        p1 = D[j + 1, 0]
+        pending = -1
+        position = 0
+        phase = False
+        for w in range(1, W):
+            x0 = D[j, w]
+            x1 = D[j + 1, w]
+            change0 = p0 != x0
+            change1 = p1 != x1
+            match = False
+
+            if change0 and change1:
+                match = (p0 == x1) and (p1 == x0)
+                pending = -1
+            elif change0 != change1:
+                if change0:
+                    old = p0
+                    new = x0
+                    if (pending == 1) and (w - position <= distance):
+                        match = (pending_old == new) and (pending_new == old)
+                else:
+                    old = p1
+                    new = x1
+                    if (pending == 0) and (w - position <= distance):
+                        match = (pending_old == new) and (pending_new == old)
+
+                if match:
+                    pending = -1
+                else:
+                    pending = 0 if change0 else 1
+                    position = w
+                    pending_old = old
+                    pending_new = new
+            elif (pending >= 0) and (w - position > distance):
+                pending = -1
+
+            if match:
+                phase = not phase
+                corrected += 1
+            if phase:
+                D[j, w] = x1
+                D[j + 1, w] = x0
+                if probabilities:
+                    tmp = L[j, w]
+                    L[j, w] = L[j + 1, w]
+                    L[j + 1, w] = tmp
+            p0 = x0
+            p1 = x1
+    return corrected
 
 
 ## Estimate file-specific ancestry proportions
