@@ -1,425 +1,88 @@
+"""Admixture updates and initialization from centered cluster labels."""
+
 import numpy as np
-from math import ceil
-from hapla import shared_cy
+
 from hapla import admix_cy
-from hapla import fatash_cy
+
+##### Admixture updates
 
 
-##### hapla - functions #####
-### hapla struct
-# SVD through eigendecomposition
-def eigSVD(H):
-    D, V = np.linalg.eigh(np.dot(H.T, H))
-    S = np.sqrt(D)
-    U = np.dot(H, V * (1.0 / S))
+### One EM update, sharing scratch across full, batch, and projection modes
+def emStep(P, Q, Pn, Qn, ctx, rows=None, qo=None):
+    Z, k, c, T, pt, qt, wo, y = ctx
+    admix_cy.em(Z, P, Pn, Q, T, k, c, pt, qt, rows, wo)
+    if qo is None:
+        admix_cy.accelQ(Q, Qn, T, len(Z) if rows is None else len(rows))
+    else:
+        admix_cy.accelQMiss(Q, Qn, T, qo)
+    if y is not None:
+        admix_cy.superQ(Qn, y)
+
+
+### Two EM updates followed by quasi-Newton extrapolation
+def emQuasi(P, Q, P1, P2, Q1, Q2, ctx, rows=None, qo=None):
+    emStep(P, Q, P1, Q1, ctx, rows, qo)
+    emStep(P if P1 is None else P1, Q1, P2, Q2, ctx, rows, qo)
+    if P1 is not None:
+        if rows is None:
+            admix_cy.jumpP(P, P1, P2, ctx[1], ctx[2], Q.shape[1])
+        else:
+            admix_cy.jumpBatchP(P, P1, P2, ctx[1], ctx[2], rows, Q.shape[1])
+    admix_cy.jumpQ(Q, Q1, Q2)
+    if ctx[-1] is not None:
+        admix_cy.superQ(Q, ctx[-1])
+
+
+##### Initialization
+
+
+### Centered label products for SVD/ALS initialization, without dosage expansion
+def centerSVD(Z, p_vec, c_vec, W, K, chunk, power, rng, obs=None):
+    from hapla import struct, struct_cy
+
+    N, D, M = Z.shape[1] // 2, K - 1, int(c_vec[W])
+    L = min(max(D + 10, 20), N - 1, M)
+    if D > L:
+        raise ValueError("K exceeds the centered SVD dimensions. Use --random-init")
+    data = [
+        (Z[:W], c_vec[: W + 1].astype(np.int64), None if obs is None else obs[:W].astype(np.int64))
+    ]
+    p = p_vec[:M].astype(float)
+    a = np.ones(M)
+    Q, _ = np.linalg.qr(struct.product(data, p, a, L, chunk, rng=rng), mode="reduced")
+    shift = 0.0
+    for _ in range(power):
+        H = struct.product(data, p, a, L, chunk, Q=np.ascontiguousarray(Q))
+        H -= shift * Q
+        Q, R = np.linalg.qr(H, mode="reduced")
+        low = np.linalg.svd(R, compute_uv=False)[-1]
+        if low > shift:
+            shift = 0.5 * (low + shift)
+    Q = np.ascontiguousarray(Q)
+    A = np.empty((M, L))
+    sums = Q.sum(axis=0)
+    for z, c, s, o in struct.blocks(data, chunk):
+        struct_cy.leftProduct(z, c, p[s], a[s], Q, sums, A[s], o)
+    U, S, R = np.linalg.svd(A, full_matrices=False)
+    if S[D - 1] <= np.finfo(float).eps * max(M, N) * S[0]:
+        raise ValueError("Insufficient variation for SVD initialization. Use --random-init")
     return (
-        np.ascontiguousarray(U[:, ::-1]),
-        np.ascontiguousarray(S[::-1]),
-        np.ascontiguousarray(V[:, ::-1]),
+        np.ascontiguousarray(U[:, :D], dtype=np.float32),
+        S[:D].astype(np.float32),
+        np.ascontiguousarray(Q @ R[:D].T, dtype=np.float32),
     )
 
 
-# Randomized PCA with dynamic shift
-def randomizedSVD(Z_agg, p_vec, a_vec, D, chunk, power, rng):
-    M, N = Z_agg.shape
-    W = ceil(M / chunk)
-    a = 0.0
-    L = max(D + 10, 20)
-    H = np.zeros((N, L), dtype=np.float32)
-    X = np.zeros((chunk, N), dtype=np.float32)
-    A = rng.standard_normal(size=(M, L), dtype=np.float32)
-
-    # Prime iteration
-    for w in np.arange(W):
-        M_w = w * chunk
-        M_e = min((w + 1) * chunk, M)
-        M_x = M_e - M_w
-        shared_cy.chunkZ(Z_agg[M_w:M_e], X[:M_x], p_vec[M_w:M_e], a_vec[M_w:M_e])
-        H += np.dot(X[:M_x].T, A[M_w:M_e])
-    Q, _, _ = eigSVD(H)
-    H.fill(0.0)
-
-    # Power iterations
-    for p in np.arange(power):
-        print(f"\rPower iteration {p + 1}/{power}", end="")
-        for w in np.arange(W):
-            M_w = w * chunk
-            M_e = min((w + 1) * chunk, M)
-            M_x = M_e - M_w
-            shared_cy.chunkZ(Z_agg[M_w:M_e], X[:M_x], p_vec[M_w:M_e], a_vec[M_w:M_e])
-            A[M_w:M_e] = np.dot(X[:M_x], Q)
-            H += np.dot(X[:M_x].T, A[M_w:M_e])
-        H -= a * Q
-        Q, S, _ = eigSVD(H)
-        H.fill(0.0)
-        if S[-1] > a:
-            a = 0.5 * (S[-1] + a)
-
-    # Extract singular vectors
-    for w in np.arange(W):
-        M_w = w * chunk
-        M_e = min((w + 1) * chunk, M)
-        M_x = M_e - M_w
-        shared_cy.chunkZ(Z_agg[M_w:M_e], X[:M_x], p_vec[M_w:M_e], a_vec[M_w:M_e])
-        A[M_w:M_e] = np.dot(X[:M_x], Q)
-    U, S, V = eigSVD(A)
-    return U[:, :D], S[:D], np.dot(Q, V)[:, :D]
-
-
-# Memory efficient randomized PCA with dynamic shift
-def memorySVD(Z, p_vec, a_vec, k_vec, c_vec, D, chunk, power, rng):
-    W = Z.shape[0]
-    N = Z.shape[1] // 2
-    M = c_vec[W]
-    B = ceil(chunk / ceil(M / W))
-    C = ceil(W / B)
-    a = 0.0
-    L = max(D + 10, 20)
-    H = np.zeros((N, L), dtype=np.float32)
-    X = np.zeros((np.max(k_vec[:W]) * B, N), dtype=np.float32)
-    A = rng.standard_normal(size=(M, L), dtype=np.float32)
-
-    # Prime iteration
-    for c in np.arange(C):
-        W_b = c * B
-        W_e = min((c + 1) * B, W)
-        C_b = c_vec[W_b]
-        C_e = c_vec[W_e]
-        C_x = C_e - C_b
-        shared_cy.memoryC(
-            Z[W_b:W_e],
-            X[:C_x],
-            p_vec[C_b:C_e],
-            a_vec[C_b:C_e],
-            k_vec[W_b:W_e],
-            c_vec[W_b:W_e],
-        )
-        H += np.dot(X[:C_x].T, A[C_b:C_e])
-    Q, _, _ = eigSVD(H)
-    H.fill(0.0)
-
-    # Power iterations
-    for p in np.arange(power):
-        print(f"\rPower iteration {p + 1}/{power}", end="")
-        for c in np.arange(C):
-            W_b = c * B
-            W_e = min((c + 1) * B, W)
-            C_b = c_vec[W_b]
-            C_e = c_vec[W_e]
-            C_x = C_e - C_b
-            shared_cy.memoryC(
-                Z[W_b:W_e],
-                X[:C_x],
-                p_vec[C_b:C_e],
-                a_vec[C_b:C_e],
-                k_vec[W_b:W_e],
-                c_vec[W_b:W_e],
-            )
-            A[C_b:C_e] = np.dot(X[:C_x], Q)
-            H += np.dot(X[:C_x].T, A[C_b:C_e])
-        H -= a * Q
-        Q, S, _ = eigSVD(H)
-        H.fill(0.0)
-        if S[-1] > a:
-            a = 0.5 * (S[-1] + a)
-
-    # Extract singular vectors
-    for c in np.arange(C):
-        W_b = c * B
-        W_e = min((c + 1) * B, W)
-        C_b = c_vec[W_b]
-        C_e = c_vec[W_e]
-        C_x = C_e - C_b
-        shared_cy.memoryC(
-            Z[W_b:W_e],
-            X[:C_x],
-            p_vec[C_b:C_e],
-            a_vec[C_b:C_e],
-            k_vec[W_b:W_e],
-            c_vec[W_b:W_e],
-        )
-        A[C_b:C_e] = np.dot(X[:C_x], Q)
-    U, S, V = eigSVD(A)
-    return U[:, :D], S[:D], np.dot(Q, V)[:, :D]
-
-
-### hapla admix
-# Update for ancestry estimation
-def steps(Z, P, Q, Q_tmp, k_vec, c_vec, y, L):
-    admix_cy.updateP(Z, P, Q, Q_tmp, k_vec, c_vec, L)
-    admix_cy.updateQ(Q, Q_tmp, Z.shape[0])
-    if y is not None:
-        admix_cy.superQ(Q, y)
-
-
-# Accelerated update for ancestry estimation
-def quasi(Z, P0, Q0, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, y, L):
-    # 1st EM step
-    admix_cy.accelP(Z, P0, P1, Q0, Q_tmp, k_vec, c_vec, L)
-    admix_cy.accelQ(Q0, Q1, Q_tmp, Z.shape[0])
-    if y is not None:
-        admix_cy.superQ(Q1, y)
-
-    # 2nd EM step
-    admix_cy.accelP(Z, P1, P2, Q1, Q_tmp, k_vec, c_vec, L)
-    admix_cy.accelQ(Q1, Q2, Q_tmp, Z.shape[0])
-    if y is not None:
-        admix_cy.superQ(Q2, y)
-
-    # Acceleation update
-    admix_cy.jumpP(P0, P1, P2, k_vec, c_vec, Q0.shape[1])
-    admix_cy.jumpQ(Q0, Q1, Q2)
-    if y is not None:
-        admix_cy.superQ(Q0, y)
-
-
-# Batch accelerated update for ancestry estimation
-def batQuasi(Z, P0, Q0, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, s_bat, y, L):
-    # 1st EM step
-    admix_cy.accelBatchP(Z, P0, P1, Q0, Q_tmp, k_vec, c_vec, s_bat, L)
-    admix_cy.accelQ(Q0, Q1, Q_tmp, s_bat.shape[0])
-    if y is not None:
-        admix_cy.superQ(Q1, y)
-
-    # 2nd EM step
-    admix_cy.accelBatchP(Z, P1, P2, Q1, Q_tmp, k_vec, c_vec, s_bat, L)
-    admix_cy.accelQ(Q1, Q2, Q_tmp, s_bat.shape[0])
-    if y is not None:
-        admix_cy.superQ(Q2, y)
-
-    # Acceleation update
-    admix_cy.jumpBatchP(P0, P1, P2, k_vec, c_vec, s_bat, Q0.shape[1])
-    admix_cy.jumpQ(Q0, Q1, Q2)
-    if y is not None:
-        admix_cy.superQ(Q0, y)
-
-
-# Update for ancestry estimation with missing assignments
-def stepsMiss(Z, Z_miss, P, Q, Q_tmp, k_vec, c_vec, y, L, w_obs, q_obs):
-    admix_cy.updatePMiss(Z, Z_miss, P, Q, Q_tmp, k_vec, c_vec, w_obs, L)
-    admix_cy.updateQMiss(Q, Q_tmp, q_obs)
-    if y is not None:
-        admix_cy.superQ(Q, y)
-
-
-# Accelerated update for ancestry estimation with missing assignments
-def quasiMiss(
-    Z, Z_miss, P0, Q0, Q_tmp, P1, P2, Q1, Q2, k_vec, c_vec, y, L, w_obs, q_obs
-):
-    # 1st EM step
-    admix_cy.accelPMiss(Z, Z_miss, P0, P1, Q0, Q_tmp, k_vec, c_vec, w_obs, L)
-    admix_cy.accelQMiss(Q0, Q1, Q_tmp, q_obs)
-    if y is not None:
-        admix_cy.superQ(Q1, y)
-
-    # 2nd EM step
-    admix_cy.accelPMiss(Z, Z_miss, P1, P2, Q1, Q_tmp, k_vec, c_vec, w_obs, L)
-    admix_cy.accelQMiss(Q1, Q2, Q_tmp, q_obs)
-    if y is not None:
-        admix_cy.superQ(Q2, y)
-
-    # Acceleation update
-    admix_cy.jumpP(P0, P1, P2, k_vec, c_vec, Q0.shape[1])
-    admix_cy.jumpQ(Q0, Q1, Q2)
-    if y is not None:
-        admix_cy.superQ(Q0, y)
-
-
-# Batch accelerated update for ancestry estimation with missing assignments
-def batQuasiMiss(
-    Z,
-    Z_miss,
-    P0,
-    Q0,
-    Q_tmp,
-    P1,
-    P2,
-    Q1,
-    Q2,
-    k_vec,
-    c_vec,
-    s_bat,
-    y,
-    L,
-    w_obs,
-    H_obs,
-):
-    q_obs = np.sum(H_obs[s_bat], axis=0, dtype=np.uint32)
-
-    # 1st EM step
-    admix_cy.accelBatchPMiss(
-        Z, Z_miss, P0, P1, Q0, Q_tmp, k_vec, c_vec, s_bat, w_obs, L
-    )
-    admix_cy.accelQMiss(Q0, Q1, Q_tmp, q_obs)
-    if y is not None:
-        admix_cy.superQ(Q1, y)
-
-    # 2nd EM step
-    admix_cy.accelBatchPMiss(
-        Z, Z_miss, P1, P2, Q1, Q_tmp, k_vec, c_vec, s_bat, w_obs, L
-    )
-    admix_cy.accelQMiss(Q1, Q2, Q_tmp, q_obs)
-    if y is not None:
-        admix_cy.superQ(Q2, y)
-
-    # Acceleation update
-    admix_cy.jumpBatchP(P0, P1, P2, k_vec, c_vec, s_bat, Q0.shape[1])
-    admix_cy.jumpQ(Q0, Q1, Q2)
-    if y is not None:
-        admix_cy.superQ(Q0, y)
-
-
-# Randomized PCA with dynamic shift for ALS/SVD initialization
-def centerSVD(Z, p_vec, k_vec, c_vec, W, K, chunk, power, rng):
-    N = Z.shape[1] // 2
-    D = K - 1
-    M = c_vec[W]
-    B = ceil(chunk / ceil(M / W))
-    C = ceil(W / B)
-    a = 0.0
-    L = max(D + 10, 20)
-    H = np.zeros((N, L), dtype=np.float32)
-    X = np.zeros((np.max(k_vec[:W]) * B, N), dtype=np.float32)
-    A = rng.standard_normal(size=(M, L), dtype=np.float32)
-
-    # Prime iteration
-    for c in np.arange(C):
-        W_b = c * B
-        W_e = min((c + 1) * B, W)
-        C_b = c_vec[W_b]
-        C_e = c_vec[W_e]
-        C_x = C_e - C_b
-        shared_cy.centerC(
-            Z[W_b:W_e], X[:C_x], p_vec[C_b:C_e], k_vec[W_b:W_e], c_vec[W_b:W_e]
-        )
-        H += np.dot(X[:C_x].T, A[C_b:C_e])
-    Q, _, _ = eigSVD(H)
-    H.fill(0.0)
-
-    # Power iterations
-    for _ in np.arange(power):
-        for c in np.arange(C):
-            W_b = c * B
-            W_e = min((c + 1) * B, W)
-            C_b = c_vec[W_b]
-            C_e = c_vec[W_e]
-            C_x = C_e - C_b
-            shared_cy.centerC(
-                Z[W_b:W_e], X[:C_x], p_vec[C_b:C_e], k_vec[W_b:W_e], c_vec[W_b:W_e]
-            )
-            A[C_b:C_e] = np.dot(X[:C_x], Q)
-            H += np.dot(X[:C_x].T, A[C_b:C_e])
-        H -= a * Q
-        Q, S, _ = eigSVD(H)
-        H.fill(0.0)
-        if S[-1] > a:
-            a = 0.5 * (S[-1] + a)
-
-    # Extract singular vectors
-    for c in np.arange(C):
-        W_b = c * B
-        W_e = min((c + 1) * B, W)
-        C_b = c_vec[W_b]
-        C_e = c_vec[W_e]
-        C_x = C_e - C_b
-        shared_cy.centerC(
-            Z[W_b:W_e], X[:C_x], p_vec[C_b:C_e], k_vec[W_b:W_e], c_vec[W_b:W_e]
-        )
-        A[C_b:C_e] = np.dot(X[:C_x], Q)
-    U, S, V = eigSVD(A)
-    U = np.ascontiguousarray(U[:, :D])
-    S = np.ascontiguousarray(S[:D])
-    V = np.ascontiguousarray(np.dot(Q, V)[:, :D])
-    return U, S, V
-
-
-# Randomized PCA with dynamic shift for ALS/SVD initialization with missing assignments
-def centerSVDMiss(Z, Z_miss, p_vec, k_vec, c_vec, W, K, chunk, power, rng):
-    N = Z.shape[1] // 2
-    D = K - 1
-    M = c_vec[W]
-    B = ceil(chunk / ceil(M / W))
-    C = ceil(W / B)
-    a = 0.0
-    L = max(D + 10, 20)
-    H = np.zeros((N, L), dtype=np.float32)
-    X = np.zeros((np.max(k_vec[:W]) * B, N), dtype=np.float32)
-    A = rng.standard_normal(size=(M, L), dtype=np.float32)
-
-    # Prime iteration
-    for c in np.arange(C):
-        W_b = c * B
-        W_e = min((c + 1) * B, W)
-        C_b = c_vec[W_b]
-        C_e = c_vec[W_e]
-        C_x = C_e - C_b
-        shared_cy.centerCMiss(
-            Z[W_b:W_e],
-            Z_miss[W_b:W_e],
-            X[:C_x],
-            p_vec[C_b:C_e],
-            k_vec[W_b:W_e],
-            c_vec[W_b:W_e],
-        )
-        H += np.dot(X[:C_x].T, A[C_b:C_e])
-    Q, _, _ = eigSVD(H)
-    H.fill(0.0)
-
-    # Power iterations
-    for _ in np.arange(power):
-        for c in np.arange(C):
-            W_b = c * B
-            W_e = min((c + 1) * B, W)
-            C_b = c_vec[W_b]
-            C_e = c_vec[W_e]
-            C_x = C_e - C_b
-            shared_cy.centerCMiss(
-                Z[W_b:W_e],
-                Z_miss[W_b:W_e],
-                X[:C_x],
-                p_vec[C_b:C_e],
-                k_vec[W_b:W_e],
-                c_vec[W_b:W_e],
-            )
-            A[C_b:C_e] = np.dot(X[:C_x], Q)
-            H += np.dot(X[:C_x].T, A[C_b:C_e])
-        H -= a * Q
-        Q, S, _ = eigSVD(H)
-        H.fill(0.0)
-        if S[-1] > a:
-            a = 0.5 * (S[-1] + a)
-
-    # Extract singular vectors
-    for c in np.arange(C):
-        W_b = c * B
-        W_e = min((c + 1) * B, W)
-        C_b = c_vec[W_b]
-        C_e = c_vec[W_e]
-        C_x = C_e - C_b
-        shared_cy.centerCMiss(
-            Z[W_b:W_e],
-            Z_miss[W_b:W_e],
-            X[:C_x],
-            p_vec[C_b:C_e],
-            k_vec[W_b:W_e],
-            c_vec[W_b:W_e],
-        )
-        A[C_b:C_e] = np.dot(X[:C_x], Q)
-    U, S, V = eigSVD(A)
-    U = np.ascontiguousarray(U[:, :D])
-    S = np.ascontiguousarray(S[:D])
-    V = np.ascontiguousarray(np.dot(Q, V)[:, :D])
-    return U, S, V
-
-
-# Alternating least square (ALS) for initializing Q and P
+### Alternating least square (ALS) for initializing Q and P
 def factorALS(U, S, V, p_vec, k_vec, c_vec, iter, tole, rng):
     M, D = U.shape
     Y = np.ascontiguousarray(U * S)
     P = rng.random(size=(M, D + 1), dtype=np.float32)
     admix_cy.projectP(P, k_vec, c_vec)
     H = np.dot(P, np.linalg.pinv(np.dot(P.T, P)))
-    Q = 0.5 * np.dot(V, np.dot(Y.T, H)) + np.sum(H * p_vec.reshape(-1, 1), axis=0)
+    Q = 0.5 * np.dot(V, np.dot(Y.T, H))
+    H *= p_vec[:, None]
+    Q += H.sum(axis=0)
     admix_cy.projectQ(Q)
     Q0 = np.copy(Q)
 
@@ -427,225 +90,65 @@ def factorALS(U, S, V, p_vec, k_vec, c_vec, iter, tole, rng):
     for _ in range(iter):
         # Update P
         H = np.dot(Q, np.linalg.pinv(np.dot(Q.T, Q)))
-        P = 0.5 * np.dot(Y, np.dot(V.T, H)) + np.outer(p_vec, np.sum(H, axis=0))
+        np.dot(Y, np.dot(V.T, H), out=P)
+        P *= 0.5
+        P += np.outer(p_vec, np.sum(H, axis=0))
         admix_cy.projectP(P, k_vec, c_vec)
 
         # Update Q
         H = np.dot(P, np.linalg.pinv(np.dot(P.T, P)))
-        Q = 0.5 * np.dot(V, np.dot(Y.T, H)) + np.sum(H * p_vec.reshape(-1, 1), axis=0)
+        Q = 0.5 * np.dot(V, np.dot(Y.T, H))
+        H *= p_vec[:, None]
+        Q += H.sum(axis=0)
         admix_cy.projectQ(Q)
 
         # Check convergence
         if admix_cy.rmseQ(Q, Q0) < tole:
             break
-        memoryview(Q0.ravel())[:] = memoryview(Q.ravel())
-    return P.flatten().astype(float), Q.astype(float)
+        Q0[:] = Q
+    return P, Q
 
 
-# Project remaining clusters for ALS/SVD initialization
-def centerSub(Z, S, V, p_vec, k_vec, c_vec, W_sub, chunk):
-    N = Z.shape[1] // 2
-    D = V.shape[1]
-    W = Z.shape[0] - W_sub
-    A = c_vec[W_sub]
-    M = c_vec[Z.shape[0]] - A
-    B = ceil(chunk / ceil(M / W))
-    C = ceil(W / B)
-    Y = np.ascontiguousarray(V * (1.0 / S))
-    U = np.zeros((M, D), dtype=np.float32)
-    X = np.zeros((np.max(k_vec[W_sub:]) * B, N), dtype=np.float32)
+### Project the remaining centered labels onto the initialization basis
+def centerSub(Z, S, V, p_vec, c_vec, W_sub, chunk, obs=None):
+    from hapla import struct, struct_cy
 
-    # Loop through chunks
-    for c in np.arange(C):
-        W_b = W_sub + c * B
-        W_e = W_sub + min((c + 1) * B, W)
-        C_b = c_vec[W_b]
-        C_e = c_vec[W_e]
-        C_x = C_e - C_b
-        shared_cy.centerC(
-            Z[W_b:W_e], X[:C_x], p_vec[C_b:C_e], k_vec[W_b:W_e], c_vec[W_b:W_e]
+    beg = int(c_vec[W_sub])
+    p = p_vec[beg:].astype(float)
+    a = np.ones(len(p))
+    Q = np.ascontiguousarray(V / S, dtype=float)
+    sums = Q.sum(axis=0)
+    U = np.empty((len(p), Q.shape[1]), dtype=np.float32)
+    data = [
+        (
+            Z[W_sub:],
+            (c_vec[W_sub:] - beg).astype(np.int64),
+            None if obs is None else obs[W_sub:].astype(np.int64),
         )
-        U[(C_b - A) : (C_e - A)] = np.dot(X[:C_x], Y)
+    ]
+    for z, c, s, o in struct.blocks(data, chunk):
+        A = np.empty((int(c[-1]), Q.shape[1]))
+        struct_cy.leftProduct(z, c, p[s], a[s], Q, sums, A, o)
+        U[s] = A
     return U
 
 
-# Project remaining clusters for ALS/SVD initialization with missing assignments
-def centerSubMiss(Z, Z_miss, S, V, p_vec, k_vec, c_vec, W_sub, chunk):
-    N = Z.shape[1] // 2
-    D = V.shape[1]
-    W = Z.shape[0] - W_sub
-    A = c_vec[W_sub]
-    M = c_vec[Z.shape[0]] - A
-    B = ceil(chunk / ceil(M / W))
-    C = ceil(W / B)
-    Y = np.ascontiguousarray(V * (1.0 / S))
-    U = np.zeros((M, D), dtype=np.float32)
-    X = np.zeros((np.max(k_vec[W_sub:]) * B, N), dtype=np.float32)
-
-    # Loop through chunks
-    for c in np.arange(C):
-        W_b = W_sub + c * B
-        W_e = W_sub + min((c + 1) * B, W)
-        C_b = c_vec[W_b]
-        C_e = c_vec[W_e]
-        C_x = C_e - C_b
-        shared_cy.centerCMiss(
-            Z[W_b:W_e],
-            Z_miss[W_b:W_e],
-            X[:C_x],
-            p_vec[C_b:C_e],
-            k_vec[W_b:W_e],
-            c_vec[W_b:W_e],
-        )
-        U[(C_b - A) : (C_e - A)] = np.dot(X[:C_x], Y)
-    return U
-
-
-# Least square (ALS) for subsampled P and Q followed by standard iteration
+### Least square (ALS) for subsampled P and Q followed by standard iteration
 def factorSub(U_sub, U_rem, S, V, p_vec, k_vec, c_vec, W_sub, iter, tole, rng):
-    # Subsampled arrays
-    M, D = U_sub.shape
-    Y = np.ascontiguousarray(U_sub * S)
-    p_sub = p_vec[: c_vec[W_sub]]
-    k_sub = k_vec[:W_sub]
-    c_sub = c_vec[:W_sub]
-
-    # Initiate P and Q
-    P = rng.random(size=(M, D + 1), dtype=np.float32)
-    admix_cy.projectP(P, k_sub, c_sub)
-    H = np.dot(P, np.linalg.pinv(np.dot(P.T, P)))
-    Q = 0.5 * np.dot(V, np.dot(Y.T, H)) + np.sum(H * p_sub.reshape(-1, 1), axis=0)
-    admix_cy.projectQ(Q)
-    Q0 = np.copy(Q)
-
-    # Perform ALS iterations
-    for _ in range(iter):
-        # Update P
-        H = np.dot(Q, np.linalg.pinv(np.dot(Q.T, Q)))
-        P = 0.5 * np.dot(Y, np.dot(V.T, H)) + np.outer(p_sub, np.sum(H, axis=0))
-        admix_cy.projectP(P, k_sub, c_sub)
-
-        # Update Q
-        H = np.dot(P, np.linalg.pinv(np.dot(P.T, P)))
-        Q = 0.5 * np.dot(V, np.dot(Y.T, H)) + np.sum(H * p_sub.reshape(-1, 1), axis=0)
-        admix_cy.projectQ(Q)
-
-        # Check convergence
-        if admix_cy.rmseQ(Q, Q0) < tole:
-            break
-        memoryview(Q0.ravel())[:] = memoryview(Q.ravel())
-    del Q0, p_sub, k_sub, c_sub
+    # Fit the same ALS updates on the selected windows
+    M = U_sub.shape[0]
+    _, Q = factorALS(U_sub, S, V, p_vec[:M], k_vec[:W_sub], c_vec[:W_sub], iter, tole, rng)
 
     # Perform extra full ALS iteration
     Y = np.ascontiguousarray(np.concatenate((U_sub, U_rem), axis=0) * S)
     H = np.dot(Q, np.linalg.pinv(np.dot(Q.T, Q)))
-    P = 0.5 * np.dot(Y, np.dot(V.T, H)) + np.outer(p_vec, np.sum(H, axis=0))
+    P = np.dot(Y, np.dot(V.T, H))
+    P *= 0.5
+    P += np.outer(p_vec, np.sum(H, axis=0))
     admix_cy.projectP(P, k_vec, c_vec)
     H = np.dot(P, np.linalg.pinv(np.dot(P.T, P)))
-    Q = 0.5 * np.dot(V, np.dot(Y.T, H)) + np.sum(H * p_vec.reshape(-1, 1), axis=0)
+    Q = 0.5 * np.dot(V, np.dot(Y.T, H))
+    H *= p_vec[:, None]
+    Q += H.sum(axis=0)
     admix_cy.projectQ(Q)
-    return P.flatten().astype(float), Q.astype(float)
-
-
-# Update for ancestry estimation in projection mode
-def proSteps(Z, P, Q, Q_tmp, c_vec):
-    admix_cy.stepQ(Z, P, Q, Q_tmp, c_vec)
-    admix_cy.updateQ(Q, Q_tmp, Z.shape[0])
-
-
-# Accelerated update for ancestry estimation in projection mode
-def proQuasi(Z, P, Q0, Q_tmp, Q1, Q2, c_vec):
-    # 1st EM step
-    admix_cy.stepQ(Z, P, Q0, Q_tmp, c_vec)
-    admix_cy.accelQ(Q0, Q1, Q_tmp, Z.shape[0])
-
-    # 2nd EM step
-    admix_cy.stepQ(Z, P, Q1, Q_tmp, c_vec)
-    admix_cy.accelQ(Q1, Q2, Q_tmp, Z.shape[0])
-
-    # Acceleation update
-    admix_cy.jumpQ(Q0, Q1, Q2)
-
-
-# Batch accelerated update for ancestry estimation in projection mode
-def proBatch(Z, P, Q0, Q_tmp, Q1, Q2, c_vec, s_bat):
-    # 1st EM step
-    admix_cy.stepBatchQ(Z, P, Q0, Q_tmp, c_vec, s_bat)
-    admix_cy.accelQ(Q0, Q1, Q_tmp, s_bat.shape[0])
-
-    # 2nd EM step
-    admix_cy.stepBatchQ(Z, P, Q1, Q_tmp, c_vec, s_bat)
-    admix_cy.accelQ(Q1, Q2, Q_tmp, s_bat.shape[0])
-
-    # Acceleation update
-    admix_cy.jumpQ(Q0, Q1, Q2)
-
-
-# Update for ancestry estimation in projection mode with missing assignments
-def proStepsMiss(Z, Z_miss, P, Q, Q_tmp, c_vec, q_obs):
-    admix_cy.stepQMiss(Z, Z_miss, P, Q, Q_tmp, c_vec)
-    admix_cy.updateQMiss(Q, Q_tmp, q_obs)
-
-
-# Accelerated update for ancestry estimation in projection mode with missing assignments
-def proQuasiMiss(Z, Z_miss, P, Q0, Q_tmp, Q1, Q2, c_vec, q_obs):
-    # 1st EM step
-    admix_cy.stepQMiss(Z, Z_miss, P, Q0, Q_tmp, c_vec)
-    admix_cy.accelQMiss(Q0, Q1, Q_tmp, q_obs)
-
-    # 2nd EM step
-    admix_cy.stepQMiss(Z, Z_miss, P, Q1, Q_tmp, c_vec)
-    admix_cy.accelQMiss(Q1, Q2, Q_tmp, q_obs)
-
-    # Acceleation update
-    admix_cy.jumpQ(Q0, Q1, Q2)
-
-
-# Batch accelerated update for ancestry estimation in projection mode with missing assignments
-def proBatchMiss(Z, Z_miss, P, Q0, Q_tmp, Q1, Q2, c_vec, s_bat, H_obs):
-    q_obs = np.sum(H_obs[s_bat], axis=0, dtype=np.uint32)
-
-    # 1st EM step
-    admix_cy.stepBatchQMiss(Z, Z_miss, P, Q0, Q_tmp, c_vec, s_bat)
-    admix_cy.accelQMiss(Q0, Q1, Q_tmp, q_obs)
-
-    # 2nd EM step
-    admix_cy.stepBatchQMiss(Z, Z_miss, P, Q1, Q_tmp, c_vec, s_bat)
-    admix_cy.accelQMiss(Q1, Q2, Q_tmp, q_obs)
-
-    # Acceleation update
-    admix_cy.jumpQ(Q0, Q1, Q2)
-
-
-# Update for ancestry estimation in fatash
-def laiSteps(Z, P, Q, Q_tmp, c_vec):
-    fatash_cy.stepQ(Z, P, Q, Q_tmp, c_vec)
-    fatash_cy.updateQ(Q, Q_tmp, Z.shape[0])
-
-
-# Accelerated update for ancestry estimation in fatash
-def laiQuasi(Z, P, Q0, Q_tmp, Q1, Q2, c_vec):
-    # 1st EM step
-    fatash_cy.stepQ(Z, P, Q0, Q_tmp, c_vec)
-    fatash_cy.accelQ(Q0, Q1, Q_tmp, Z.shape[0])
-
-    # 2nd EM step
-    fatash_cy.stepQ(Z, P, Q1, Q_tmp, c_vec)
-    fatash_cy.accelQ(Q1, Q2, Q_tmp, Z.shape[0])
-
-    # Acceleation update
-    fatash_cy.jumpQ(Q0, Q1, Q2)
-
-
-# Batch accelerated update for ancestry estimation in fatash
-def laiBatch(Z, P, Q0, Q_tmp, Q1, Q2, c_vec, s_bat):
-    # 1st EM step
-    fatash_cy.stepBatchQ(Z, P, Q0, Q_tmp, c_vec, s_bat)
-    fatash_cy.accelQ(Q0, Q1, Q_tmp, s_bat.shape[0])
-
-    # 2nd EM step
-    fatash_cy.stepBatchQ(Z, P, Q1, Q_tmp, c_vec, s_bat)
-    fatash_cy.accelQ(Q1, Q2, Q_tmp, s_bat.shape[0])
-
-    # Acceleation update
-    fatash_cy.jumpQ(Q0, Q1, Q2)
+    return P, Q

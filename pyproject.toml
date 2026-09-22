@@ -9,7 +9,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hapla"
-version = "0.62.1"
+dynamic = ["version"]
 description = "Framework for haplotype clustering in phased genotype data"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -19,12 +19,12 @@ authors = [
     { name = "Jonas Meisner", email = "meisnerucph@gmail.com" }
 ]
 dependencies = [
-    "numpy>2.0.0",
-    "cyvcf2>0.30.0"
+    "numpy>2.0.0"
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
-    "Operating System :: OS Independent",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
     "Development Status :: 4 - Beta"
 ]
 
@@ -33,3 +33,30 @@ Homepage = "https://github.com/Rosemeis/hapla"
 
 [project.scripts]
 hapla = "hapla.main:main"
+
+[tool.setuptools]
+include-package-data = false
+
+[tool.setuptools.dynamic]
+version = { attr = "hapla.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["hapla*"]
+
+[tool.setuptools.package-data]
+hapla = ["*.pyx", "*.pxd"]
+
+[tool.setuptools.exclude-package-data]
+hapla = ["*.c"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.format]
+skip-magic-trailing-comma = true
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]
+
+[tool.ruff.lint.isort]
+split-on-trailing-comma = false

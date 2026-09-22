@@ -1,1 +1,13 @@
-global-include *.pyx
+include README.md LICENSE environment-cpu.yml
+recursive-include hapla *.pyx *.pxd
+recursive-include tests *.py
+exclude hapla/*.c
+prune analysis
+prune benchmarks
+prune reports
+prune releases
+prune output
+prune tmp
+prune .agents
+prune .codex
+global-exclude .DS_Store *.py[cod] *.so *.pyd *.dylib

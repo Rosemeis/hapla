@@ -1,327 +1,195 @@
-"""
-hapla.
-Haplotype clustering using pre-estimated cluster medians.
-"""
+"""Predict reference clusters with bounded native input and streamed output."""
 
-__author__ = "Jonas Meisner"
+from contextlib import ExitStack
+from time import perf_counter
 
-# Libraries
-import os
-import re
-from datetime import datetime
-from time import time
-from hapla import __version__
+from hapla.runtime import (
+    batches,
+    batchSize,
+    commitOutputs,
+    openReader,
+    printDone,
+    printHeader,
+    printMissing,
+    runBatches,
+    stageOutputs,
+    threadPlan,
+    writeLog,
+)
 
 
-##### hapla predict #####
-def main(args, deaf):
-    print("-----------------------------------")
-    print(f"hapla by Jonas Meisner (v{__version__})")
-    print(f"hapla predict using {args.threads} thread(s)")
-    print("-----------------------------------\n")
+### Read reference tuples: (window metadata, cluster count, median offset)
+def readReference(pfx):
+    from hapla.formats import readMedians, readWindows
 
-    # Check input
-    assert args.vcf is not None or args.bfile is not None, (
-        "Please provide genotype file (--bcf, --vcf, --bfile)!"
-    )
-    if args.vcf is not None:
-        assert os.path.isfile(f"{args.vcf}"), "VCF/BCF file doesn't exist!"
-        assert os.path.isfile(f"{args.vcf}.csi") or os.path.isfile(f"{args.vcf}.tbi"), (
-            "VCF/BCF index doesn't exist!"
-        )
-    else:
-        assert os.path.isfile(f"{args.bfile}.bed"), "PLINK bed file doesn't exist!"
-        assert os.path.isfile(f"{args.bfile}.bim"), "PLINK bim file doesn't exist!"
-        assert os.path.isfile(f"{args.bfile}.fam"), "PLINK fam file doesn't exist!"
-        unphased = True
-    assert args.ref is not None, (
-        "Please provide pre-estimated reference haplotype cluster medians (--ref)!"
-    )
-    assert os.path.isfile(f"{args.ref}.bcm"), "bcm file doesn't exist!"
-    assert os.path.isfile(f"{args.ref}.win"), "win file doesn't exist!"
-    assert os.path.isfile(f"{args.ref}.wix"), "wix file doesn't exist!"
-    assert args.threads > 0, "Please select a valid number of threads!"
-    start = time()
+    with open(f"{pfx}.wix") as src:
+        idx = [int(line.strip()) for line in src if line.strip()]
+    rows = readWindows(pfx)
+    if not rows or len(idx) != len(rows):
+        raise ValueError("Reference window and index counts differ or are empty")
+    ref, off, prev = [], 0, -1
+    for i, row in zip(idx, rows):
+        chrom, beg, end, _, B, K = row
+        if i <= prev:
+            raise ValueError("Reference window indices must be nonnegative and increasing")
+        ref.append(((i, chrom, beg, end, B), K, off))
+        off += K * B
+        prev = i
+    R = readMedians(pfx, [K for _, K, _ in ref], [meta[4] for meta, _, _ in ref])
+    return ref, R
 
-    # Control threads of external numerical libraries
-    os.environ["MKL_NUM_THREADS"] = str(args.threads)
-    os.environ["MKL_MAX_THREADS"] = str(args.threads)
-    os.environ["OMP_NUM_THREADS"] = str(args.threads)
-    os.environ["OMP_MAX_THREADS"] = str(args.threads)
-    os.environ["NUMEXPR_NUM_THREADS"] = str(args.threads)
-    os.environ["NUMEXPR_MAX_THREADS"] = str(args.threads)
-    os.environ["OPENBLAS_NUM_THREADS"] = str(args.threads)
-    os.environ["OPENBLAS_MAX_THREADS"] = str(args.threads)
 
-    # Create log-file of used arguments
-    full = vars(args)
-    with open(f"{args.out}.log", "w") as log:
-        log.write(f"hapla v{__version__}\n")
-        log.write("hapla predict\n")
-        log.write(f"Time: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n")
-        log.write(f"Directory: {os.getcwd()}\n")
-        log.write("Options:\n")
-        for key in full:
-            if full[key] != deaf[key]:
-                log.write(f"\t--{key}\n") if (type(full[key]) is bool) else log.write(
-                    f"\t--{key} {full[key]}\n"
-                )
-    del full, deaf
+### Align input windows and retain views into the mapped reference medians
+def predictionJobs(buf, ref, R, mode):
+    from hapla.windows import advanceBuffer, chromosomeEnd, fillBuffer, takeWindow
 
-    # Import numerical libraries and cython functions
+    for meta, K, off in ref:
+        idx, _, _, _, B = meta
+        while buf["idx"] < idx:
+            if not fillBuffer(buf, 1):
+                raise ValueError("Input ends before a reference window")
+            advanceBuffer(buf, min(buf["end"] - buf["beg"], idx - buf["idx"]))
+        if fillBuffer(buf, B) < B or chromosomeEnd(buf) < B:
+            raise ValueError("Reference window exceeds input or crosses chromosomes")
+        cur, G, _, phase = takeWindow(buf, B)
+        if cur != meta:
+            raise ValueError("Input window coordinates differ from the reference")
+        if mode == "unphased":
+            phase.fill(True)
+        yield meta, G, phase, R[off : off + K * B].reshape(K, B)
+
+    # Check the entire site set, including variants omitted by --tail drop
+    while fillBuffer(buf, 1):
+        advanceBuffer(buf, buf["end"] - buf["beg"])
+
+
+### Assign phased haplotypes and apply the unphased cluster-pair heuristic
+def predictBatch(batch):
     import numpy as np
-    from cyvcf2 import VCF
-    from math import ceil
-    from hapla import reader_cy
-    from hapla import memory_cy
-    from hapla import shared_cy
 
-    # Load genotype data
-    if args.vcf is not None:
-        print("\rLoading VCF/BCF file...", end="")
-        v_file = VCF(args.vcf, threads=min(args.threads, 4))
-        s_list = np.array(v_file.samples).reshape(-1, 1)
-        M = v_file.num_records
+    from hapla import packed_cy, shared_cy
 
-        # Check phasing and set parameters
-        first = next(v_file)
-        chrom = str(first.CHROM)  # Extract chromosome information
-        V = first.genotype.array()  # Extract genotype array
-        unphased = not bool(V[0, 2])  # Extract phasing information
-        N = s_list.shape[0] if unphased else 2 * s_list.shape[0]
-        B = ceil(N / 4)
-
-        # Allocate arrays
-        G = (
-            np.zeros((M, B), dtype=np.uint8)
-            if args.memory
-            else np.zeros((M, N), dtype=np.uint8)
+    out = []
+    for meta, G, phase, R in batch:
+        n_unph = int(np.count_nonzero(phase))
+        z = (
+            np.full(G.shape[1], 255, np.uint8)
+            if not len(R) or n_unph == len(phase)
+            else packed_cy.predict_haplotypes(G, R)
         )
-        v_vec = np.zeros(M, dtype=np.uint32)
-        v_vec[0] = first.POS
+        if len(R) and n_unph:
+            miss = np.any(G == 255, axis=0).reshape(-1, 2).any(axis=1)
+            z.reshape(-1, 2)[phase & miss] = 255
+            idx = np.flatnonzero(phase & ~miss)
+            if len(idx):
+                D = np.ascontiguousarray((G[:, 2 * idx] + G[:, 2 * idx + 1]).T)
+                tmp = np.empty(2 * len(idx), np.uint8)
+                shared_cy.genoCluster(D, R, tmp)
+                z.reshape(-1, 2)[idx] = tmp.reshape(-1, 2)
+        out.append((meta, len(R), z, n_unph))
+    return out
 
-        # Read variants into matrix
-        if not unphased:  # Haplotypes
-            memory_cy.predBit(G[0], V, N // 2) if args.memory else reader_cy.predVar(
-                G[0], V, N // 2
+
+### Predict bounded batches and publish the complete output set
+def main(args):
+    if (args.vcf is None) == (args.bfile is None):
+        raise ValueError("Provide exactly one of --bcf/--vcf or --bfile")
+    if args.ref is None:
+        raise ValueError("Provide a Hapla 1.x reference with --ref")
+    if args.buffer_mb < 1 or args.batch_windows < 1:
+        raise ValueError("--buffer-mb and --batch-windows must be positive")
+    if args.bfile is not None and args.phase_mode == "phased":
+        raise ValueError("PLINK BED input is unphased")
+    nt, nio = threadPlan(args.threads, args.io_threads)
+    from hapla.formats import FORMAT_VERSION, openOutputs, outputSuffixes, readHeader, writeWindow
+    from hapla.identity import readIdentity, writeIdentity
+    from hapla.plink import openPlink
+    from hapla.windows import createBuffer
+
+    # Map the reference and protect all input paths
+    start = perf_counter()
+    ident = readIdentity(args.ref, (".bcm", ".win", ".wix", ".sites"))
+    ref, R = readReference(args.ref)
+    if ident["windows"] != len(ref) or ident["clusters"] != sum(k for _, k, _ in ref):
+        raise ValueError("Reference identity dimensions do not match the medians")
+    mem = args.buffer_mb * 1024**2
+    inputs = [args.vcf] if args.vcf else [f"{args.bfile}{s}" for s in (".bed", ".bim", ".fam")]
+    inputs += [f"{args.ref}{s}" for s in (".bcm", ".win", ".wix", ".sites", ".ref.json")]
+    stats = dict(windows=0, missing_assignments=0, unphased_sample_windows=0)
+    printHeader("predict", args.threads)
+    with ExitStack() as stack:
+        out = stageOutputs(stack, args.out, outputSuffixes(False, args.plink), inputs)
+        sites = stack.enter_context(open(f"{args.ref}.sites", "rb"))
+        readHeader(sites)
+        if args.vcf:
+            src, stats["diagnostics"] = openReader(
+                stack, args.vcf, nio, phased=args.phase_mode == "phased"
             )
-            for j, variant in enumerate(v_file):
-                V = variant.genotype.array()
-                memory_cy.predBit(
-                    G[j + 1], V, N // 2
-                ) if args.memory else reader_cy.predVar(G[j + 1], V, N // 2)
-                v_vec[j + 1] = variant.POS
-        else:  # Genotypes
-            memory_cy.genoBit(G[0], V, N) if args.memory else reader_cy.genoVar(
-                G[0], V, N
-            )
-            for j, variant in enumerate(v_file):
-                V = variant.genotype.array()
-                memory_cy.genoBit(G[j + 1], V, N) if args.memory else reader_cy.genoVar(
-                    G[j + 1], V, N
-                )
-                v_vec[j + 1] = variant.POS
-        del first, V, v_file
-    else:
-        print("\rLoading PLINK files..", end="")
-        N = 0
-        with open(f"{args.bfile}.fam", "r") as fam:
-            for _ in fam:
-                N += 1
-        B = ceil(N / 4)
-
-        # Read .bed file
-        with open(f"{args.bfile}.bed", "rb") as bed:
-            D = np.fromfile(bed, dtype=np.uint8, offset=3)
-        assert (D.shape[0] % B) == 0, "bim file doesn't match!"
-        M = D.shape[0] // B
-        D = D.reshape(M, B)
-
-        # Expand genotypes into 8-bit array
-        if not args.memory:
-            G = np.zeros((M, N), dtype=np.uint8)
-            reader_cy.readPlink(D, G)
-            del D
+            read, ids, chroms = src.read_into, src.samples, src.contigs
         else:
-            G = D
-
-        # Read sample and variant names
-        bim = np.genfromtxt(f"{args.bfile}.bim", dtype=np.str_, usecols=[0, 3])
-        v_vec = bim[:, 1].astype(np.uint32)
-        chrom = str(bim[-1, 0])
-        s_list = np.genfromtxt(f"{args.bfile}.fam", dtype=np.str_, usecols=[1]).reshape(
-            -1, 1
-        )
-        del bim
-    if unphased:
-        print(f"\rLoaded unphased genotype data: {N} samples and {M} SNPs.")
-        N *= 2
-    else:
-        print(f"\rLoaded phased genotype data: {N} haplotypes and {M} SNPs.")
-
-    # Load window information from reference
-    w_mat = np.genfromtxt(f"{args.ref}.win", dtype=np.str_, skip_header=1)
-    assert re.search(r"(\d+)$", w_mat[0, 0]).group(1) == re.search(
-        r"(\d+)$", chrom
-    ).group(1), "Chromosome number differ between files!"
-    assert int(w_mat[0, 1]) == v_vec[0], "Positions differ between files!"
-    assert int(w_mat[-1, 2]) == v_vec[-1], "Positions differ between files!"
-    s_vec = w_mat[:, 1].astype(np.uint32)
-    b_vec = w_mat[:, 4].astype(np.uint32)
-    k_vec = w_mat[:, 5].astype(np.uint32)
-    W = k_vec.shape[0]
-
-    # Haplotype cluster medians
-    with open(f"{args.ref}.bcm", "rb") as f:
-        # Check magic numbers
-        magic = np.fromfile(f, dtype=np.uint8, count=3)
-        assert np.allclose(magic, np.array([7, 9, 13], dtype=np.uint8)), (
-            "Magic number doesn't match file format!"
-        )
-        R_arr = np.fromfile(f, dtype=np.uint8)
-
-    # Load window setup files
-    w_vec = np.genfromtxt(f"{args.ref}.wix", dtype=np.uint32)
-    assert np.allclose(v_vec[w_vec], s_vec), "SNP set doesn't match!"
-    del v_vec, magic
-
-    # Containers
-    Z = np.zeros((W, N), dtype=np.uint8)  # Haplotype cluster alleles
-
-    # Clustering
-    B = 0
-    K = 0
-    print(f"Clustering {W} windows.")
-    for w in np.arange(W):
-        print(f"\rWindow {w + 1}/{W}", end="")
-        b_win = int(b_vec[w])
-        k_win = int(k_vec[w])
-
-        # Load haplotype window
-        R_mat = R_arr[B : (B + k_win * b_win)]
-        R_mat = R_mat.reshape(k_win, b_win)
-        if not unphased:  # Haplotypes
-            X = np.zeros((N, R_mat.shape[1]), dtype=np.uint8)
-            memory_cy.expandBit(
-                G, X, w_vec[w]
-            ) if args.memory else reader_cy.convertWin(G, X, w_vec[w])
-        else:  # Genotypes
-            X = np.zeros((N // 2, R_mat.shape[1]), dtype=np.uint8)
-            memory_cy.expandGeno(
-                G, X, w_vec[w]
-            ) if args.memory else reader_cy.convertWin(G, X, w_vec[w])
-
-        # Cluster assignment
-        shared_cy.genoCluster(X, R_mat, Z[w]) if unphased else shared_cy.predictCluster(
-            X, R_mat, Z[w]
-        )
-
-        # Update counter
-        B += k_win * b_win
-        K += k_win
-    del G, X, R_mat, R_arr, w_vec
-    if "D" in locals():
-        del D
-    print(".\n")
-
-    # Save hapla output and print info
-    h_win = ["#CHROM", "START", "END", "LENGTH", "SIZE", "K"]
-    with open(f"{args.out}.bca", "wb") as f:
-        np.array([7, 9, 13], dtype=np.uint8).tofile(f)  # Add magic numbers
-        Z.tofile(f)  # Save haplotype cluster assignments to binary file
-    np.savetxt(f"{args.out}.ids", s_list, fmt="%s")
-    np.savetxt(
-        f"{args.out}.win",
-        w_mat,
-        fmt="%s",
-        delimiter="\t",
-        comments="",
-        header="\t".join(h_win),
-    )
-    print(
-        "\rSaved haplotype clusters in binary hapla format:\n"
-        + f"- {args.out}.bca\n"
-        + f"- {args.out}.ids\n"
-        + f"- {args.out}.win\n"
-    )
-
-    # Save haplotype cluster assignments in binary PLINK format
-    if args.plink:
-        print("\rGenerating binary PLINK output.", end="")
-        B = ceil(N / 8)
-        K_tot = np.sum(k_vec, dtype=int)
-        P_mat = np.zeros((K_tot, 3), dtype=np.uint32)
-        Z_bin = np.zeros((K_tot, B), dtype=np.uint8)
-        c_vec = np.insert(np.cumsum(k_vec[:-1], dtype=np.uint32), 0, 0)
-        reader_cy.convertPlink(Z, Z_bin, P_mat, k_vec, c_vec, b_vec)
-
-        # Save .bed file including magic numbers
-        with open(f"{args.out}.bed", "w") as bfile:
-            np.array([108, 27, 1], dtype=np.uint8).tofile(bfile)
-            Z_bin.tofile(bfile)
-        del c_vec, b_vec, Z_bin, Z
-
-        # Save .bim file
-        tmp = np.array([f"{chrom}_W{w}_K{k}_B{b}" for w, k, b in P_mat])
-        bim = np.hstack(
-            (
-                np.array([chrom]).repeat(K_tot).reshape(-1, 1),
-                tmp.reshape(-1, 1),
-                np.zeros((K_tot, 1), dtype=np.uint32),
-                s_vec.repeat(k_vec).reshape(-1, 1),
-                np.array(["K"]).repeat(K_tot).reshape(-1, 1),
-                np.zeros((K_tot, 1), dtype=np.uint32),
-            )
-        )
-        np.savetxt(f"{args.out}.bim", bim, fmt="%s", delimiter="\t")
-        del k_vec, s_vec, bim, tmp, P_mat
-
-        # Save .fam file
-        if args.duplicate_fid:
-            s_list = s_list.repeat(2, axis=1)
-        else:
-            s_list = np.hstack((np.zeros((N // 2, 1), dtype=np.uint8), s_list))
-        fam = np.hstack(
-            (
-                s_list,
-                np.zeros((N // 2, 3), dtype=np.uint8),
-                np.full((N // 2, 1), -9, dtype=np.int8),
-            )
-        )
-        np.savetxt(f"{args.out}.fam", fam, fmt="%s", delimiter="\t")
-
-        # Print info
+            rows = []
+            read, ids, chroms = openPlink(stack, args.bfile, rows)
         print(
-            "\rSaved haplotype cluster alleles in binary PLINK format:\n"
-            + f"- {args.out}.bed\n"
-            + f"- {args.out}.bim\n"
-            + f"- {args.out}.fam\n"
+            f"Data size: {len(ids):,} samples, {len(ref):,} windows\nPredicting clusters.",
+            flush=True,
         )
-        del fam, s_list
 
-    # Print elapsed time for computation
-    t_tot = time() - start
-    t_min = int(t_tot // 60)
-    t_sec = int(t_tot - t_min * 60)
-    print(f"Total elapsed time: {t_min}m{t_sec}s")
+        # Require exact chromosome, position, REF and ALT order
+        def checkSites(eof):
+            for row in src.sites if args.vcf else rows:
+                if sites.readline() != row:
+                    raise ValueError(
+                        "Input sites differ from the reference (chromosome, position, REF/ALT order)"
+                    )
+            if eof and sites.read(1):
+                raise ValueError("Input ends before the reference variant set")
 
-    # Write to log-file
-    with open(f"{args.out}.log", "a") as log:
-        log.write(
-            "\nSaved haplotype clusters in binary hapla format:\n"
-            + f"- {args.out}.bca\n"
-            + f"- {args.out}.ids\n"
-            + f"- {args.out}.win\n"
+        buf = createBuffer(read, ids, chroms, mem // 4, phase=True, sites=checkSites)
+        n = batchSize(
+            max(meta[4] for meta, _, _ in ref) * len(ids) * 3,
+            args.batch_windows,
+            mem // 4,
+            mem // 2,
+            nt,
         )
-        if args.plink:
-            log.write(
-                "\nSaved haplotype cluster alleles in binary PLINK format:\n"
-                + f"- {args.out}.bed\n"
-                + f"- {args.out}.bim\n"
-                + f"- {args.out}.fam\n"
+        with ExitStack() as io:
+            files = openOutputs(io, out, ids, args.duplicate_fid)
+
+            # Publish each result in reference order
+            def write(res):
+                meta, K, z, n_unph = res
+                stats["windows"] += 1
+                stats["missing_assignments"] += int((z == 255).sum())
+                stats["unphased_sample_windows"] += n_unph
+                writeWindow(files, meta, z, K, stats["windows"])
+
+            runBatches(
+                batches(predictionJobs(buf, ref, R, args.phase_mode), n),
+                predictBatch,
+                write,
+                workers=nt,
+                par=args.threads > 1,
+                b_buf=mem // 2,
+                size_of=lambda batch: sum(G.nbytes + phase.nbytes for _, G, phase, _ in batch),
             )
-        log.write(f"\nTotal elapsed time: {t_min}m{t_sec}s\n")
 
-
-##### Main exception #####
-assert __name__ != "__main__", "Please use the 'hapla predict' command!"
+        writeIdentity(out, ident["reference"], ident["windows"], ident["clusters"])
+        # Flush staged files before replacing previous outputs
+        stats.update(
+            variants=buf["variants"],
+            haplotypes=2 * len(ids),
+            elapsed_seconds=perf_counter() - start,
+            read_seconds=buf["time"],
+            workers=nt,
+            batch_windows=n,
+            io_threads=nio,
+            input_buffer_mib=mem / 1024**2,
+            format_version=FORMAT_VERSION,
+        )
+        if args.vcf:
+            stats.update(htslib_version=src.htslib_version, htslib_features=src.htslib_features)
+        writeLog(out[".log"], "predict", args, stats)
+        commitOutputs(args.out, out)
+    printMissing(stats["missing_assignments"], stats["windows"] * stats["haplotypes"])
+    printDone(args.out, out, stats["elapsed_seconds"])
+    return stats

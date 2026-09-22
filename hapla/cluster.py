@@ -1,487 +1,218 @@
-"""
-hapla.
-Haplotype clustering using PDC-DP-Medians.
-"""
+"""Stream phased GT through exact packed haplotype clustering on CPU workers."""
 
 __author__ = "Jonas Meisner"
 
-# Libraries
-import os
-from datetime import datetime
-from time import time
-from hapla import __version__
+import math
+from contextlib import ExitStack
+from functools import partial
+from hashlib import sha256
+from pathlib import Path
+from time import perf_counter
+
+from hapla.runtime import (
+    batches,
+    batchSize,
+    commitOutputs,
+    openReader,
+    printDone,
+    printHeader,
+    printMissing,
+    runBatches,
+    stageOutputs,
+    threadPlan,
+    writeLog,
+)
 
 
-##### hapla cluster #####
-def main(args, deaf):
-    print("-----------------------------------")
-    print(f"hapla by Jonas Meisner (v{__version__})")
-    print(f"hapla cluster using {args.threads} thread(s)")
-    print("-----------------------------------\n")
-
-    # Check input
-    assert args.vcf is not None, "No phased genotype file (--bcf or --vcf)!"
-    assert os.path.isfile(f"{args.vcf}"), "VCF/BCF file doesn't exist!"
-    assert os.path.isfile(f"{args.vcf}.csi") or os.path.isfile(f"{args.vcf}.tbi"), (
-        "VCF/BCF index doesn't exist!"
-    )
-    assert args.threads > 0, "Please select a valid number of threads!"
-    assert (args.min_freq > 0.0) and (args.min_freq < 1.0), (
-        "Invalid cluster frequency threshold!"
-    )
-    if args.min_mac is not None:
-        assert args.min_mac > 0, "Please select a valid MAC threshold!"
-    assert args.max_iterations > 0, "Please select a valid number of iterations!"
-    assert (args.lmbda > 0.0) and (args.lmbda < 1.0), (
-        "Please select a valid lambda value!"
-    )
-    assert (args.max_clusters > 1) and (args.max_clusters <= 256), (
-        "Max allowed clusters exceeded!"
-    )
-    if args.size is not None:
-        assert args.size > 0, "Invalid window size!"
-        if args.step is not None:
-            if args.size == 1:
-                args.step = None
-            else:
-                assert (args.step <= args.size) and (args.step > 0), (
-                    "Invalid step size for sliding window chosen!"
-                )
-    elif args.length is not None:
-        assert args.length > 0, "Invalid window size!"
-    else:
-        assert args.windows is not None, (
-            "No window option (--size, --length or --windows)!"
+### Validate clustering and input limits before allocating buffers
+def checkArgs(args):
+    if args.vcf is None or not Path(args.vcf).is_file():
+        raise ValueError("Provide an existing phased VCF/BCF with --bcf or --vcf")
+    if sum(value is not None for value in (args.size, args.length, args.windows)) != 1:
+        raise ValueError("Select exactly one of --size, --length, or --windows")
+    if args.size is not None and args.size < 1:
+        raise ValueError("--size must be positive")
+    if args.length is not None and args.length < 1:
+        raise ValueError("--length must be positive")
+    if args.step is not None and (args.size is None or not 1 <= args.step <= args.size):
+        raise ValueError("--step requires --size and must lie between 1 and the window size")
+    if not math.isfinite(args.lmbda) or not 0 < args.lmbda < 1:
+        raise ValueError("--lmbda must lie strictly between 0 and 1")
+    if not math.isfinite(args.min_freq) or not 0 < args.min_freq < 1:
+        raise ValueError("--min-freq must lie strictly between 0 and 1")
+    if args.min_mac is not None and args.min_mac < 1:
+        raise ValueError("--min-mac must be positive")
+    if not 1 <= args.max_clusters <= 255:
+        raise ValueError(
+            "--max-clusters must be between 1 and 255. Byte 255 is reserved for missing"
         )
-    start = time()
+    if args.max_iterations < 1:
+        raise ValueError("--max-iterations must be positive")
+    if args.buffer_mb < 1 or args.batch_windows < 1:
+        raise ValueError("--buffer-mb and --batch-windows must be positive")
 
-    # Create log-file of used arguments
-    full = vars(args)
-    mand = ["lmbda"]
-    if args.min_mac is None:
-        mand.append("min_freq")
-    with open(f"{args.out}.log", "w") as log:
-        log.write(f"hapla v{__version__}\n")
-        log.write("hapla cluster\n")
-        log.write(f"Time: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n")
-        log.write(f"Directory: {os.getcwd()}\n")
-        log.write("Options:\n")
-        for key in full:
-            if full[key] != deaf[key]:
-                log.write(f"\t--{key}\n") if (type(full[key]) is bool) else log.write(
-                    f"\t--{key} {full[key]}\n"
-                )
-            elif key in mand:
-                log.write(f"\t--{key} {full[key]}\n")
-    del full, deaf, mand
 
-    # Control threads of external numerical libraries
-    os.environ["MKL_NUM_THREADS"] = str(args.threads)
-    os.environ["MKL_MAX_THREADS"] = str(args.threads)
-    os.environ["OMP_NUM_THREADS"] = str(args.threads)
-    os.environ["OMP_MAX_THREADS"] = str(args.threads)
-    os.environ["NUMEXPR_NUM_THREADS"] = str(args.threads)
-    os.environ["NUMEXPR_MAX_THREADS"] = str(args.threads)
-    os.environ["OPENBLAS_NUM_THREADS"] = str(args.threads)
-    os.environ["OPENBLAS_MAX_THREADS"] = str(args.threads)
+### Fit independent windows and discard scratch arrays before returning results
+def fitBatch(batch, opt, medians, missing):
+    from hapla import packed_cy
 
-    # Import numerical libraries and cython functions
-    import numpy as np
-    from cyvcf2 import VCF
-    from math import ceil
-    from hapla import reader_cy
-    from hapla import memory_cy
-    from hapla import cluster_cy
+    out = []
+    for meta, G, miss, _ in batch:
+        try:
+            if miss and missing == "error":
+                raise ValueError("Missing GT encountered with --missing error")
+            res = packed_cy.fit_window(G, missing=miss, **opt)
+        except (ValueError, RuntimeError) as err:
+            _, chrom, beg, end, _ = meta
+            raise type(err)(f"{chrom}:{beg}-{end}: {err}") from err
+        h = sha256(res["medians"])
+        h.update(res["counts"].astype("<u8", copy=False))
+        h.update(res["sizes"].astype("<u8", copy=False))
+        res["identity"] = h.digest()
+        if medians:
+            res["likelihoods"] = packed_cy.likelihoods(res["medians"], res["counts"], res["sizes"])
+        else:
+            del res["medians"]
+        del res["counts"], res["sizes"]
+        res["window"] = meta
+        out.append(res)
+    return out
 
-    # Initiate VCF and extract parameters
-    print("\rLoading VCF/BCF file...", end="")
-    v_file = VCF(args.vcf, threads=min(args.threads, 4))
-    s_list = np.array(v_file.samples).reshape(-1, 1)
-    N = 2 * s_list.shape[0]
-    M = v_file.num_records
-    B = ceil(N / 8)
 
-    # Set haplotype cluster size threshold
-    N_mac = np.uint32(
-        args.min_mac if (args.min_mac is not None) else ceil(N * args.min_freq)
+### Cluster bounded batches and publish the complete output set
+def main(args):
+    checkArgs(args)
+    nt, nio = threadPlan(args.threads, args.io_threads)
+    from hapla.formats import FORMAT_VERSION, openOutputs, outputSuffixes, writeWindow
+    from hapla.identity import fileHash, writeIdentity
+    from hapla.windows import (
+        createBuffer,
+        fixedWindows,
+        physicalWindows,
+        predefinedWindows,
+        readStarts,
     )
 
-    # Allocate arrays
-    G = (
-        np.zeros((M, B), dtype=np.uint8)
-        if args.memory
-        else np.zeros((M, N), dtype=np.uint8)
+    # Prepare options and output statistics
+    start = perf_counter()
+    mem = args.buffer_mb * 1024**2
+    idx = readStarts(args.windows) if args.windows is not None else None
+    opt = dict(
+        alpha=args.lmbda,
+        min_freq=args.min_freq,
+        min_mac=args.min_mac,
+        K_max=args.max_clusters,
+        n_iter=args.max_iterations,
     )
-    v_vec = np.zeros(M, dtype=np.uint32)
-
-    # Read variants into matrix
-    for j, variant in enumerate(v_file):
-        V = variant.genotype.array()
-        memory_cy.readBit(G[j], V, N // 2) if args.memory else reader_cy.readVar(
-            G[j], V, N // 2
+    stats = dict(
+        windows=0,
+        clusters=0,
+        missing_assignments=0,
+        all_missing_windows=0,
+        capped_windows=0,
+        growth_passes=0,
+        pruning_passes=0,
+        distance_pairs=0,
+    )
+    size = (
+        f"{args.size:,}"
+        if args.size is not None
+        else (f"{args.length:,} bp" if args.length is not None else "predefined")
+    )
+    printHeader("cluster", args.threads, f"Size: {size}")
+    with ExitStack() as stack:
+        src, stats["diagnostics"] = openReader(stack, args.vcf, nio)
+        print(f"Samples: {len(src.samples):,}\nClustering windows.", flush=True)
+        out = stageOutputs(
+            stack,
+            args.out,
+            outputSuffixes(args.medians, args.plink),
+            inputs=(args.vcf, args.windows),
         )
-        v_vec[j] = variant.POS
-    chrom = variant.CHROM  # Extract chromosome information
-    del V, v_file
-    t_par = time() - start
-    print(f"\rLoaded phased genotype data: {N} haplotypes and {M} SNPs.")
+        buf = createBuffer(src.read_into, src.samples, src.contigs, mem // 4)
 
-    # Set up windows
-    if args.size is not None:  # Fixed sized windows
-        if args.step is not None:
-            W = ceil((M - args.size) / args.step)
-            w_vec = [w * args.step for w in range(W)]
-            print(
-                f"Clustering {W} overlapping windows of {args.size} SNPs (step-size {args.step})."
+        # Select window boundaries and leave room for all workers
+        if args.size is not None:
+            windows = fixedWindows(buf, args.size, args.step, args.tail)
+            n = batchSize(
+                args.size * 2 * len(src.samples), args.batch_windows, mem // 4, mem // 2, nt
             )
+        elif args.length is not None:
+            windows, n = physicalWindows(buf, args.length), 1
         else:
-            W = M // args.size
-            w_vec = [w * args.size for w in range(W)]
-            print(f"Clustering {W} non-overlapping windows of {args.size} SNPs.")
-        w_vec.append(M)
-        w_vec = np.array(w_vec, dtype=np.uint32)
-    elif args.length is not None:  # Length-based windows
-        w_vec = []
-        w = 0
-        while w < M:
-            w_vec.append(w)
-            w_len = v_vec[w] + args.length
-            w_end = w
-            while (w_end < M) and (v_vec[w_end] <= w_len):
-                w_end += 1
-            w = w_end
-        W = len(w_vec)
-        w_vec.append(M)
-        w_vec = np.array(w_vec, dtype=np.uint32)
-        print(f"Clustering {W} non-overlapping windows of {args.length} BPs.")
-    else:  # Pre-defined windows from external file
-        w_vec = np.genfromtxt(args.windows, dtype=np.uint32)
-        assert w_vec[-1] <= M, "Genotype and window files don't match!"
-        if w_vec[-1] != M:
-            w_vec = np.insert(w_vec, W, M)
-        W = w_vec.shape[0]
-        print(f"Clustering {W} windows with provided SNP lengths.")
+            windows, n = predefinedWindows(buf, idx), 1
+        with ExitStack() as io:
+            files = openOutputs(io, out, src.samples, args.duplicate_fid)
+            site_id, fit_key = sha256(), sha256()
 
-    # Containers
-    Z = np.zeros((W, N), dtype=np.uint8)  # Chromosome-based cluster assignments
-    z_vec = np.zeros(N, dtype=np.uint32)  # Window-based cluster assignments
-    k_vec = np.zeros(W, dtype=np.uint32)  # Number of clusters in windows
-    c_vec = np.zeros(N, dtype=np.uint32)  # Cost vector
-    u_vec = np.zeros(N, dtype=np.uint32)  # Count of unique haplotypes
-    d_vec = np.zeros(N, dtype=np.uint32)  # Divergence vector (suffix array)
-    n_vec = np.zeros(args.max_clusters, dtype=np.uint32)  # Size vector
-    p_vec = np.arange(N, dtype=np.uint32)  # Prefix vector (suffix array)
-    i_vec = np.arange(args.max_iterations)  # Iteration vector
-    z_tmp = np.zeros_like(z_vec)  # Help vector (clustering)
-    a_tmp = np.zeros_like(p_vec)  # Help vector (suffix array)
-    b_tmp = np.zeros_like(p_vec)  # Help vector (suffix array)
-    d_tmp = np.zeros_like(d_vec)  # Help vector (suffix array)
-    e_tmp = np.zeros_like(d_vec)  # Help vector (suffix array)
-    n_tmp = np.zeros_like(n_vec)  # Help vector (size)
-    if args.size is not None:  # Window length-based
-        if args.memory:
-            H = np.zeros((args.size, N), dtype=np.uint32)  # Haplotypes transposed
-        X = np.zeros((N, args.size), dtype=np.uint32)  # Haplotypes
-        R = np.zeros((args.max_clusters, args.size), dtype=np.uint32)  # Medians
-        C = np.zeros((args.max_clusters, args.size), dtype=np.uint32)  # Means
-        c_lim = np.uint32(ceil(args.lmbda * float(X.shape[1])))  # SNP-based threshold
+            def sites(eof):
+                for row in src.sites:
+                    site_id.update(row)
+                if args.medians:
+                    files[".sites"].writelines(src.sites)
 
-    # Optional containers
-    if args.medians:
-        L = np.zeros(
-            (args.max_clusters, args.max_clusters), dtype=np.float32
-        )  # Log-likelihoods
-        with open(f"{args.out}.bcm", "wb") as f:  # Medians file
-            np.array([7, 9, 13], dtype=np.uint8).tofile(f)
-        with open(f"{args.out}.blk", "wb") as f:  # Log-likelihoods file
-            np.array([7, 9, 13], dtype=np.uint8).tofile(f)
-        np.savetxt(f"{args.out}.wix", w_vec[:-1], fmt="%i")  # Window lengths
+            buf["sites"] = sites
 
-    # Clustering using PDC-DP-Medians
-    for w in np.arange(W):
-        S = w_vec[w]
-        print(f"\rWindow {w + 1}/{W}", end="")
+            # Write in input order while other workers continue fitting
+            def write(res):
+                fit_key.update(int(res["window"][0]).to_bytes(8, "little"))
+                fit_key.update(res["identity"])
+                info = res["stats"]
+                K = info["K"]
+                stats["windows"] += 1
+                stats["clusters"] += K
+                stats["missing_assignments"] += info["missing"]
+                stats["all_missing_windows"] += K == 0
+                stats["capped_windows"] += info["capped"]
+                stats["growth_passes"] += info["growth_passes"]
+                stats["pruning_passes"] += info["prune_passes"]
+                stats["distance_pairs"] += info["distance_pairs"]
+                writeWindow(files, res["window"], res["labels"], K, stats["windows"])
+                if args.medians:
+                    files[".bcm"].write(res["medians"])
+                    files[".blk"].write(res["likelihoods"])
+                    files[".wix"].write(f"{res['window'][0]}\n")
 
-        # Prepare containers if window indices provided
-        if args.size is None:
-            if args.memory:
-                H = np.zeros((w_vec[w + 1] - S, N), dtype=np.uint32)
-            X = np.zeros((N, w_vec[w + 1] - S), dtype=np.uint32)
-            R = np.zeros((args.max_clusters, X.shape[1]), dtype=np.uint32)
-            C = np.zeros((args.max_clusters, X.shape[1]), dtype=np.uint32)
-            c_lim = np.uint32(ceil(args.lmbda * float(X.shape[1])))
+            runBatches(
+                batches(windows, n),
+                partial(fitBatch, opt=opt, medians=args.medians, missing=args.missing),
+                write,
+                workers=nt,
+                par=args.threads > 1,
+                b_buf=mem // 2,
+                size_of=lambda batch: sum(G.nbytes for _, G, _, _ in batch),
+            )
+        if not stats["windows"]:
+            raise ValueError("No windows were produced. Check the input and window/tail settings")
+        key = sha256(site_id.digest() + fit_key.digest() + bytes.fromhex(fileHash(out[".win"])))
+        writeIdentity(out, key.hexdigest(), stats["windows"], stats["clusters"])
 
-        # Prepare last window
-        if w == (W - 1):
-            if args.memory:
-                H = np.zeros((M - S, N), dtype=np.uint32)
-            X = np.zeros((N, M - S), dtype=np.uint32)
-            R = np.zeros((args.max_clusters, X.shape[1]), dtype=np.uint32)
-            C = np.zeros((args.max_clusters, X.shape[1]), dtype=np.uint32)
-            c_lim = np.uint32(ceil(args.lmbda * float(X.shape[1])))
-
-        # Load haplotype window
-        if args.memory:
-            memory_cy.convertBit(G, H, C, p_vec, d_vec, a_tmp, b_tmp, d_tmp, e_tmp, S)
-            U = memory_cy.uniqueBit(H, X, p_vec, d_vec, u_vec)
-        else:
-            reader_cy.convertHap(G, C, p_vec, d_vec, a_tmp, b_tmp, d_tmp, e_tmp, S)
-            U = reader_cy.uniqueHap(G, X, p_vec, d_vec, u_vec, S)
-
-        # Compute mean and initialize first median
-        K = np.uint32(1)
-        n_vec[0] = N
-        cluster_cy.marginalMedians(R, C, n_vec, K)
-
-        # Perform PDC-DP-Medians
-        for it in i_vec:
-            cluster_cy.assignClust(X, R, C, z_vec, c_vec, n_vec, n_tmp, u_vec, U, K)
-            cluster_cy.updateN(n_vec, n_tmp, K)
-            K += cluster_cy.checkClust(X, R, C, z_vec, c_vec, n_vec, u_vec, c_lim, U, K)
-
-            # Check for convergence
-            if it > 0:
-                if cluster_cy.countDist(z_vec, z_tmp, U) == 0:
-                    if K > 1:  # Converged
-                        break
-                    else:  # Make sure two haplotype clusters are generated
-                        print(", No diversity (K = 1)! Adding extra cluster.")
-                        cluster_cy.genClust(X, R, C, z_vec, c_vec, n_vec, u_vec, U, K)
-                        K += 1
-            else:
-                memoryview(z_tmp)[:] = memoryview(z_vec)
-
-            # Count sizes and construct marginal medians
-            cluster_cy.marginalMedians(R, C, n_vec, K)
-
-        # Iterative re-clustering of haplotypes
-        if K > 2:
-            # Remove all outliers (singletons and doubletons) in one go
-            if args.prune:
-                if np.sum(n_vec > 2) > 2:
-                    n_vec[n_vec <= 2] = 0
-
-            # Remove smallest clusters iterativly
-            K_tmp = np.sum(n_vec > 0, dtype=np.uint32)
-            N_min = N
-            reclust_converged = K_tmp <= 2
-            for _ in i_vec:
-                if K_tmp <= 2:
-                    reclust_converged = True
-                    break
-
-                # Re-assign haplotypes
-                cluster_cy.marginalMedians(R, C, n_vec, K)
-                cluster_cy.assignClust(X, R, C, z_vec, c_vec, n_vec, n_tmp, u_vec, U, K)
-                cluster_cy.updateN(n_vec, n_tmp, K)
-
-                # Find smallest cluster
-                N_min = cluster_cy.findZero(n_vec, N, N_mac, K)
-                if N_min >= N_mac:  # Ensure convergence
-                    if cluster_cy.countDist(z_vec, z_tmp, U) == 0:
-                        reclust_converged = True
-                        break
-                else:
-                    K_tmp -= 1  # Cluster removed
-                    memoryview(z_tmp)[:] = memoryview(z_vec)
-                    if K_tmp <= 2:
-                        reclust_converged = True
-                        break
-
-            if not reclust_converged:
-                warn_msg = (
-                    "Warning: iterative re-clustering did not converge within "
-                    f"{args.max_iterations} iterations in window {w + 1}/{W}; "
-                    "continuing with current assignments."
-                )
-                print(f"\n{warn_msg}")
-                with open(f"{args.out}.log", "a") as log:
-                    log.write(f"{warn_msg}\n")
-
-            # Re-cluster K = 2 case for consistency
-            if (K_tmp == 2) and (N_min < N_mac):
-                cluster_cy.assignClust(X, R, C, z_vec, c_vec, n_vec, n_tmp, u_vec, U, K)
-                cluster_cy.updateN(n_vec, n_tmp, K)
-
-        # Fix cluster median and cluster assignment order
-        cluster_cy.medianFix(R, C, z_vec, n_vec, K, U)
-        cluster_cy.assignFix(Z, z_vec, p_vec, d_vec, w)
-        K = np.sum(n_vec > 0, dtype=np.uint32)
-        k_vec[w] = K
-
-        # Generate optional saves (medians)
-        if args.medians:
-            cluster_cy.estimateLoglike(R, C, L, n_vec, K)
-            with open(f"{args.out}.bcm", "ab") as f:
-                R[:K].astype(np.uint8).tofile(f)
-            with open(f"{args.out}.blk", "ab") as f:
-                L[:K, :K].tofile(f)
-
-        # Reset arrays
-        cluster_cy.resetArrays(c_vec, n_vec, p_vec, d_vec, u_vec)
-
-    # Release memory
-    del (
-        G,
-        X,
-        C,
-        z_vec,
-        c_vec,
-        u_vec,
-        d_vec,
-        n_vec,
-        p_vec,
-        i_vec,
-        z_tmp,
-        a_tmp,
-        b_tmp,
-        d_tmp,
-        e_tmp,
-        n_tmp,
-    )
-    if args.memory:
-        del H
-    print(".\n")
-
-    # Extract window information
-    s_vec = v_vec[w_vec[:-1]].copy()
-    if args.size is not None:
-        e_vec = v_vec[w_vec[:-1] + args.size - 1].copy()
-        e_vec[-1] = v_vec[-1]
-        b_vec = np.full(W, args.size, dtype=np.uint32)
-        b_vec[-1] = w_vec[-1] - w_vec[-2]
-    else:
-        e_vec = v_vec[w_vec[1:] - 1]
-        b_vec = w_vec[1:] - w_vec[:-1]
-    del v_vec, w_vec
-
-    # Create window information array
-    w_mat = np.hstack(
-        (
-            np.array([chrom]).repeat(W).reshape(-1, 1),
-            s_vec.reshape(-1, 1),
-            e_vec.reshape(-1, 1),
-            (e_vec - s_vec).reshape(-1, 1),
-            b_vec.reshape(-1, 1),
-            k_vec.reshape(-1, 1),
+        # Flush staged files before replacing previous outputs
+        stats.update(
+            variants=buf["variants"],
+            haplotypes=2 * len(src.samples),
+            read_seconds=buf["time"],
+            elapsed_seconds=perf_counter() - start,
+            input_buffer_mib=mem / 1024**2,
+            workers=nt,
+            batch_windows=n,
+            io_threads=nio,
+            htslib_version=src.htslib_version,
+            htslib_features=src.htslib_features,
+            format_version=FORMAT_VERSION,
         )
-    )
-
-    # Save hapla output and print info
-    h_win = ["#CHROM", "START", "END", "LENGTH", "SIZE", "K"]
-    with open(f"{args.out}.bca", "wb") as f:
-        np.array([7, 9, 13], dtype=np.uint8).tofile(f)  # Add magic numbers
-        Z.tofile(f)  # Save haplotype cluster assignments to binary file format
-    np.savetxt(f"{args.out}.ids", s_list, fmt="%s")
-    np.savetxt(
-        f"{args.out}.win",
-        w_mat,
-        fmt="%s",
-        delimiter="\t",
-        comments="",
-        header="\t".join(h_win),
-    )
+        writeLog(out[".log"], "cluster", args, stats)
+        commitOutputs(args.out, out)
     print(
-        "Saved haplotype clusters in binary format:\n"
-        + f"- {args.out}.bca\n"
-        + f"- {args.out}.ids\n"
-        + f"- {args.out}.win\n"
+        f"Clustered {stats['variants']:,} variants into:\n"
+        f"- {stats['windows']:,} windows\n"
+        f"- {stats['clusters']:,} clusters",
+        flush=True,
     )
-
-    # Save haplotype cluster medians to binary file format
-    if args.medians:
+    printMissing(stats["missing_assignments"], stats["windows"] * stats["haplotypes"])
+    if stats["capped_windows"]:
         print(
-            "Saved haplotype cluster medians in binary format:\n"
-            + f"- {args.out}.bcm\n"
-            + f"- {args.out}.blk\n"
-            + f"- {args.out}.wix\n"
+            f"Cluster cap reached during growth: {stats['capped_windows']:,} windows.", flush=True
         )
-    del e_vec, w_mat
-
-    # Save haplotype cluster assignments in binary PLINK format
-    if args.plink:
-        print("\rGenerating binary PLINK output.", end="")
-        K_tot = np.sum(k_vec, dtype=np.uint32)
-        P_mat = np.zeros((K_tot, 3), dtype=np.uint32)
-        Z_bin = np.zeros((K_tot, B), dtype=np.uint8)
-        c_vec = np.insert(np.cumsum(k_vec[:-1], dtype=np.uint32), 0, 0)
-        reader_cy.convertPlink(Z, Z_bin, P_mat, k_vec, c_vec, b_vec)
-
-        # Save .bed file including magic numbers
-        with open(f"{args.out}.bed", "w") as bfile:
-            np.array([108, 27, 1], dtype=np.uint8).tofile(bfile)
-            Z_bin.tofile(bfile)
-        del b_vec, c_vec, Z_bin, Z
-
-        # Save .bim file
-        tmp = np.array([f"{chrom}_W{w}_K{k}_B{b}" for w, k, b in P_mat])
-        bim = np.hstack(
-            (
-                np.array([chrom]).repeat(K_tot).reshape(-1, 1),
-                tmp.reshape(-1, 1),
-                np.zeros((K_tot, 1), dtype=np.uint32),
-                s_vec.repeat(k_vec).reshape(-1, 1),
-                np.array(["K"]).repeat(K_tot).reshape(-1, 1),
-                np.zeros((K_tot, 1), dtype=np.uint32),
-            )
-        )
-        np.savetxt(f"{args.out}.bim", bim, fmt="%s", delimiter="\t")
-        del k_vec, s_vec, bim, tmp, P_mat
-
-        # Save .fam file
-        if args.duplicate_fid:
-            s_list = s_list.repeat(2, axis=1)
-        else:
-            s_list = np.hstack((np.zeros((N // 2, 1), dtype=np.uint8), s_list))
-        fam = np.hstack(
-            (
-                s_list,
-                np.zeros((N // 2, 3), dtype=np.uint8),
-                np.full((N // 2, 1), -9, dtype=np.int8),
-            )
-        )
-        np.savetxt(f"{args.out}.fam", fam, fmt="%s", delimiter="\t")
-
-        # Print info
-        print(
-            "\rSaved haplotype clusters in binary PLINK format:\n"
-            + f"- {args.out}.bed\n"
-            + f"- {args.out}.bim\n"
-            + f"- {args.out}.fam\n"
-        )
-        del fam, s_list
-
-    # Print elapsed time for parsing and total computation
-    t_min = int(t_par // 60)
-    t_sec = int(t_par - t_min * 60)
-    print(f"Total parsing time: {t_min}m{t_sec}s")
-    t_tot = time() - start
-    t_min = int(t_tot // 60)
-    t_sec = int(t_tot - t_min * 60)
-    print(f"Total elapsed time: {t_min}m{t_sec}s")
-
-    # Write to log-file
-    with open(f"{args.out}.log", "a") as log:
-        log.write(
-            "\nSaved haplotype clusters in binary format:\n"
-            f"- {args.out}.bca\n" + f"- {args.out}.ids\n" + f"- {args.out}.win\n"
-        )
-        if args.medians:
-            log.write(
-                "\nSaved haplotype cluster medians in binary format:\n"
-                + f"- {args.out}.bcm\n"
-                + f"- {args.out}.blk\n"
-                + f"- {args.out}.wix\n"
-            )
-        if args.plink:
-            log.write(
-                "\nSaved haplotype clusters in binary PLINK format:\n"
-                + f"- {args.out}.bed\n"
-                + f"- {args.out}.bim\n"
-                + f"- {args.out}.fam\n"
-            )
-        log.write(f"\nTotal elapsed time: {t_min}m{t_sec}s\n")
-
-
-##### Main exception #####
-assert __name__ != "__main__", "Please use the 'hapla cluster' command!"
+    printDone(args.out, out, stats["elapsed_seconds"])
+    return stats

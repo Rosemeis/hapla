@@ -1,417 +1,374 @@
-"""
-hapla.
-Population structure inference using haplotype cluster alleles.
-"""
+"""Population structure from direct products of haplotype cluster labels."""
 
 __author__ = "Jonas Meisner"
 
-# Libraries
-import os
-from datetime import datetime
-from time import time
-from hapla import __version__
+import json
+from contextlib import ExitStack
+from pathlib import Path
+from time import perf_counter
+
+from hapla.runtime import (
+    commitOutputs,
+    configureThreads,
+    printDone,
+    printHeader,
+    printMissing,
+    printTiming,
+    stageOutputs,
+    writeLog,
+)
 
 
-##### hapla struct #####
-def main(args, deaf):
-    print("-----------------------------------")
-    print(f"hapla by Jonas Meisner (v{__version__})")
-    print(f"hapla struct using {args.threads} thread(s)")
-    print("-----------------------------------\n")
-
-    # Check input
-    assert (args.filelist is not None) or (args.clusters is not None), (
-        "No input data (--filelist or --clusters)!"
-    )
-    assert args.grm or (args.pca is not None) or (args.projection is not None), (
-        "No analysis selected (--grm, --pca, --projection)!"
-    )
-    if args.pca is not None:
-        assert args.pca > 0, "Please select a valid number of eigenvectors!"
-    if args.projection is not None:
-        assert os.path.isfile(f"{args.projection}.freqs"), "Frequencies doesn't exist!"
-        assert os.path.isfile(f"{args.projection}.loadings"), "Loadings doesn't exist!"
-        assert os.path.isfile(f"{args.projection}.eigenvals"), (
-            "Eigenvalues doesn't exist!"
-        )
-    assert args.threads > 0, "Please select a valid number of threads!"
-    assert args.chunk > 0, "Please select a valid chunk size!"
-    assert args.power > 0, "Please select a valid number of power iterations!"
-    assert args.seed >= 0, "Please select a valid seed!"
-    start = time()
-
-    # Create log-file of used arguments
-    full = vars(args)
-    with open(f"{args.out}.log", "w") as log:
-        log.write(f"hapla v{__version__}\n")
-        log.write("hapla struct\n")
-        log.write(f"Time: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n")
-        log.write(f"Directory: {os.getcwd()}\n")
-        log.write("Options:\n")
-        for key in full:
-            if full[key] != deaf[key]:
-                log.write(f"\t--{key}\n") if (type(full[key]) is bool) else log.write(
-                    f"\t--{key} {full[key]}\n"
-                )
-    del full, deaf
-
-    # Control threads of external numerical libraries
-    os.environ["MKL_NUM_THREADS"] = str(args.threads)
-    os.environ["MKL_MAX_THREADS"] = str(args.threads)
-    os.environ["OMP_NUM_THREADS"] = str(args.threads)
-    os.environ["OMP_MAX_THREADS"] = str(args.threads)
-    os.environ["NUMEXPR_NUM_THREADS"] = str(args.threads)
-    os.environ["NUMEXPR_MAX_THREADS"] = str(args.threads)
-    os.environ["OPENBLAS_NUM_THREADS"] = str(args.threads)
-    os.environ["OPENBLAS_MAX_THREADS"] = str(args.threads)
-
-    # Import numerical libraries and cython functions
+### Give constant cluster alleles zero standardization weight
+def scale(p):
     import numpy as np
-    from math import ceil
-    from hapla import functions
-    from hapla import shared_cy
 
-    # Prepare list of data files
-    if args.filelist is not None:
-        W = 0  # Counter for windows
-        Z_list = []  # List of filenames
-        with open(args.filelist) as f:
-            for z_file in f:
-                # Check input across files and count windows
-                z = z_file.strip("\n")
-                Z_list.append(z)
-                assert os.path.isfile(f"{z}.bca"), "bca file doesn't exist!"
-                assert os.path.isfile(f"{z}.ids"), "ids file doesn't exist!"
-                assert os.path.isfile(f"{z}.win"), "win file doesn't exist!"
-                if W == 0:  # First file
-                    z_ids = np.genfromtxt(f"{z}.ids", dtype=np.str_)
-                    k_vec = np.genfromtxt(f"{z}.win", dtype=np.uint32, usecols=[5])
-                    N = z_ids.shape[0]
-                    W = k_vec.shape[0]
-                    w_list = [W]
-                else:  # Loop files
-                    t_ids = np.genfromtxt(f"{z}.ids", dtype=np.str_)
-                    assert np.sum(z_ids != t_ids) == 0, (
-                        "Samples don't match across files!"
-                    )
-                    k_tmp = np.genfromtxt(f"{z}.win", dtype=np.uint32, usecols=[5])
-                    k_vec = np.append(k_vec, k_tmp)
-                    W += k_tmp.shape[0]
-                    w_list.append(k_tmp.shape[0])
-        F = len(Z_list)
-        w_vec = np.array(w_list, dtype=np.uint32)
-        del t_ids, k_tmp, w_list
-    else:  # Single file (chromosome)
-        F = 1
-        Z_list = [args.clusters]
-        assert os.path.isfile(f"{Z_list[0]}.bca"), "bca file doesn't exist!"
-        assert os.path.isfile(f"{Z_list[0]}.ids"), "ids file doesn't exist!"
-        assert os.path.isfile(f"{Z_list[0]}.win"), "win file doesn't exist!"
-        z_ids = np.genfromtxt(f"{Z_list[0]}.ids", dtype=np.str_)
-        k_vec = np.genfromtxt(f"{Z_list[0]}.win", dtype=np.uint32, usecols=[5])
-        N = z_ids.shape[0]
-        W = k_vec.shape[0]
-        w_vec = np.array([W], dtype=np.uint32)
-    print(f"Parsing {F} file(s).")
+    v = 2.0 * p * (1.0 - p)
+    if not np.any(v > 0):
+        raise ValueError("Population structure requires variable cluster alleles")
+    a = np.zeros_like(p)
+    np.divide(1.0, np.sqrt(np.maximum(v, 0)), out=a, where=v > 0)
+    return a
 
-    # Estimate genome-wide relationship matrix
+
+### Map assignments and count frequencies without expanding dosages
+def readData(paths, k, sizes, N, *, freq=True):
+    import numpy as np
+
+    from hapla import struct_cy as cy
+    from hapla.formats import mapLabels
+
+    if np.any((k < 0) | (k > 255)):
+        raise ValueError("Population structure requires 0..255 clusters per window")
+    if len(paths) != len(sizes) or sum(map(int, sizes)) != len(k):
+        raise ValueError("Assignment file and window counts differ")
+    data, beg, off = [], 0, 0
+    p = np.empty(int(k.sum(dtype=np.int64))) if freq else None
+    for pfx, W in zip(paths, sizes):
+        W = int(W)
+        Z = mapLabels(pfx, W, N)
+        c = np.r_[0, np.cumsum(k[beg : beg + W], dtype=np.int64)]
+        end = off + c[-1]
+        obs = np.empty(W, dtype=np.int64)
+        cy.frequencies(Z, c, p[off:end] if freq else None, obs)
+        data.append((Z, c, obs if np.any(obs != 2 * N) else None))
+        beg += W
+        off = end
+    return data, p
+
+
+### Measure empirical dosage variation directly, including imputed haplotypes
+def variation(data, p):
+    import numpy as np
+
+    from hapla import struct_cy as cy
+
+    v, off = np.empty_like(p), 0
+    for Z, c, _ in data:
+        end = off + c[-1]
+        cy.variation(Z, c, p[off:end], v[off:end])
+        off = end
+    if not np.any(v > 0):
+        raise ValueError("Population structure requires positive empirical dosage variation")
+    return v
+
+
+### Keep whole windows within the target cluster block size
+def blocks(data, chunk):
+    import numpy as np
+
+    off = 0
+    for Z, c, obs in data:
+        beg = 0
+        while beg < len(Z):
+            end = max(beg + 1, int(np.searchsorted(c, c[beg] + chunk, side="right")) - 1)
+            yield (
+                Z[beg:end],
+                c[beg : end + 1] - c[beg],
+                slice(off + c[beg], off + c[end]),
+                None if obs is None else obs[beg:end],
+            )
+            beg = end
+        off += c[-1]
+
+
+### Apply X' to a random sketch or to X Q, keeping only one block in memory
+def product(data, p, a, L, chunk, *, Q=None, rng=None):
+    import numpy as np
+
+    from hapla import struct_cy as cy
+
+    H = np.zeros((data[0][0].shape[1] // 2, L), dtype=np.float64)
+    shift = np.zeros(L)
+    sums = None if Q is None else Q.sum(axis=0)
+    for Z, c, s, obs in blocks(data, chunk):
+        if Q is None:
+            A = rng.standard_normal((int(c[-1]), L), dtype=np.float32).astype(np.float64)
+        else:
+            A = np.empty((int(c[-1]), L))
+            cy.leftProduct(Z, c, p[s], a[s], Q, sums, A, obs)
+        A *= a[s, None]
+        shift += 2.0 * (p[s] @ A)
+        cy.rightProduct(Z, c, A, H, p[s], obs)
+    H -= shift
+    return H
+
+
+### Use QR for stable subspace iterations and solve only the small final problem
+def pca(data, p, K, chunk, power, seed, v=None):
+    import numpy as np
+
+    from hapla import struct_cy as cy
+
+    a = scale(p)
+    v = variation(data, p) if v is None else v
+    a[v == 0] = 0
+    energy = float(np.dot(v, a * a))
+    if energy <= 0:
+        raise ValueError("PCA requires positive empirical dosage variation")
+    N, M = data[0][0].shape[1] // 2, len(p)
+    L = min(max(K + 10, 20), N - 1, int(np.count_nonzero(a)))
+    if not 1 <= K <= L:
+        raise ValueError(
+            "PCA components must fit the centered sample and variable-cluster dimensions"
+        )
+    rng = np.random.default_rng(seed)
+    Q, _ = np.linalg.qr(product(data, p, a, L, chunk, rng=rng), mode="reduced")
+    shift = 0.0
+    for it in range(power):
+        H = product(data, p, a, L, chunk, Q=np.ascontiguousarray(Q))
+        H -= shift * Q
+        Q, R = np.linalg.qr(H, mode="reduced")
+        low = np.linalg.svd(R, compute_uv=False)[-1]
+        if low > shift:
+            shift = 0.5 * (low + shift)
+
+    # Accumulate (X Q)' (X Q) without storing all cluster loadings
+    Q = np.ascontiguousarray(Q)
+    T, sums = np.zeros((L, L)), Q.sum(axis=0)
+    for Z, c, s, obs in blocks(data, chunk):
+        A = np.empty((int(c[-1]), L))
+        cy.leftProduct(Z, c, p[s], a[s], Q, sums, A, obs)
+        T += A.T @ A
+    vals, R = np.linalg.eigh(T)
+    vals, R = vals[::-1], R[:, ::-1]
+    tol = np.finfo(float).eps * max(M, N) * energy
+    rank = int(np.count_nonzero(vals > tol))
+    if K > rank:
+        raise ValueError(f"Requested {K} PCs but the data support only {rank} nonzero components")
+    V = np.ascontiguousarray(Q @ R[:, :K])
+    S = np.sqrt(vals[:K])
+    signs = np.sign(V[np.argmax(np.abs(V), axis=0), np.arange(K)])
+    V *= signs
+    return V, S, a
+
+
+### Project standardized labels using fixed reference loadings
+def project(data, p, U, vals, chunk):
+    import numpy as np
+
+    from hapla import struct_cy as cy
+
+    M, K = U.shape
+    if M != len(p) or vals.shape != (K,) or K < 1:
+        raise ValueError("Reference frequency, loading, and eigenvalue dimensions differ")
+    if not np.all(np.isfinite(U)) or not np.all(np.isfinite(vals)) or np.any(vals <= 0):
+        raise ValueError("Reference loadings and positive eigenvalues must be finite")
+    if not np.all(np.isfinite(p)) or np.any((p < 0) | (p > 1)):
+        raise ValueError("Reference frequencies must lie between zero and one")
+    a = scale(p)
+    V = np.zeros((data[0][0].shape[1] // 2, K))
+    shift = np.zeros(K)
+    for Z, c, s, obs in blocks(data, chunk):
+        A = np.ascontiguousarray(U[s] * (a[s, None] / np.sqrt(vals * M)))
+        shift += 2.0 * (p[s] @ A)
+        cy.rightProduct(Z, c, A, V, p[s], obs)
+    V -= shift
+    return V
+
+
+### Accumulate the same centered GRM with one fewer row per window
+def grm(data, p, chunk, center=True, tile=None, info=None):
+    import numpy as np
+
+    from hapla import struct_cy as cy
+
+    N = data[0][0].shape[1] // 2
+    den = float(np.sum(p * (1.0 - p)))
+    if den <= 0:
+        raise ValueError("GRM estimation requires variable cluster alleles")
+    G = np.zeros(N * (N + 1) // 2)
+    tile = min(N, max(1, 16 * 1024**2 // N) if tile is None else tile)
+    T = np.empty(tile * N, dtype=np.float32)
+    for Z, c, s, obs in blocks(data, chunk):
+        rows = np.r_[0, np.cumsum(np.maximum(np.diff(c) - 1, 0))]
+        M = int(rows[-1])
+        if M == 0:
+            continue
+        X = np.empty((M, N), dtype=np.float32)
+        cy.contrastBlock(Z, c, p[s], rows, X)
+        for beg in range(0, N, tile):
+            end = min(N, beg + tile)
+            tmp = T[: (end - beg) * end].reshape(end - beg, end)
+            np.dot(X[:, beg:end].T, X[:, :end], out=tmp)
+            cy.addGram(tmp, G, beg)
+    scale = cy.normalizeGram(G, den, np.zeros(N), center)
+    if info is not None:
+        info.update(
+            frequency_sum=den,
+            normalization_denominator=2 * den,
+            gower_scale=scale,
+            centered=bool(center),
+        )
+    return G, den
+
+
+### Stream optional loadings from the final sample vectors
+def writeLoadings(pth, data, p, a, V, S, chunk):
+    import numpy as np
+
+    from hapla import struct_cy as cy
+
+    sums = V.sum(axis=0)
+    with Path(pth).open("w", buffering=1024**2) as dst:
+        for Z, c, s, obs in blocks(data, chunk):
+            A = np.empty((int(c[-1]), V.shape[1]))
+            cy.leftProduct(Z, c, p[s], a[s], V, sums, A, obs)
+            np.savetxt(dst, A / S, fmt="%.10g")
+
+
+### Write numeric PC columns directly, with optional sample identifiers
+def writeVectors(pth, V, ids, raw, dup):
+    import numpy as np
+
+    if raw:
+        np.savetxt(pth, V, fmt="%.10g")
+        return
+    with Path(pth).open("w", buffering=1024**2) as dst:
+        dst.write("#FID\tIID\t" + "\t".join(f"PC{k + 1}" for k in range(V.shape[1])) + "\n")
+        for name, row in zip(ids, V):
+            dst.write(
+                f"{name if dup else '0'}\t{name}\t" + "\t".join(f"{v:.10g}" for v in row) + "\n"
+            )
+
+
+### Run requested analyses with one mapped, validated input set
+def main(args):
+    if (args.clusters is None) == (args.filelist is None):
+        raise ValueError("Provide exactly one of --clusters or --filelist")
+    if not args.grm and args.pca is None and args.projection is None:
+        raise ValueError("Select --grm, --pca, or --projection")
+    if args.threads < 1 or args.chunk < 1 or args.power < 1 or args.seed < 0:
+        raise ValueError(
+            "Threads, chunk size, and power must be positive. Seed must be nonnegative"
+        )
+    if args.pca is not None and args.pca < 1:
+        raise ValueError("PCA components must be positive")
+    if args.loadings and args.pca is None:
+        raise ValueError("--loadings requires --pca")
+    if args.projection == "":
+        raise ValueError("Projection prefix must not be empty")
+    configureThreads(args.threads, blas=args.threads if args.grm else 1)
+    import numpy as np
+
+    from hapla.formats import readMetadata
+    from hapla.identity import checkModel, featureKeys, writeModel
+
+    start = perf_counter()
+    printHeader("struct", args.threads)
+    print("Reading clusters.", flush=True)
+    paths, ids, k, sizes = readMetadata(args.clusters, args.filelist)
+    M = int(k.sum(dtype=np.int64))
+    data, p = readData(paths, k, sizes, len(ids), freq=args.grm or args.pca is not None)
+    keys = featureKeys(paths, k, sizes) if args.loadings or args.projection else None
+    if args.projection:
+        checkModel(args.projection, keys)
+    v = variation(data, p) if args.pca is not None or args.grm else None
+    stats = dict(
+        samples=len(ids),
+        windows=len(k),
+        clusters=M,
+        threads=args.threads,
+        missing_assignments=sum(int((2 * len(ids) - o).sum()) for _, _, o in data if o is not None),
+        empty_windows=int(np.count_nonzero(k == 0)),
+        read_seconds=perf_counter() - start,
+    )
+    print(f"Data size: {len(ids):,} samples, {len(k):,} windows, {M:,} clusters", flush=True)
+    printMissing(stats["missing_assignments"], 2 * len(ids) * len(k))
+    sfxs = [".log"]
     if args.grm:
-        print("Estimating genome-wide relationship matrix (GRM).")
-        s_pre = ""
-        K = 0
-        D = 0.0
-        G = np.zeros((N, N), dtype=np.float32)
-        for z in np.arange(F):  # Loop through files
-            # Print information
-            s_beg = f"Processing file {z + 1}/{F}"
-            print(f"\r{s_beg: <{len(s_pre)}}", end="")
-
-            # Load haplotype cluster assignment file
-            with open(f"{Z_list[z]}.bca", "rb") as f:
-                # Check magic numbers
-                magic = np.fromfile(f, dtype=np.uint8, count=3)
-                assert np.allclose(magic, np.array([7, 9, 13], dtype=np.uint8)), (
-                    "Magic number doesn't match file format!"
-                )
-
-                # Add haplotype cluster assignments to container
-                Z_tmp = np.fromfile(f, dtype=np.uint8)
-                Z_tmp = Z_tmp.reshape(w_vec[z], 2 * N)
-            del magic
-
-            # File setup
-            k_tmp = k_vec[K : (K + w_vec[z])]
-            c_tmp = np.insert(np.cumsum(k_tmp, dtype=np.uint32), 0, 0)
-            M = np.sum(k_tmp, dtype=np.uint32)
-
-            # Aggregate alleles and estimate cluster frequencies
-            Z_agg = np.zeros((M, N), dtype=np.uint8)
-            p_tmp = np.zeros(M, dtype=np.float32)
-            shared_cy.haplotypeAggregate(Z_tmp, Z_agg, p_tmp, k_tmp, c_tmp)
-            del Z_tmp, k_tmp, c_tmp
-
-            # Setup GRM part settings
-            B = ceil(M / args.chunk)  # Number of chunks
-            X = np.zeros((args.chunk, N), dtype=np.float32)
-
-            # Estimate GRM part in chunks
-            for b in np.arange(B):
-                s_bat = f"{s_beg}. Chunk {b + 1}/{B}"
-                print(f"\r{s_bat}", end="")  # Print information
-                M_b = b * args.chunk
-                if b == (B - 1):  # Last chunk
-                    X = np.zeros((M - M_b, N), dtype=np.float32)
-                shared_cy.centerZ(Z_agg, X, p_tmp, M_b)
-
-                # Aggregate across chunks
-                G += np.dot(X.T, X)
-            K += w_vec[z]
-            D += np.sum(p_tmp * (1.0 - p_tmp), dtype=float)
-            s_pre = s_bat
-            del p_tmp, Z_agg, X
-        G *= 1.0 / (2.0 * D)
-        print(".\n")
-
-        # Gower and data centering of GRM
-        if not args.no_centering:
-            print("Centering GRM.")
-            u = np.mean(G, axis=1)
-            G -= u.reshape(1, N)
-            u = np.mean(G, axis=1)
-            G -= u.reshape(N, 1)
-
-            # Gower centering
-            G *= float(N - 1) / np.trace(G)
-            del u
-
-        # Save matrix
-        G = G[np.tril_indices(N)]
-        G.tofile(f"{args.out}.grm.bin")
-        np.full(N * (N + 1) // 2, D, dtype=np.float32).tofile(f"{args.out}.grm.N.bin")
-        z_ids = z_ids.reshape(-1, 1)
-        if args.duplicate_fid:
-            fam = z_ids.repeat(2, axis=1)
-        else:
-            fam = np.hstack((np.zeros((N, 1), dtype=np.uint8), z_ids))
-        np.savetxt(f"{args.out}.grm.id", fam, delimiter="\t", fmt="%s")
-        print(
-            "Saved genome-wide relationship matrix in GCTA format:\n"
-            + f"- {args.out}.grm.bin\n"
-            + f"- {args.out}.grm.N.bin\n"
-            + f"- {args.out}.grm.id\n"
-        )
-        del G, fam
-
-    # Infer population structure using PCA
+        sfxs += [".grm.bin", ".grm.N.bin", ".grm.id", ".grm.meta.json"]
+    stale = (".loadings", ".freqs", ".pca.json") if args.pca is not None else ()
     if args.pca is not None:
-        # Load haplotype cluster assignments from binary hapla format
-        B = 0
-        Z = np.zeros((W, 2 * N), dtype=np.uint8)
-        for z in np.arange(F):
-            with open(f"{Z_list[z]}.bca", "rb") as f:
-                # Check magic numbers
-                magic = np.fromfile(f, dtype=np.uint8, count=3)
-                assert np.allclose(magic, np.array([7, 9, 13], dtype=np.uint8)), (
-                    "Magic number doesn't match file format!"
-                )
-
-                # Add haplotype cluster assignments to container
-                z_tmp = np.fromfile(f, dtype=np.uint8)
-                z_tmp = z_tmp.reshape(w_vec[z], 2 * N)
-                Z[B : (B + w_vec[z]), :] = z_tmp
-                B += w_vec[z]
-            print(f"\rParsed file {z + 1}/{F}", end="")
-        del magic, z_tmp
-
-        # Count haplotype cluster alleles
-        M = np.sum(k_vec, dtype=np.uint32)
-
-        # Print information
-        print(
-            "\rLoaded haplotype cluster assignments:\n"
-            + f"- {N} samples\n"
-            + f"- {W} windows\n"
-            + f"- {M} clusters\n"
-        )
-
-        # Estimate cluster frequencies
-        p_vec = np.zeros(M, dtype=np.float32)
-        c_vec = np.insert(np.cumsum(k_vec, dtype=np.uint32), 0, 0)
-
-        # Randomized SVD
-        print(f"Computing randomized SVD, extracting {args.pca} eigenvectors.")
-        rng = np.random.default_rng(args.seed)
-        if args.memory:
-            # SVD with condensed data format
-            shared_cy.estimateFreq(Z, p_vec, k_vec, c_vec)
-            a_vec = 1.0 / np.sqrt(2.0 * p_vec * (1.0 - p_vec))
-            U, S, V = functions.memorySVD(
-                Z, p_vec, a_vec, k_vec, c_vec, args.pca, args.chunk, args.power, rng
-            )
-            del Z
-        else:
-            # SVD with expanded data format
-            Z_agg = np.zeros((M, N), dtype=np.uint8)
-            shared_cy.haplotypeAggregate(Z, Z_agg, p_vec, k_vec, c_vec)
-            a_vec = 1.0 / np.sqrt(2.0 * p_vec * (1.0 - p_vec))
-            del Z, c_vec
-            U, S, V = functions.randomizedSVD(
-                Z_agg, p_vec, a_vec, args.pca, args.chunk, args.power, rng
-            )
-            del Z_agg
-        del a_vec
-        print(".\n")
-
-        # Save matrices
-        if args.raw:  # Only eigenvectors
-            np.savetxt(f"{args.out}.eigenvecs", V, fmt="%.6f")
-        else:  # Include FID and IID fields
-            z_ids = z_ids.reshape(-1, 1)
-            if args.duplicate_fid:
-                fam = z_ids.repeat(2, axis=1)
-            else:
-                fam = np.hstack((np.zeros((N, 1), dtype=np.uint8), z_ids))
-            V = np.hstack((fam, np.round(V, 7)))
-            h = ["#FID", "IID"] + [f"PC{k}" for k in range(1, args.pca + 1)]
-            np.savetxt(
-                f"{args.out}.eigenvecs",
-                V,
-                fmt="%s",
-                delimiter="\t",
-                comments="",
-                header="\t".join(h),
-            )
-        print(f"Saved eigenvectors as {args.out}.eigenvecs")
-        np.savetxt(f"{args.out}.eigenvals", (S * S) / float(M), fmt="%.6f")
-        print(f"Saved eigenvalues as {args.out}.eigenvals")
+        sfxs += [".eigenvecs", ".eigenvals"]
         if args.loadings:
-            np.savetxt(f"{args.out}.loadings", U, fmt="%.6f")
-            print(f"Saved loadings as {args.out}.loadings")
-            np.savetxt(f"{args.out}.freqs", p_vec, fmt="%.6f")
-            print(f"Saved haplotype cluster frequencies as {args.out}.freqs")
-        print("")
-        del p_vec
-
-    # Project samples on to existing PC space
+            sfxs += [".loadings", ".freqs", ".pca.json"]
     if args.projection is not None:
-        # Load frequencies, loadings, and eigenvalues
-        S = np.genfromtxt(f"{args.projection}.eigenvals", dtype=np.float32)
-        U = np.genfromtxt(f"{args.projection}.loadings", dtype=np.float32)
-        p_vec = np.genfromtxt(f"{args.projection}.freqs", dtype=np.float32)
-        a_vec = 1.0 / np.sqrt(2.0 * p_vec * (1.0 - p_vec))
-
-        # Set up parameters
-        assert S.shape[0] == U.shape[1], (
-            "Number of components doesn't match between files!"
-        )
-        M, K = U.shape
-        S = np.sqrt(S * M)
-        U *= 1.0 / S
-        del S
-
-        # Load haplotype cluster assignments from binary hapla format
-        B = 0
-        Z = np.zeros((W, 2 * N), dtype=np.uint8)
-        for z in np.arange(F):
-            with open(f"{Z_list[z]}.bca", "rb") as f:
-                # Check magic numbers
-                magic = np.fromfile(f, dtype=np.uint8, count=3)
-                assert np.allclose(magic, np.array([7, 9, 13], dtype=np.uint8)), (
-                    "Magic number doesn't match file format!"
-                )
-
-                # Add haplotype cluster assignments to container
-                z_tmp = np.fromfile(f, dtype=np.uint8)
-                z_tmp = z_tmp.reshape(w_vec[z], 2 * N)
-                Z[B : (B + w_vec[z]), :] = z_tmp
-                B += w_vec[z]
-            print(f"\rParsed file {z + 1}/{F}", end="")
-        del magic, z_tmp
-
-        # Count haplotype cluster alleles
-        assert np.sum(k_vec, dtype=np.uint32) == M, (
-            "Number of clusters doesn't match between files!"
-        )
-        c_vec = np.insert(np.cumsum(k_vec, dtype=np.uint32), 0, 0)
-
-        # Print information
-        print(
-            "\rLoaded haplotype cluster assignments:\n"
-            + f"- {N} samples\n"
-            + f"- {W} windows\n"
-            + f"- {M} clusters\n"
-        )
-
-        # Loop through chunks
-        V = np.zeros((N, K), dtype=np.float32)
-        B = ceil(args.chunk / ceil(M / W))
-        C = ceil(W / B)
-        X = np.zeros((np.max(k_vec[:W]) * B, N), dtype=np.float32)
-        for c in np.arange(C):
-            W_b = c * B
-            W_e = min((c + 1) * B, W)
-            C_b = c_vec[W_b]
-            C_e = c_vec[W_e]
-            C_x = C_e - C_b
-            shared_cy.memoryC(
-                Z[W_b:W_e],
-                X[:C_x],
-                p_vec[C_b:C_e],
-                a_vec[C_b:C_e],
-                k_vec[W_b:W_e],
-                c_vec[W_b:W_e],
-            )
-            V += np.dot(X[:C_x].T, U[C_b:C_e])
-        del U, X, p_vec, a_vec
-
-        # Save matrices
-        if args.raw:  # Only eigenvectors
-            np.savetxt(f"{args.out}.project.eigenvecs", V, fmt="%.6f")
-        else:  # Include FID and IID fields
-            z_ids = z_ids.reshape(-1, 1)
-            if args.duplicate_fid:
-                fam = z_ids.repeat(2, axis=1)
-            else:
-                fam = np.hstack((np.zeros((N, 1), dtype=np.uint8), z_ids))
-            V = np.hstack((fam, np.round(V, 7)))
-            h = ["#FID", "IID"] + [f"PC{k}" for k in range(1, K + 1)]
-            np.savetxt(
-                f"{args.out}.project.eigenvecs",
-                V,
-                fmt="%s",
-                delimiter="\t",
-                comments="",
-                header="\t".join(h),
-            )
-        print(f"Saved projected eigenvectors as {args.out}.project.eigenvecs")
-
-    # Print elapsed time for computation
-    t_tot = time() - start
-    t_min = int(t_tot // 60)
-    t_sec = int(t_tot - t_min * 60)
-    print(f"Total elapsed time: {t_min}m{t_sec}s")
-
-    # Write to log-file
-    with open(f"{args.out}.log", "a") as log:
+        sfxs += [".project.eigenvecs"]
+    inputs = [f"{pth}{s}" for pth in paths for s in (".bca", ".win", ".ids")]
+    inputs += [args.filelist, *[f"{pth}.ref.json" for pth in paths]]
+    if args.projection:
+        inputs += [
+            f"{args.projection}{s}" for s in (".freqs", ".loadings", ".eigenvals", ".pca.json")
+        ]
+    with ExitStack() as stack:
+        out = stageOutputs(stack, args.out, sfxs, inputs, stale=stale)
         if args.grm:
-            log.write(
-                "\nSaved genome-wide relationship matrix in GCTA format:\n"
-                + f"- {args.out}.grm.bin\n"
-                + f"- {args.out}.grm.N.bin\n"
-                + f"- {args.out}.grm.id\n"
+            tick = perf_counter()
+            print("\nComputing GRM.", flush=True)
+            # One represented categorical contrast per additional observed cluster allele.
+            c = np.r_[0, np.cumsum(k, dtype=np.int64)]
+            seen = np.r_[0, np.cumsum(p > 0, dtype=np.int64)]
+            levels = np.diff(seen[c])
+            count = int(np.maximum(levels - 1, 0).sum())
+            info = dict(
+                count_unit="categorical_contrasts",
+                count=count,
+                windows=len(k),
+                polymorphic_windows=int(np.count_nonzero(levels > 1)),
+                missingness="haplotype_mean_imputation",
+                count_is_pairwise_observed=False,
             )
+            G, den = grm(data, p, args.chunk, not args.no_centering, info=info)
+            with out[".grm.bin"].open("wb") as dst, out[".grm.N.bin"].open("wb") as cnt:
+                for beg in range(0, len(G), 262144):
+                    n = min(262144, len(G) - beg)
+                    dst.write(G[beg : beg + n].astype(np.float32))
+                    cnt.write(np.full(n, count, dtype=np.float32))
+            with out[".grm.id"].open("w") as dst:
+                dst.writelines(f"{s if args.duplicate_fid else '0'}\t{s}\n" for s in ids)
+            out[".grm.meta.json"].write_text(json.dumps(info, indent=2) + "\n")
+            stats["grm"] = info
+            stats["grm_seconds"] = perf_counter() - tick
+            printTiming("GRM complete.", stats["grm_seconds"])
+            del G
         if args.pca is not None:
-            log.write(f"\nSaved eigenvectors as {args.out}.eigenvecs\n")
-            log.write(f"Saved eigenvalues as {args.out}.eigenvals\n")
+            tick = perf_counter()
+            print(f"\nComputing {args.pca} principal components.", flush=True)
+            V, S, a = pca(data, p, args.pca, args.chunk, args.power, args.seed, v)
+            writeVectors(out[".eigenvecs"], V, ids, args.raw, args.duplicate_fid)
+            np.savetxt(out[".eigenvals"], S * S / len(p), fmt="%.10g")
             if args.loadings:
-                log.write(f"Saved loadings as {args.out}.loadings\n")
-                log.write(f"Saved haplotype cluster frequencies as {args.out}.freqs\n")
+                writeLoadings(out[".loadings"], data, p, a, V, S, args.chunk)
+                np.savetxt(out[".freqs"], p, fmt="%.10g")
+                writeModel(out, keys)
+            stats["pca_seconds"] = perf_counter() - tick
+            printTiming("PCA complete.", stats["pca_seconds"])
+            del V, S, a
         if args.projection is not None:
-            log.write(
-                f"\nSaved projected eigenvectors as {args.out}.project.eigenvecs\n"
-            )
-        log.write(f"\nTotal elapsed time: {t_min}m{t_sec}s\n")
-
-
-##### Main exception #####
-assert __name__ != "__main__", "Please use the 'hapla struct' command!"
+            tick = perf_counter()
+            print("\nProjecting samples.", flush=True)
+            vals = np.loadtxt(f"{args.projection}.eigenvals", ndmin=1)
+            U = np.loadtxt(f"{args.projection}.loadings", ndmin=2)
+            freq = np.loadtxt(f"{args.projection}.freqs", ndmin=1)
+            if len(freq) != M:
+                raise ValueError("Number of clusters does not match the reference")
+            V = project(data, freq, U, vals, args.chunk)
+            writeVectors(out[".project.eigenvecs"], V, ids, args.raw, args.duplicate_fid)
+            stats["projection_seconds"] = perf_counter() - tick
+            printTiming("Projection complete.", stats["projection_seconds"])
+        stats["elapsed_seconds"] = perf_counter() - start
+        writeLog(out[".log"], "struct", args, stats)
+        commitOutputs(args.out, out, stale=stale)
+    printDone(args.out, out, stats["elapsed_seconds"])
+    return stats

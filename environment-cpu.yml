@@ -1,0 +1,14 @@
+name: hapla
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python>=3.10
+  - numpy>2.0.0
+  - cython>3.0.0
+  - setuptools>=77
+  - wheel
+  - htslib>=1.20
+  - c-compiler
+  - llvm-openmp  # macOS. Linux compiler packages supply their OpenMP runtime
+  - pip

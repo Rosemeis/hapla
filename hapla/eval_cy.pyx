@@ -1,302 +1,149 @@
-# cython: language_level=3, boundscheck=False, wraparound=False, initializedcheck=False, cdivision=True
+# cython: language_level=3, boundscheck=False, wraparound=False, initializedcheck=False
+# cython: cdivision=True
+"""Direct label projections, residual variances, and bounded correlation output."""
+
 import numpy as np
-cimport numpy as np
 cimport openmp as omp
-from cython.parallel import prange
+from cython.parallel cimport prange
 from libc.math cimport sqrt
-from libc.stdint cimport uint8_t, uint32_t
+from libc.stdint cimport uint8_t, uint64_t, int64_t
+from libc.stdio cimport FILE, fdopen, fclose, fwrite, snprintf
+from libc.string cimport memcpy
+
+cdef extern from "unistd.h" nogil:
+    int dup(int)
+    int close(int)
 
 ctypedef uint8_t u8
-ctypedef uint32_t u32
-ctypedef float f32
+ctypedef uint64_t u64
+ctypedef int64_t i64
 ctypedef double f64
 
-##### hapla - evaluation of admixture model fit #####
-### Standard functions
-# Add residual covariances from chromosome to accumulator
-cpdef void covar(
-        f64[:,::1] C, f64[::1] V, const f64[:,::1] Q, const f64[:,::1] A,
-        const u8[:,::1] Z, const u32[::1] k_chr
-    ):
-    cdef:
-        Py_ssize_t W = Z.shape[0]
-        Py_ssize_t N = Q.shape[0]
-        Py_ssize_t K = Q.shape[1]
-        Py_ssize_t i,j,w,t,c,k,l,n
-        int nthreads = omp.omp_get_max_threads()
-        f64 norm = 0.0
 
-    # thread-local
-    cdef f64[:,:,:] C_priv = np.zeros((nthreads, N, N), dtype=np.float64)
-    cdef f64[:,:] V_priv = np.zeros((nthreads, N), dtype=np.float64)
-    cdef f64[:,:] R = np.zeros((nthreads, N), dtype=np.float64)
-    cdef f64[:,:] XQ = np.zeros((nthreads, K), dtype=np.float64)
-    cdef f64[:,:] B = np.zeros((nthreads, K), dtype=np.float64)
-
-    with nogil:
-        for w in prange(W, schedule='guided'):
-            t = omp.omp_get_thread_num()
-            norm = 1.0 / k_chr[w]
-
-            for c in range(k_chr[w]):
-                for k in range(K):
-                    XQ[t,k] = 0.0
-                    B[t,k] = 0.0
-
-                # Regress the cluster count feature on Q.
-                for n in range(N):
-                    for k in range(K):
-                        XQ[t,k] += (
-                            (Z[w,2*n] == c) + (Z[w,2*n+1] == c)
-                        ) * Q[n,k]
-
-                for k in range(K):
-                    for l in range(K):
-                        B[t,k] += XQ[t,l] * A[l,k]
-
-                # Compute residuals and binomial variance under the fitted mean.
-                for n in range(N):
-                    R[t,n] = 0.0
-                    for k in range(K):
-                        R[t,n] += Q[n,k] * B[t,k]
-                    if R[t,n] > 0.0 and R[t,n] < 2.0:
-                        V_priv[t,n] += R[t,n] * (1.0 - 0.5 * R[t,n]) * norm
-                    R[t,n] = (Z[w,2*n] == c) + (Z[w,2*n+1] == c) - R[t,n]
-
-                # Get covariances.
-                for i in range(N):
-                    for j in range(i, N):
-                        C_priv[t,i,j] += R[t,i] * R[t,j] * norm
-
-        for t in range(nthreads):
-            for i in range(N):
-                V[i] += V_priv[t,i]
-                for j in range(i, N):
-                    C[i,j] += C_priv[t,i,j]
-
-
-# Add residual covariances from chromosome to accumulator, skipping missing haplotypes
-cpdef void covarMiss(
-        f64[:,::1] C, f64[::1] V, const f64[:,::1] Q, const f64[:,:,::1] A_chr,
-        const u8[:,::1] Z, const u8[:,::1] Z_miss, const u32[::1] k_chr
-    ):
-    cdef:
-        Py_ssize_t W = Z.shape[0]
-        Py_ssize_t N = Q.shape[0]
-        Py_ssize_t K = Q.shape[1]
-        Py_ssize_t i,j,w,t,c,k,l,n
-        int nthreads = omp.omp_get_max_threads()
-        f64 norm = 0.0
-        f64 obs = 0.0
-        f64 x = 0.0
-        f64 pred = 0.0
-        f64 var = 0.0
-
-    cdef f64[:,:,:] C_priv = np.zeros((nthreads, N, N), dtype=np.float64)
-    cdef f64[:,:] V_priv = np.zeros((nthreads, N), dtype=np.float64)
-    cdef f64[:,:] R = np.zeros((nthreads, N), dtype=np.float64)
-    cdef f64[:,:] Var = np.zeros((nthreads, N), dtype=np.float64)
-    cdef f64[:,:] Obs = np.zeros((nthreads, N), dtype=np.float64)
-    cdef f64[:,:,:] D = np.zeros((nthreads, N, K), dtype=np.float64)
-    cdef f64[:,:] XQ = np.zeros((nthreads, K), dtype=np.float64)
-    cdef f64[:,:] B = np.zeros((nthreads, K), dtype=np.float64)
-
-    with nogil:
-        for w in prange(W, schedule='guided'):
-            t = omp.omp_get_thread_num()
-            norm = 1.0 / k_chr[w]
-
-            for n in range(N):
-                obs = <f64>((Z_miss[w,2*n] == 0) + (Z_miss[w,2*n+1] == 0))
-                Obs[t,n] = obs
-                for k in range(K):
-                    D[t,n,k] = obs * Q[n,k]
-
-            for c in range(k_chr[w]):
-                for k in range(K):
-                    XQ[t,k] = 0.0
-                    B[t,k] = 0.0
-
-                for n in range(N):
-                    x = <f64>(
-                        (Z_miss[w,2*n] == 0 and Z[w,2*n] == c) +
-                        (Z_miss[w,2*n+1] == 0 and Z[w,2*n+1] == c)
-                    )
-                    for k in range(K):
-                        XQ[t,k] += D[t,n,k] * x
-
-                for k in range(K):
-                    for l in range(K):
-                        B[t,k] += XQ[t,l] * A_chr[w,l,k]
-
-                for n in range(N):
-                    pred = 0.0
-                    for k in range(K):
-                        pred = pred + D[t,n,k] * B[t,k]
-                    var = 0.0
-                    if Obs[t,n] > 0.0 and pred > 0.0 and pred < Obs[t,n]:
-                        var = pred * (1.0 - pred / Obs[t,n])
-                    Var[t,n] = var
-                    V_priv[t,n] += var * norm
-                    x = <f64>(
-                        (Z_miss[w,2*n] == 0 and Z[w,2*n] == c) +
-                        (Z_miss[w,2*n+1] == 0 and Z[w,2*n+1] == c)
-                    )
-                    R[t,n] = x - pred
-
-                for i in range(N):
-                    for j in range(i, N):
-                        C_priv[t,i,j] += R[t,i] * R[t,j] * norm
-
-        for t in range(nthreads):
-            for i in range(N):
-                V[i] += V_priv[t,i]
-                for j in range(i, N):
-                    C[i,j] += C_priv[t,i,j]
-
-
-# Estimate expected residual covariances when samples have missing haplotypes
-cpdef void expectedMiss(
-        f64[:,::1] C, const f64[:,::1] Q, const f64[:,:,::1] A_chr,
-        const u8[:,::1] Z, const u8[:,::1] Z_miss, const u32[::1] k_chr
-    ):
-    cdef:
-        Py_ssize_t W = Z.shape[0]
-        Py_ssize_t N = Q.shape[0]
-        Py_ssize_t K = Q.shape[1]
-        Py_ssize_t i,j,w,t,c,k,l,m,n
-        int nthreads = omp.omp_get_max_threads()
-        f64 norm = 0.0
-        f64 obs = 0.0
-        f64 x = 0.0
-        f64 pred = 0.0
-        f64 var = 0.0
-        f64 hij = 0.0
-        f64 eij = 0.0
-
-    cdef f64[:,:,:] C_priv = np.zeros((nthreads, N, N), dtype=np.float64)
-    cdef f64[:,:] Var = np.zeros((nthreads, N), dtype=np.float64)
-    cdef f64[:,:] Obs = np.zeros((nthreads, N), dtype=np.float64)
-    cdef f64[:,:,:] D = np.zeros((nthreads, N, K), dtype=np.float64)
-    cdef f64[:,:] XQ = np.zeros((nthreads, K), dtype=np.float64)
-    cdef f64[:,:] B = np.zeros((nthreads, K), dtype=np.float64)
-    cdef f64[:,:,:] S = np.zeros((nthreads, K, K), dtype=np.float64)
-    cdef f64[:,:,:] Tm = np.zeros((nthreads, K, K), dtype=np.float64)
-    cdef f64[:,:,:] Bv = np.zeros((nthreads, K, K), dtype=np.float64)
-
-    with nogil:
-        for w in prange(W, schedule='guided'):
-            t = omp.omp_get_thread_num()
-            norm = 1.0 / k_chr[w]
-
-            for n in range(N):
-                obs = <f64>((Z_miss[w,2*n] == 0) + (Z_miss[w,2*n+1] == 0))
-                Obs[t,n] = obs
-                for k in range(K):
-                    D[t,n,k] = obs * Q[n,k]
-
-            for c in range(k_chr[w]):
-                for k in range(K):
-                    XQ[t,k] = 0.0
-                    B[t,k] = 0.0
-                    for l in range(K):
-                        S[t,k,l] = 0.0
-                        Tm[t,k,l] = 0.0
-                        Bv[t,k,l] = 0.0
-
-                for n in range(N):
-                    x = <f64>(
-                        (Z_miss[w,2*n] == 0 and Z[w,2*n] == c) +
-                        (Z_miss[w,2*n+1] == 0 and Z[w,2*n+1] == c)
-                    )
-                    for k in range(K):
-                        XQ[t,k] += D[t,n,k] * x
-
-                for k in range(K):
-                    for l in range(K):
-                        B[t,k] += XQ[t,l] * A_chr[w,l,k]
-
-                for n in range(N):
-                    pred = 0.0
-                    for k in range(K):
-                        pred = pred + D[t,n,k] * B[t,k]
-                    var = 0.0
-                    if Obs[t,n] > 0.0 and pred > 0.0 and pred < Obs[t,n]:
-                        var = pred * (1.0 - pred / Obs[t,n])
-                    Var[t,n] = var
-                    for k in range(K):
-                        for l in range(K):
-                            S[t,k,l] += D[t,n,k] * var * D[t,n,l]
-
-                for k in range(K):
-                    for l in range(K):
-                        for m in range(K):
-                            Tm[t,k,l] += A_chr[w,k,m] * S[t,m,l]
-
-                for k in range(K):
-                    for l in range(K):
-                        for m in range(K):
-                            Bv[t,k,l] += Tm[t,k,m] * A_chr[w,m,l]
-
-                for i in range(N):
-                    for j in range(i, N):
-                        hij = 0.0
-                        eij = 0.0
-                        for k in range(K):
-                            for l in range(K):
-                                hij += D[t,i,k] * A_chr[w,k,l] * D[t,j,l]
-                                eij += D[t,i,k] * Bv[t,k,l] * D[t,j,l]
-                        C_priv[t,i,j] += (
-                            eij - hij * (Var[t,i] + Var[t,j])
-                        ) * norm
-                        if i == j:
-                            C_priv[t,i,j] += Var[t,i] * norm
-
-        for t in range(nthreads):
-            for i in range(N):
-                for j in range(i, N):
-                    C[i,j] += C_priv[t,i,j]
-
-
-# Estimate covariance of residuals under the proposed model
-cpdef void expected(
-        f64[:,::1] C, const f64[:,::1] Q, const f64[:,::1] QA, const f64[:,::1] QB,
-        const f64[::1] V
-    ) noexcept nogil:
-    cdef:
-        Py_ssize_t N = Q.shape[0]
-        Py_ssize_t K = Q.shape[1]
-        Py_ssize_t i,j,k
-        f64 h = 0.0
-        f64 e = 0.0
-
-    with nogil:
+### Project the two observed cluster labels directly onto a small fitted basis
+def project(const u8[:, ::1] Z, const i64[::1] c, const f64[:, ::1] U):
+    cdef Py_ssize_t w, i, k, a, b, N = Z.shape[1]//2, K = U.shape[1]
+    cdef f64[:, ::1] A = np.zeros((c[Z.shape[0]], K))
+    for w in prange(Z.shape[0], nogil=True, schedule='static',
+                    num_threads=max(1, min(Z.shape[0], omp.omp_get_max_threads())),
+                    use_threads_if=Z.shape[0]*N*K >= 262144):
         for i in range(N):
-            for j in range(i, N):
-                h = 0.0
-                e = 0.0
-                for k in range(K):
-                    h += QA[i,k] * Q[j,k]
-                    e += QB[i,k] * Q[j,k]
-                C[i,j] = e - h * (V[i] + V[j])
-                if i == j:
-                    C[i,j] += V[i]
-                C[j,i] = C[i,j]
+            a, b = Z[w, 2*i], Z[w, 2*i+1]
+            for k in range(K):
+                if a != 255: A[c[w]+a, k] += U[i, k]
+                if b != 255: A[c[w]+b, k] += U[i, k]
+    return np.asarray(A)
 
 
-# Turn covariances into correlations
-cpdef void corr(
-        const f64[:,::1] C, f64[:,::1] cor
-    ) noexcept nogil:
-    cdef:
-        Py_ssize_t N_ind = C.shape[0]
+### Replace fitted means with residuals in sample tiles and weight windows by 1/K
+def residuals(f64[:, ::1] R, const u8[:, ::1] Z, const i64[::1] c):
+    cdef Py_ssize_t i, w, a, b, end, K, N = R.shape[1]
+    cdef f64 h, p, weight
+    cdef f64[::1] v = np.zeros(N)
+    for b in prange((N+63)//64, nogil=True, schedule='static',
+                    num_threads=max(1, min((N+63)//64, omp.omp_get_max_threads())),
+                    use_threads_if=R.shape[0]*N >= 262144):
+        end = min(N, (b+1)*64)
+        for w in range(Z.shape[0]):
+            K = c[w+1]-c[w]
+            if K == 0: continue
+            weight = 1.0/sqrt(K)
+            for a in range(c[w], c[w+1]):
+                for i in range(b*64, end):
+                    h = (Z[w, 2*i] != 255) + (Z[w, 2*i+1] != 255)
+                    p = R[a, i]
+                    if h > 0 and 0 < p < h:
+                        v[i] += p*(1-p/h)/K
+                    R[a, i] = ((Z[w, 2*i] == a-c[w]) + (Z[w, 2*i+1] == a-c[w])-p)*weight
+    return np.asarray(v)
 
+
+### Convert each symmetric covariance entry once using saved standard deviations
+cpdef void correlation(f64[:, ::1] C, const f64[::1] d) noexcept nogil:
+    cdef Py_ssize_t i, j
+    cdef f64 val
+    for i in prange(C.shape[0], schedule='static'):
+        for j in range(i, C.shape[0]):
+            val = C[i, j]/(d[i]*d[j]) if d[i] > 0 and d[j] > 0 else 0
+            C[i, j] = val
+            C[j, i] = val
+
+
+### Round bounded correlations exactly with integer arithmetic for decimal halfway cases
+cdef int _fixed(f64 val, char* buf) noexcept nogil:
+    cdef u64 bits, mant, rem, half
+    cdef int shift, q = 0, n = 0
+    if not -2 <= val <= 2:
+        return snprintf(buf, 32, "%.4f", val)
+    memcpy(&bits, &val, sizeof(f64))
+    if bits >> 63:
+        buf[0] = 45
+        n = 1
+    # IEEE binary64: abs(val)*10000 = mantissa*625 / 2**(1071-exponent), within uint64.
+    shift = 1071 - <int>((bits >> 52) & 2047)
+    if shift < 64:
+        mant = ((bits & ((<u64>1 << 52)-1)) | (<u64>1 << 52))*625
+        q = <int>(mant >> shift)
+        rem, half = mant & ((<u64>1 << shift)-1), <u64>1 << (shift-1)
+        if rem > half or (rem == half and (q & 1)):
+            q += 1
+    buf[n] = 48+q//10000
+    buf[n+1] = 46
+    buf[n+2] = 48+(q//1000)%10
+    buf[n+3] = 48+(q//100)%10
+    buf[n+4] = 48+(q//10)%10
+    buf[n+5] = 48+q%10
+    return n+6
+
+
+### Format independent rows in parallel, retaining the exact four-decimal output
+cdef int _row(const f64* a, const f64* b, char* buf, Py_ssize_t N,
+              i64* size) noexcept nogil:
+    cdef Py_ssize_t j, n = 0
+    cdef int digits
+    for j in range(N):
+        digits = _fixed(a[j] if b == NULL else a[j]-b[j], buf+n)
+        if digits < 0 or digits >= 32: return 1
+        n += digits
+        buf[n] = 10 if j+1 == N else 32
+        n += 1
+    size[0] = n
+    return 0
+
+
+### Stream bounded text blocks with optional subtraction to avoid another square matrix
+def writeMatrix(int fd, const f64[:, ::1] A, const f64[:, ::1] B=None):
+    cdef Py_ssize_t M = A.shape[0], N = A.shape[1], start, i, row, end
+    cdef Py_ssize_t width = 32*N+1, batch = max(1, min(128, 8*1024**2//width))
+    cdef u8[:, ::1] buf = np.empty((batch, width), np.uint8)
+    cdef i64[::1] size = np.empty(batch, np.int64)
+    cdef int copy, bad = 0
+    cdef FILE* out
+    if N < 1:
+        raise ValueError("Residual output requires nonempty rows")
+    if B is not None and (B.shape[0] != M or B.shape[1] != N):
+        raise ValueError("Correlation output dimensions differ")
+    copy = dup(fd)
+    if copy < 0: raise OSError("Cannot duplicate residual output handle")
+    out = fdopen(copy, "w")
+    if out == NULL:
+        close(copy)
+        raise OSError("Cannot open residual output stream")
     with nogil:
-        for i in range(N_ind):
-            for j in range(i, N_ind):
-                if C[i,i] > 0 and C[j,j] > 0:
-                    cor[i,j] = C[i, j] / sqrt(C[i, i] * C[j, j])
-                    cor[j,i] = cor[i,j]
-                else:
-                    cor[i,j] = 0.0
-                    cor[j,i] = 0.0
+        start = 0
+        while start < M:
+            end = min(batch, M-start)
+            for i in prange(end, schedule='static', num_threads=min(end, omp.omp_get_max_threads()),
+                            use_threads_if=end*N >= 65536):
+                row = start+i
+                bad |= _row(&A[row, 0], &B[row, 0] if B is not None else NULL,
+                            <char*>&buf[i, 0], N, &size[i])
+            if bad: break
+            for i in range(end):
+                if fwrite(&buf[i, 0], 1, size[i], out) != <size_t>size[i]:
+                    bad = 1
+                    break
+            if bad: break
+            start += end
+        if fclose(out) != 0: bad = 1
+    if bad: raise OSError("Failed to write residual correlations")

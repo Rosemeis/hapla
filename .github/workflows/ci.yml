@@ -1,0 +1,77 @@
+name: build-and-test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # Keep routine CI small. Manual runs cover the supported platforms and Python range.
+        os: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["ubuntu-latest", "macos-latest"]' || '["ubuntu-latest"]') }}
+        python: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["3.10", "3.12", "3.14"]' || '["3.14"]') }}
+    env:
+      HAPLA_NATIVE: "0"
+      HTSLIB_VERSION: "1.20"
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+      - name: Build minimum supported HTSlib on Linux
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libbz2-dev liblzma-dev libdeflate-dev zlib1g-dev
+          curl --fail --location --retry 3 \
+            "https://github.com/samtools/htslib/releases/download/${HTSLIB_VERSION}/htslib-${HTSLIB_VERSION}.tar.bz2" \
+            --output "${RUNNER_TEMP}/htslib.tar.bz2"
+          tar -xjf "${RUNNER_TEMP}/htslib.tar.bz2" -C "${RUNNER_TEMP}"
+          cd "${RUNNER_TEMP}/htslib-${HTSLIB_VERSION}"
+          ./configure --prefix="${RUNNER_TEMP}/htslib" --disable-libcurl
+          make -j2
+          make install
+          echo "HTSLIB_PREFIX=${RUNNER_TEMP}/htslib" >> "$GITHUB_ENV"
+      - name: Install native libraries on macOS
+        if: runner.os == 'macOS'
+        run: |
+          brew install htslib libomp
+          echo "HTSLIB_PREFIX=$(brew --prefix htslib)" >> "$GITHUB_ENV"
+          echo "LIBOMP_PREFIX=$(brew --prefix libomp)" >> "$GITHUB_ENV"
+      - name: Install build tools
+        run: python -m pip install --upgrade build ruff twine
+      - name: Check Python style
+        run: |
+          ruff check hapla tests setup.py
+          ruff format --check hapla tests setup.py
+      - name: Build and install distribution
+        run: |
+          python -m build
+          python tests/validate_distribution.py dist/*
+          python -m twine check dist/*
+          python -m pip install dist/*.whl
+      - name: Run installed regression suite with one and two native threads
+        working-directory: ${{ runner.temp }}
+        run: |
+          python "${GITHUB_WORKSPACE}/tests/run.py" --installed
+          python "${GITHUB_WORKSPACE}/tests/run.py" --installed --threads 2
+      - name: Check command entry point
+        working-directory: ${{ runner.temp }}
+        run: hapla --version

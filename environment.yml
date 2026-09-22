@@ -1,8 +1,0 @@
-name: hapla
-dependencies:
-  - python>=3.10
-  - numpy>2.0.0
-  - pip
-  - pip:
-    - cyvcf2
-    - hapla

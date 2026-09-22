@@ -1,219 +1,332 @@
-# hapla (v0.62.1)
-***hapla*** is a framework for performing window-based haplotype clustering in phased genotype data. The inferred haplotype cluster alleles can be used to infer fine-scale population structure, perform polygenic prediction and haplotype cluster based association studies.
+# hapla (v1.0.0)
 
-### Citation
-**Please cite our papers.**
+**hapla** clusters phased haplotypes in genomic windows and uses those clusters
+for population structure, admixture, local ancestry, and residual analysis.
+All commands run on CPU.
 
-***hapla cluster***\
-Paper in [*Nature Communications*](https://doi.org/10.1038/s41467-024-55477-3)\
-Preprint available on [medRxiv](https://doi.org/10.1101/2024.04.30.24306654)
-
-***hapla admix***\
-Paper in [*HGG Advances*](https://doi.org/10.1016/j.xhgg.2026.100561)\
-Preprint available on [bioRxiv](https://doi.org/10.1101/2025.09.02.673718)
+**Analyses from versions before 1.0.0 are incompatible.** Rerun clustering and
+downstream analyses from the original genotypes. Do not mix old assignments,
+medians, frequencies, ancestry estimates, or PCA loadings with new clusters.
 
 ## Installation
-```bash
-# Option 1: Build and install via PyPI
-pip install hapla
 
-# Option 2: Download source and install via pip
+Requires Python 3.10+, NumPy >2.0, a C compiler with OpenMP, and HTSlib 1.20+
+headers and libraries. NumPy is the only Python runtime dependency.
+
+```bash
 git clone https://github.com/Rosemeis/hapla.git
 cd hapla
-pip install .
-
-# Option 3: Download source and install in a new Conda environment
-git clone https://github.com/Rosemeis/hapla.git
-conda env create -f hapla/environment.yml
+conda env create -f environment-cpu.yml
 conda activate hapla
+HTSLIB_PREFIX="$CONDA_PREFIX" python -m pip install --no-build-isolation .
 ```
-You can now run the `hapla` software and the subcommands. 
 
-If you run into issues with your installation on a HPC system, it could be due to a mismatch of CPU architectures between login and compute nodes (illegal instruction). You can try and remove every instance of the `march=native` compiler flag in the [setup.py](./setup.py) file which optimizes `hapla` to your specific hardware setup. Another alternative is to use the [uv package manager](https://docs.astral.sh/uv/), where you can run `hapla` in a temporary and isolated environment by simply adding `uvx` in front of the `hapla` command.
+Alternatively, install HTSlib and OpenMP through your system package manager,
+then run `python -m pip install .`. The build finds HTSlib through `pkg-config`,
+Conda, or standard prefixes. Set `HTSLIB_PREFIX` or, on macOS, `LIBOMP_PREFIX`
+for custom locations. Their shared libraries must remain available at runtime.
 
-## Quick start
-***hapla*** contains the following subcommands at this moment:
-- `hapla cluster`
-- `hapla predict`
-- `hapla struct`
-- `hapla admix`
-- `hapla fatash`
-- `hapla eval`
+Builds are portable within the target CPU architecture. Set `HAPLA_NATIVE=1`
+during installation to tune for the build machine and matching compute nodes.
 
+## Usage
 
-### Haplotype clustering
-***hapla cluster***\
-Window-based haplotype clustering in a phased VCF/BCF file (including index).
-```bash
-# Cluster haplotypes in a chromosome with fixed window size (16 SNPs)
-hapla cluster --bcf data.chr1.bcf --size 16 --threads 8 --out hapla.chr1
-# Saves inferred haplotype cluster assignments in binary hapla format
-#	- hapla.chr1.bca
-#	- hapla.chr1.ids
-#	- hapla.chr1.win
-```
-`hapla cluster` outputs three files. A **.bca**-file (binary cluster assignments), which stores the cluster assignments as *unsigned char*s, a **.ids**-file with sample names and a **.win**-file with information about the genomic windows.
+Cluster each chromosome, then pass the prefixes in chromosome order:
 
 ```bash
-# Cluster haplotypes in a chromosome with fixed size and overlapping windows (step size 8 SNPs)
-hapla cluster --bcf data.chr1.bcf --size 16 --step 8 --threads 8 --out hapla.chr1
-
-# Cluster haplotypes in all chromosomes and save output path in a filelist
-for c in {1..22}
-do
-    hapla cluster --bcf data.chr${c}.bcf --size 16 --threads 8 --out hapla.chr${c}
-    echo "hapla.chr${c}" >> hapla.filelist
-done
+hapla cluster --bcf data.chr1.bcf --size 16 --medians --threads 8 --out chr1
+hapla predict --bcf query.chr1.bcf --ref chr1 --threads 8 --out query.chr1
+hapla struct --clusters chr{1..22} --pca 20 --loadings --threads 8 --out pca
+hapla admix --clusters chr{1..22} --K 5 --threads 8 --out fit
+hapla fatash --clusters chr{1..22} --pfile fit.K5.s42.chr{1..22}.P --qfile fit.K5.s42.Q --threads 8 --out lai
+hapla eval --clusters chr{1..22} --qfile fit.K5.s42.Q --threads 8 --out residuals
 ```
 
-Optionally, the haplotype cluster alleles can be saved in binary PLINK format (**.bed**, **.bim**, **.fam**) for ease of use with other software. Note that window information needs to be inferred from **.bim**-file for downstream analyses in this case.
+Bash/Zsh expand unquoted braces. Hapla preserves the supplied order and does
+not expand or sort patterns itself. `--filelist prefixes.txt` reads one prefix
+per line. Fatash also accepts `--pfilelist fit.K5.s42.pfilelist`. Direct lists
+and saved lists can be mixed, but cluster and P-file counts and order must match.
+Sample IDs must match across cluster files. Q rows must follow that sample order.
+
+Each command prints a compact summary and writes a readable `.log` containing
+the command, results, and fitting history. Progress times cover the iterations
+since the previous report. Total elapsed time is reported separately. Output
+files are staged and published together, with input/output conflicts rejected.
+Use distinct prefixes for inputs and results.
+
+### Common options
+
+These options apply to every command. Flags are off unless stated otherwise.
+A dash in the default column means no value is selected.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `-h`, `--help` | — | Show command help and exit |
+| `--version` | — | Show version and exit |
+| `-t`, `--threads INT` | `1` | CPU thread budget |
+| `-o`, `--out PREFIX` | `hapla.<command>` | Output prefix, except `struct` uses `hapla.pca` |
+
+`hapla --help` and `hapla --version` also work without a subcommand.
+
+### Cluster input options
+
+Shared by `struct`, `admix`, `fatash`, and `eval`. Select exactly one input form.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `-z`, `--clusters PREFIX...` | — | One or more cluster prefixes in input order |
+| `-f`, `--filelist FILE` | — | File with one cluster prefix per line |
+
+A cluster bundle contains `.bca`, `.ids`, `.win`, and `.ref.json`. The `.bca`
+format stores one byte per haplotype per window. Labels 0–254 represent up to
+255 clusters. Byte 255 means missing. A window with no observations has K=0.
+Keep bundles and their model files together.
+
+### Genotype reader options
+
+Shared by `cluster` and `predict`. Both read VCF/BCF sequentially through HTSlib
+without requiring an index. Only `FORMAT/GT` is used. The two known warnings
+about nonstandard `FORMAT/PP` Number/Type declarations become one input note.
+Other HTSlib diagnostics remain visible.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `-g`, `--vcf FILE`, `--bcf FILE` | — | Genotype input |
+| `--buffer-mb INT` | `256` | Input and queued-window budget in MiB |
+| `--io-threads INT` | Automatic | HTSlib decompression threads within the CPU budget |
+| `--batch-windows INT` | `32` | Maximum windows per worker task |
+| `--plink` | Off | Also write `.bed`, `.bim`, and `.fam` |
+| `--duplicate-fid` | Off | Use sample ID as FID instead of `0` |
+
+One window must fit the reader's quarter of the input budget. Worker scratch,
+mapped references, HTSlib, and runtime libraries use additional memory.
+Thread allocation includes reading, window workers, and the HTSlib coordinator.
+The log records the HTSlib version and actual thread and batch allocation.
+
+## hapla cluster
+
+Requires sorted, phased, diploid, biallelic GT. Select one window definition.
+Windows never cross chromosome boundaries. Any missing allele marks its
+haplotype missing for the entire window. A fully observed partner remains usable.
+PLINK output marks the diploid genotype missing if either haplotype is missing.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `-f`, `--size INT` | — | Variants per window |
+| `-l`, `--length INT` | — | Physical span in bp, from the first variant through start + span |
+| `-w`, `--windows FILE` | — | Increasing zero-based start indices, beginning at zero |
+| `-s`, `--step INT` | Window size | Step for overlapping `--size` windows |
+| `-p`, `--lmbda FLOAT` | `0.1` | Window fraction defining the Hamming-distance growth threshold |
+| `--min-freq FLOAT` | `0.005` | Minimum cluster frequency among observed haplotypes |
+| `--min-mac INT` | — | Minimum cluster count, overriding `--min-freq` |
+| `--max-clusters INT` | `255` | Maximum clusters per window, from 1 to 255 |
+| `--max-iterations INT` | `1000` | Iteration limit for fitting each window |
+| `--tail {include,drop}` | `include` | Keep or omit incomplete final fixed-size windows |
+| `--missing {window,error}` | `window` | Mark affected haplotypes missing or reject missing GT |
+| `--medians` | Off | Save reference medians and variant metadata for prediction |
+
+For overlapping windows, a short tail is added only if it covers new variants.
+A `--windows` file may end with the genotype record count as an EOF marker.
+Clustering uses exact deduplication, packed Hamming distances, and sequential
+pruning until retained clusters meet the size threshold. A count threshold
+above the observed haplotype count fails for a nonempty window. Unconverged
+windows stop the run.
+
+Clustering is invariant to REF/ALT swaps with corresponding GT recoding when
+sample/haplotype order is fixed. Major alleles define the internal orientation.
+At 50:50 sites, the first complete haplotype breaks the tie. Saved medians retain
+the input allele coding.
+
+Outputs are `.bca`, `.ids`, `.win`, `.ref.json`, and `.log`. `--medians` adds
+`.bcm` medians, `.blk` cluster log-likelihood scores, `.wix` window indices, and
+`.sites` ordered variants.
+
+## hapla predict
+
+Assign new samples to reference clusters. Provide genotype input or a PLINK
+prefix, and a reference produced by `cluster --medians`. The entire variant set
+must match chromosome, position, REF, ALT, and order. Samples may differ.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `-b`, `--bfile PREFIX` | — | SNP-major PLINK `.bed`, `.bim`, and `.fam` input |
+| `-r`, `--ref PREFIX` | Required | Cluster reference prefix |
+| `--phase-mode {auto,phased,unphased}` | `auto` | Detect phase per sample/window, require phase, or ignore it |
+
+`auto` uses the cluster-pair heuristic for samples with ambiguous unphased calls
+in a window. Otherwise, it assigns haplotypes independently. Missing phased
+alleles affect only their haplotype. Missing unphased alleles affect both.
+PLINK input is always unphased, with BIM A2 matching REF and A1 matching ALT.
+Alleles are not flipped automatically. **Unphased predictions are unsuitable
+for local ancestry inference.**
+
+Required reference files are `.bcm`, `.wix`, `.sites`, `.win`, and `.ref.json`.
+Outputs are a new assignment bundle and `.log`, with optional PLINK files.
+
+## hapla struct
+
+Estimate PCA, a genomic relationship matrix, or project onto saved PCs.
+Select at least one operation. Missing haplotypes use mean imputation.
+PCA requires empirical dosage variation and enough rank for the requested PCs.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--pca INT` | — | Number of principal components |
+| `--grm` | Off | Estimate the GRM |
+| `--projection PREFIX` | — | Project onto a saved PCA model |
+| `--loadings` | Off | Save loadings, frequencies, and PCA identity metadata |
+| `--raw` | Off | Write PC values without FID/IID columns |
+| `--duplicate-fid` | Off | Use sample ID as FID instead of `0` |
+| `--no-centering` | Off | Disable Gower and data centering of the GRM |
+| `--chunk INT` | `4096` | Target cluster alleles per calculation block |
+| `--power INT` | `11` | Randomized PCA power iterations |
+| `--seed INT` | `42` | Random seed |
+
+PCA writes `.eigenvecs` and `.eigenvals`. `--loadings` also writes `.loadings`,
+`.freqs`, and `.pca.json`, and requires assignment `.ref.json` files. Projection
+writes `.project.eigenvecs` and checks the saved model's ordered references and
+file partitioning. Query samples may differ.
+
+GRM writes `.grm.bin`, `.grm.N.bin`, `.grm.id`, and `.grm.meta.json`. Each window
+contributes `max(observed clusters - 1, 0)` to the contrast count.
+Counts are constant across pairs under mean imputation. SNP-count-weighted GRM
+merging is not supported. The log records the calculation times and dimensions.
+
+## hapla admix
+
+Estimate ancestry proportions Q and categorical cluster frequencies P.
+Missing assignments contribute no observed likelihood or counts. Windows with
+K=0 are supported alongside observed windows. Fully unobserved individuals
+receive uniform Q unless ancestry is fixed by supervision.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `-k`, `--K INT` | Required | Ancestry components, with 1 < K < 100000 |
+| `--keep FILE` | — | Sample IDs to retain, preserving cluster sample order |
+| `--supervised FILE` | — | One population label per sample, 0 unknown and 1..K fixed |
+| `--projection FILE` | — | Fixed P matrix, or P-file list for multiple cluster inputs |
+| `--random-init` | Off | Use random P/Q instead of SVD/ALS initialization |
+| `--iter INT` | `1000` | Maximum outer fitting iterations |
+| `--tole FLOAT` | `1e-9` | Tolerance in log likelihood / (2 × samples × cluster alleles) |
+| `--batches INT` | `16` | Initial mini-batches, reduced during fitting |
+| `--check INT` | `5` | Iterations between convergence checks and progress reports |
+| `--chunk INT` | `4096` | Target cluster alleles per SVD calculation block |
+| `--power INT` | `11` | SVD power iterations |
+| `--seed INT` | `42` | Random seed |
+| `--als-iter INT` | `1000` | Maximum ALS initialization iterations |
+| `--als-tole FLOAT` | `1e-4` | ALS RMSE tolerance for Q |
+| `--subsampling INT` | `4` | Chromosome subsampling factor for SVD initialization |
+| `--no-freqs` | Off | Omit P outputs |
+| `--prefix TEXT` | `chr` | Label for numbered P outputs |
+
+Supervision and projection are mutually exclusive. Supervised labels must fit
+0..255. Projection requires P rows to match the cluster order and fixes P while
+fitting Q. Timings cover each `--check` interval and any final partial interval.
+Warm-up is separate. The log distinguishes convergence, stalling, and the limit.
+
+Outputs use `<out>.K<K>.s<seed>`, or `<out>.project.K<K>.s<seed>` for projection.
+They include `.Q`, `.ids`, and `.log`. Fitted frequencies use `.P` for one input
+or `.chr1.P`, `.chr2.P`, etc. plus `.pfilelist` for multiple inputs. P-file lists
+contain absolute paths. Rerunning with `--no-freqs` removes prior P outputs for
+the current input set.
+
+## hapla fatash
+
+Infer haploid local ancestry from admix P/Q. Regularized Baum–Welch refines P
+and Q by default, with one Q per individual across all chromosomes. Each
+window has its own P. Missing and length-filtered windows have neutral emissions.
+Chains reset at chromosome boundaries.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `-q`, `--qfile FILE` | Required | Q matrix in cluster sample order, with 1..255 ancestry columns |
+| `-p`, `--pfile FILE...` | — | Ordered P files, one per cluster input |
+| `-e`, `--pfilelist FILE` | — | File containing ordered P-file paths |
+| `--baum-welch` | Off | Fit P/Q without regularization |
+| `--fixed-model` | Off | Decode supplied P/Q without fitting |
+| `--iter INT` | `10` | Maximum completed Baum–Welch updates |
+| `--tole FLOAT` | `1e-5` | Objective improvement tolerance per observed assignment |
+| `--p-prior FLOAT` | `10` | P pseudocount mass per window and ancestry |
+| `--q-prior FLOAT` | `10` | Q pseudocount mass per individual |
+| `--alpha FLOAT` | — | Single transition rate per HMM block |
+| `--alpha-min INT` | `4` | Lower negative-log10 exponent of the alpha ensemble |
+| `--alpha-max INT` | `9` | Upper negative-log10 exponent of the alpha ensemble |
+| `--alpha-num INT` | `5` | Number of log-spaced alpha values |
+| `--buffer-mb INT` | `256` | HMM batch workspace budget in MiB |
+| `--block INT` | `1` | Windows per emission block |
+| `--min-length INT` | — | Minimum included window length in bp |
+| `--max-length INT` | — | Maximum included window length in bp |
+| `--quantile FLOAT` | — | Central fraction of window lengths to retain, between 0 and 1 |
+| `--medians` | Off | Use `.blk` cluster scores in emissions |
+| `--simple` | Off | Use simplified column-normalized transitions |
+| `--viterbi` | Off | Decode the most probable path for each alpha |
+| `--save-posteriors` | Off | Save confidence for the mean-posterior calls |
+| `--phase-correct [INT]` | Off | Correct reciprocal switches up to INT windows apart, default 0 when set |
+| `--prefix TEXT` | `chr` | Label for numbered chromosome outputs |
+
+Select exactly one P-input form. `--baum-welch` and `--fixed-model` are mutually
+exclusive. `--medians`, `--simple`, and `--block` other than 1 require
+`--fixed-model`. Quantile filtering cannot be combined with explicit length
+bounds. `--save-posteriors` requires posterior decoding.
+
+Regularization uses Dirichlet parameters `1 + mass × initial`, giving updates
+`(expected counts + mass × initial) / (total counts + mass)`. P counts use
+observed clusters. Q counts include chain starts and latent refresh events.
+Individuals with no included observations retain input Q. Parameters without
+counts retain their input values. Zero input probabilities are not smoothed
+into positive support. Prior masses are tuning parameters.
+
+Convergence is checked after each update using mean-alpha log likelihood minus
+P/Q prior penalties. A material decrease restores the last accepted model.
+Progress reports cover five updates and any final partial block. The initial
+score is unnumbered. Fitting uses posterior expectations even with `--viterbi`.
+The batch budget excludes parameter tables, mapped inputs, and runtime overhead.
+
+Default decoding takes the largest mean ancestry posterior across five alpha
+values from 1e-9 to 1e-4. Alpha is a rate per block, not a genetic distance or
+estimated admixture time. A single-alpha Viterbi path is exact. Multiple-alpha
+Viterbi uses per-window plurality. Phase correction is a heuristic.
+
+Outputs include `.Q`, `.P`, `.ids`, `.path`, and `.log`. `.path` has one row per
+haplotype and one column per window, with zero-based ancestry labels.
+`--save-posteriors` adds `.prob`. Multiple inputs use `.chr1.P`, `.chr1.path`,
+etc. and a `.pfilelist`. Reuse the same alpha and decoding options with saved
+P/Q and `--fixed-model` to reproduce an analysis.
+
+## hapla eval
+
+Evaluate Q through empirical, model-expected, and corrected residual
+correlations. Missing haplotypes use observed-count fitted means. All-missing
+windows contribute zero. Memory and output scale quadratically with samples.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `-q`, `--qfile FILE` | Required | Q matrix in cluster sample order or explicit keep order |
+| `--keep FILE` | — | Sample IDs to retain, in Q row order |
+
+Writes `.bhat`, `.chat`, `.corres`, `.ids`, and `.log`. Correlation matrices use
+four decimal places. Fully unobserved or undefined rows are zero.
+
+## Development
+
+Tests use `unittest`, small fixtures, and independent numerical references.
+No external genotype dataset is required. After installing the package:
+
 ```bash
-hapla cluster --bcf data.chr1.bcf --threads 8 --out hapla.chr1 --plink
-# Saves inferred haplotype cluster alleles in a binary PLINK format
-#	- hapla.chr1.bed
-#	- hapla.chr1.bim
-#	- hapla.chr1.fam
+python tests/run.py --installed
+python tests/run.py --installed --threads 2
+python -m ruff check --no-cache hapla tests setup.py
+python -m ruff format --check --no-cache hapla tests setup.py
 ```
 
-The number of inferred haplotype clusters will depend on the chosen window size (`--size`), the number of allowed clusters per window (`--max-clusters`), as well as $\lambda$ (`--lmbda`) and the minimum haplotype cluster size. $\lambda$ represents the fraction of the specified window size in SNPs, which is required to create a new cluster based on Hamming distance, with a default setting of `--lmbda 0.1`.  The minimum haplotype cluster size can be adjusted using either `--min-freq` or `--min-mac`. The default setting is a minimum haplotype cluster frequency of at least 0.005 for the cluster to be retained (`--min-freq 0.005`), using `--min-mac` will override any setting for `--min-freq`. Smaller clusters will be iteratively removed until all inferred clusters meet the frequency/count criterion.
+The [GitHub workflow](.github/workflows/ci.yml) builds and validates the wheel
+and source archive, runs installed tests with one and two native threads, and
+checks the CLI. Pushes and pull requests test Linux. Manual runs also cover
+macOS and Python 3.10, 3.12, and 3.14. Linux CI builds against HTSlib 1.20.
+Local reports, benchmarks, analysis outputs, and compiled files are excluded
+from source distributions.
 
-For larger sample sizes (N > 1000), prune outlier clusters (singletons and doubletons) before re-clustering step, using the `--prune` option, to speed up the haplotype clustering while producing nearly identical clustering results.
+## Citation
 
-
-### Predict haplotype cluster assignments
-***hapla predict***\
-Predict haplotype cluster assignments using pre-computed cluster medians in a new set of haplotypes (VCF/BCF format). SNP sets must be overlapping.
-```bash
-# Cluster haplotypes in a chromosome with 'hapla cluster' and save cluster medians (--medians)
-hapla cluster --bcf ref.chr1.bcf --size 8 --threads 8 --out ref.chr1 --medians
-# Saves haplotype cluster medians (besides standard binary hapla format)
-#	- ref.chr1.bcm
-#	- ref.chr1.blk
-#	- ref.chr1.wix
-
-# Predict assignments in a set of new haplotypes using haplotype cluster medians
-hapla predict --bcf new.chr1.bcf  --ref ref.chr1 --threads 8 --out new.chr1
-# Saves predicted haplotype cluster assignments in binary hapla format
-#	- new.chr1.bca
-#	- new.chr1.ids
-#	- new.chr1.win
-```
-Using `--medians` in `hapla cluster` outputs three extra files. A **.bcm**-file (binary cluster medians), which stores the cluster medians as *unsigned char*s, a **.blk**-file, which stores pairwise log-likelihoods between the cluster medians, a **.wix**-file with window index information. The files are needed to predict haplotype clusters in a new set of haplotypes.
-
-(Prototype) Predict haplotype cluster assignments using pre-computed cluster medians in an *unphased* genotype dataset (VCF/BCF or binary PLINK format). SNP sets must be overlapping. **NOT** suitable for local ancestry inference.
-```bash
-# Predict assignments in an unphased genotype dataset in VCF/BCF format (same command as above)
-hapla predict --bcf new.chr1.bcf  --ref ref.chr1 --threads 8 --out new.chr1
-# Saves predicted haplotype cluster assignments in binary hapla format
-#	- new.chr1.bca
-#	- new.chr1.ids
-#	- new.chr1.win
-
-# Predict assignments in an unphased genotype dataset in binary PLINK format (provide with file-prefix)
-hapla predict --bfile new.chr1 --ref ref.chr1 --threads 8 --out new.chr1
-# Saves predicted haplotype cluster assignments in binary hapla format
-#	- new.chr1.bca
-#	- new.chr1.ids
-#	- new.chr1.win
-```
-
-
-### Population structure inference and GRM estimation
-***hapla struct***\
-Infer population structure and estimate genome-wide relationship matrix (GRM) using haplotype cluster alleles.
-```bash
-# Perform PCA on a single chromosome and extract top 20 eigenvectors
-hapla struct --clusters hapla.chr1 --threads 32 --pca 20 --out hapla.chr1
-# Saves eigenvalues and eigenvectors in text-format
-#	- hapla.chr1.eigenvecs
-#	- hapla.chr1.eigenvals
-
-# Perform PCA on all chromosomes (genome-wide) using filelist and extract top 20 eigenvectors. Save loadings and haplotype cluster frequencies.
-hapla struct --filelist hapla.filelist --threads 32 --pca 20 --out hapla --loadings
-# Saves eigenvalues and eigenvectors in text-format
-#	- hapla.eigenvecs
-#	- hapla.eigenvals
-#	- hapla.loadings
-#	- hapla.freqs
-
-# Construct genome-wide relationship matrix (GRM)
-hapla struct --filelist hapla.filelist --threads 32 --grm --out hapla
-# Saves the GRM in binary GCTA format (float)
-#	- hapla.grm.bin
-#	- hapla.grm.N.bin
-#	- hapla.grm.id
-
-# Project samples on to existing PC space and extract eigenvectors
-hapla struct --filelist new.filelist --threads 32 --out new --projection hapla
-# Saves eigenvalues and eigenvectors in text-format
-#	- new.project.eigenvecs
-```
-
-
-### Ancestry estimation
-***hapla admix***\
-Estimate ancestry proportions and ancestral haplotype cluster frequencies with a pre-specified number of sources (K). Using a modified `fastmixture` and `HaploNet` model for use with our haplotype clusters. Projection and supervised modes are also available.
-```bash
-# Estimate ancestry proportions assuming K=3 ancestral sources for a single chromosome
-hapla admix --clusters hapla.chr1 --K 3 --seed 1 --threads 32 --out hapla.chr1
-# Saves Q and P matrices in text-format
-#	- hapla.chr1.K3.s1.Q
-#	- hapla.chr1.K3.s1.P
-
-# Estimate ancestry proportions assuming K=3 ancestral sources using filelist with all chromosomes
-hapla admix --filelist hapla.filelist --K 3 --seed 1 --threads 32 --out hapla
-# Saves Q matrix and file-specific P matrices in text-format, including a filelist of the P matrices
-#	- hapla.K3.s1.Q
-#	- hapla.K3.s1.chr{1..22}.P
-#	- hapla.K3.s1.pfilelist
-
-# Estimate ancestry proportions in projection mode assuming K=3 ancestral sources using filelist with all chromosomes. Provide previously estimated ancestral haplotype cluster frequencies.
-hapla admix --filelist new.filelist --K 3 --seed 1 --threads 32 --projection hapla.K3.s1.pfilelist --out new
-# Saves Q matrix in text-format
-#	- new.project.K3.s1.Q
-
-# Estimate ancestry proportions in supervised mode assuming K=3 ancestral sources using filelist with all chromosomes. Provide a single column text-file with population labels of the samples as integers, where 0 indicates no label.
-hapla admix --filelist hapla.filelist --K 3 --seed 1 --threads 32 --supervised hapla.labels --out hapla.super
-# Saves Q and P matrices in text-format, including a filelist of the P matrices
-#	- hapla.super.K3.s1.Q
-#	- hapla.super.K3.s1.chr{1..22}.P
-#	- hapla.super.K3.s1.pfilelist
-```
-
-
-### Local ancestry inference (Prototype)
-***hapla fatash***\
-Infer local ancestry tracts using the admixture estimation from `hapla admix` in a hidden markov model. Based on a modified fastPHASE model for use with our haplotype clusters.
-```bash
-# Infer local ancestry tracts for a single chromosome (posterior decoding)
-hapla fatash --clusters hapla.chr1 --qfile hapla.chr1.K3.s1.Q --pfile hapla.chr1.K3.s1.P --threads 32 --out hapla.chr1
-# Saves posterior decoding path in text-format
-#	- hapla.chr1.path
-
-# Infer local ancestry tracts using filelist with all chromosomes (Viterbi decoding)
-hapla fatash --filelist hapla.filelist --qfile hapla.K3.s1.Q --pfilelist hapla.K3.s1.pfilelist --threads 32 --out hapla --viterbi
-# Saves Viterbi decoding paths in text-files
-#	- hapla.chr{1..22}.path
-```
-
-Reciprocal ancestry switches between an individual's haplotypes can optionally be phase-corrected with `--phase-correct [INT]`. Without an integer, only simultaneous breakpoints are corrected; the integer allows breakpoints up to that many windows apart. Phase correction is disabled by default.
-
-
-### Evaluation of ancestry estimation (Prototype)
-***hapla eval***\
-Evaluate the fit of `hapla admix` ancestry proportions using correlations of residuals.
-```bash
-# Evaluate ancestry proportions from a single chromosome
-hapla eval --clusters hapla.chr1 --qfile hapla.chr1.K3.s1.Q --threads 32 --out hapla.chr1
-# Saves empirical, model-expected, and corrected residual correlations in text-format
-#	- hapla.chr1.bhat
-#	- hapla.chr1.chat
-#	- hapla.chr1.corres
-
-# Evaluate ancestry proportions using filelist with all chromosomes
-hapla eval --filelist hapla.filelist --qfile hapla.K3.s1.Q --threads 32 --out hapla
-# Saves empirical, model-expected, and corrected residual correlations in text-format
-#	- hapla.bhat
-#	- hapla.chat
-#	- hapla.corres
-```
+- **hapla cluster**: [Nature Communications](https://doi.org/10.1038/s41467-024-55477-3), [preprint](https://doi.org/10.1101/2024.04.30.24306654)
+- **hapla admix**: [HGG Advances](https://doi.org/10.1016/j.xhgg.2026.100561), [preprint](https://doi.org/10.1101/2025.09.02.673718)
