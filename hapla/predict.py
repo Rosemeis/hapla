@@ -174,8 +174,7 @@ def main(args):
                 par=args.threads > 1,
                 b_buf=mem // 2,
                 size_of=lambda batch: sum(
-                    G.nbytes + (0 if phase is None else phase.nbytes)
-                    for _, G, phase, _ in batch
+                    G.nbytes + (0 if phase is None else phase.nbytes) for _, G, phase, _ in batch
                 ),
             )
 
