@@ -5,7 +5,7 @@
 
 **hapla** groups phased haplotypes into local clusters. Use the assignments for
 PCA and genomic relationship matrices, admixture, local ancestry, or residual
-correlations. All commands run on CPU; clustering and prediction read VCF/BCF directly.
+correlations. Clustering and prediction read VCF/BCF. All commands run on CPU.
 
 **Files from before v1.0.0 are incompatible.** Rebuild clusters and downstream
 results from the original genotypes. Do not mix files from the two formats.
@@ -52,7 +52,7 @@ hapla fatash --clusters chr{1..22} \
 hapla eval --clusters chr{1..22} --qfile fit.K5.s42.Q --threads 8 --out residuals
 ```
 
-Bash and Zsh expand unquoted braces; hapla uses the resulting order as given.
+Bash and Zsh expand unquoted braces. Hapla uses the resulting order as given.
 For a saved list, use `--filelist prefixes.txt` with one prefix per line.
 `fatash` also accepts `--pfilelist fit.K5.s42.pfilelist`. Cluster and P-file
 lists must have the same order, and sample IDs must match across cluster files.
@@ -91,8 +91,8 @@ Keep bundles and their model files together.
 
 ### Genotype reader options
 
-`cluster` and `predict` read VCF/BCF sequentially through HTSlib; no index is
-needed. Only `FORMAT/GT` is used. Nonstandard `FORMAT/PP` header warnings are
+`cluster` and `predict` read VCF/BCF sequentially through HTSlib without an
+index. Only `FORMAT/GT` is used. Nonstandard `FORMAT/PP` header warnings are
 shown as one input note.
 
 | Option | Default | Description |
@@ -202,7 +202,7 @@ merging is not supported. The log records the calculation times and dimensions.
 ## hapla admix
 
 Estimate ancestry proportions Q and cluster frequencies P. Missing assignments
-contribute no likelihood or counts; empty windows are allowed. Individuals with
+contribute no likelihood or counts. Empty windows are allowed. Individuals with
 no observed assignments receive uniform Q unless fixed by supervision.
 
 | Option | Default | Description |
@@ -327,7 +327,7 @@ python -m ruff format --check --no-cache hapla tests setup.py
 
 [CI](.github/workflows/ci.yml) checks style, builds the wheel and source
 archive, and runs the installed tests with one and two native threads. Pushes
-and pull requests run on Linux; manual runs also cover macOS and Python 3.10,
+and pull requests run on Linux. Manual runs also cover macOS and Python 3.10,
 3.12, and 3.14.
 
 ## Citation
