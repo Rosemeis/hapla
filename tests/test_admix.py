@@ -3,6 +3,7 @@
 __author__ = "Jonas Meisner"
 
 import sys
+import itertools
 from argparse import Namespace
 from contextlib import redirect_stdout
 from io import StringIO
@@ -14,6 +15,34 @@ from helpers import TemporaryTests, command, missingFixture, readLog, writeClust
 
 from hapla import admix_cy as cy
 from hapla import functions
+
+
+def test_weighted_q_update_matches_scalar_reference():
+    rng = np.random.default_rng(8)
+    N, W, K = 3, 3, 3
+    Z = rng.integers(0, 2, (W, 2 * N), dtype=np.uint8)
+    k = np.full(W, 2, np.uint32)
+    c = np.insert(np.cumsum(k * K, dtype=np.uint32), 0, 0)
+    P = rng.random(c[-1])
+    for w in range(W):
+        for ancestry in range(K):
+            P[c[w] + ancestry : c[w + 1] : K] /= P[
+                c[w] + ancestry : c[w + 1] : K
+            ].sum()
+    Q = rng.dirichlet(np.ones(K), N)
+    weights = np.array([1.0, 0.25, 2.0])
+    observed = np.full(N, 2 * weights.sum())
+    T, out = np.empty_like(Q), np.empty_like(Q)
+    pt, qt = functions.emWorkspace(N, K, k)
+    ctx = (Z, k, c, T, pt, qt, None, None, weights)
+    functions.emStep(P, Q, None, out, ctx, qo=observed)
+    expected = np.zeros_like(Q)
+    for w, i, h in itertools.product(range(W), range(N), range(2)):
+        p = P[c[w] + Z[w, 2 * i + h] * K : c[w] + (Z[w, 2 * i + h] + 1) * K]
+        expected[i] += weights[w] * p / np.dot(p, Q[i])
+    expected *= Q / observed[:, None]
+    expected /= expected.sum(axis=1, keepdims=True)
+    np.testing.assert_allclose(out, expected)
 
 
 ### Solve the constrained M-step by independent bisection

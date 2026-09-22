@@ -94,6 +94,13 @@ def main():
             help="Number of power iterations to perform (11)",
         )
         sub.add_argument("--seed", type=int, default=42, metavar="INT", help="Random seed (42)")
+    adm.add_argument(
+        "--snp-vcf",
+        "--bcf",
+        dest="snp_vcf",
+        metavar="FILE",
+        help="Append phased biallelic SNPs, weighted to one row per cluster window",
+    )
     for sub in (lai, eva):
         sub.add_argument(
             "-q", "--qfile", metavar="FILE", help="Path to file with ancestry proportions"
