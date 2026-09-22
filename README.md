@@ -1,12 +1,14 @@
-# hapla (v1.0.0)
+# hapla
 
-**hapla** clusters phased haplotypes in genomic windows and uses those clusters
-for population structure, admixture, local ancestry, and residual analysis.
-All commands run on CPU.
+[![Tests](https://github.com/Rosemeis/hapla/actions/workflows/ci.yml/badge.svg)](https://github.com/Rosemeis/hapla/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
 
-**Analyses from versions before 1.0.0 are incompatible.** Rerun clustering and
-downstream analyses from the original genotypes. Do not mix old assignments,
-medians, frequencies, ancestry estimates, or PCA loadings with new clusters.
+**hapla** groups phased haplotypes into local clusters. Use the assignments for
+PCA and genomic relationship matrices, admixture, local ancestry, or residual
+correlations. All commands run on CPU; clustering and prediction read VCF/BCF directly.
+
+**Files from before v1.0.0 are incompatible.** Rebuild clusters and downstream
+results from the original genotypes. Do not mix files from the two formats.
 
 ## Installation
 
@@ -26,38 +28,43 @@ then run `python -m pip install .`. The build finds HTSlib through `pkg-config`,
 Conda, or standard prefixes. Set `HTSLIB_PREFIX` or, on macOS, `LIBOMP_PREFIX`
 for custom locations. Their shared libraries must remain available at runtime.
 
-Builds are portable within the target CPU architecture. Set `HAPLA_NATIVE=1`
-during installation to tune for the build machine and matching compute nodes.
+The default build avoids host-specific CPU instructions. Set `HAPLA_NATIVE=1`
+when building for the same CPU architecture and instruction set as the compute
+nodes.
 
-## Usage
+## Quick start
 
-Cluster each chromosome, then pass the prefixes in chromosome order:
+Cluster a phased BCF and save medians for assigning new samples:
 
 ```bash
 hapla cluster --bcf data.chr1.bcf --size 16 --medians --threads 8 --out chr1
 hapla predict --bcf query.chr1.bcf --ref chr1 --threads 8 --out query.chr1
+```
+
+After clustering each chromosome, pass the cluster prefixes in chromosome order:
+
+```bash
 hapla struct --clusters chr{1..22} --pca 20 --loadings --threads 8 --out pca
 hapla admix --clusters chr{1..22} --K 5 --threads 8 --out fit
-hapla fatash --clusters chr{1..22} --pfile fit.K5.s42.chr{1..22}.P --qfile fit.K5.s42.Q --threads 8 --out lai
+hapla fatash --clusters chr{1..22} \
+    --pfile fit.K5.s42.chr{1..22}.P --qfile fit.K5.s42.Q \
+    --threads 8 --out lai
 hapla eval --clusters chr{1..22} --qfile fit.K5.s42.Q --threads 8 --out residuals
 ```
 
-Bash/Zsh expand unquoted braces. Hapla preserves the supplied order and does
-not expand or sort patterns itself. `--filelist prefixes.txt` reads one prefix
-per line. Fatash also accepts `--pfilelist fit.K5.s42.pfilelist`. Direct lists
-and saved lists can be mixed, but cluster and P-file counts and order must match.
-Sample IDs must match across cluster files. Q rows must follow that sample order.
+Bash and Zsh expand unquoted braces; hapla uses the resulting order as given.
+For a saved list, use `--filelist prefixes.txt` with one prefix per line.
+`fatash` also accepts `--pfilelist fit.K5.s42.pfilelist`. Cluster and P-file
+lists must have the same order, and sample IDs must match across cluster files.
+Q rows must follow that sample order.
 
-Each command prints a compact summary and writes a readable `.log` containing
-the command, results, and fitting history. Progress times cover the iterations
-since the previous report. Total elapsed time is reported separately. Output
-files are staged and published together, with input/output conflicts rejected.
-Use distinct prefixes for inputs and results.
+Each command writes a `.log` with its arguments, results, and timings. Outputs
+are staged before they replace files at the requested prefix. Use separate
+prefixes for inputs and results.
 
 ### Common options
 
-These options apply to every command. Flags are off unless stated otherwise.
-A dash in the default column means no value is selected.
+These options apply to every command. A dash means no default value.
 
 | Option | Default | Description |
 | --- | --- | --- |
@@ -84,10 +91,9 @@ Keep bundles and their model files together.
 
 ### Genotype reader options
 
-Shared by `cluster` and `predict`. Both read VCF/BCF sequentially through HTSlib
-without requiring an index. Only `FORMAT/GT` is used. The two known warnings
-about nonstandard `FORMAT/PP` Number/Type declarations become one input note.
-Other HTSlib diagnostics remain visible.
+`cluster` and `predict` read VCF/BCF sequentially through HTSlib; no index is
+needed. Only `FORMAT/GT` is used. Nonstandard `FORMAT/PP` header warnings are
+shown as one input note.
 
 | Option | Default | Description |
 | --- | --- | --- |
@@ -127,10 +133,11 @@ PLINK output marks the diploid genotype missing if either haplotype is missing.
 
 For overlapping windows, a short tail is added only if it covers new variants.
 A `--windows` file may end with the genotype record count as an EOF marker.
-Clustering uses exact deduplication, packed Hamming distances, and sequential
-pruning until retained clusters meet the size threshold. A count threshold
-above the observed haplotype count fails for a nonempty window. Unconverged
-windows stop the run.
+The fitter deduplicates haplotypes, grows binary medians using packed Hamming
+distances, then reassigns haplotypes from clusters below the size threshold.
+The 255-cluster cap keeps assignments to one byte per haplotype. A count
+threshold above the observed haplotype count is invalid. Fitting stops if a
+window does not converge.
 
 Clustering is invariant to REF/ALT swaps with corresponding GT recoding when
 sample/haplotype order is fixed. Major alleles define the internal orientation.
@@ -194,10 +201,9 @@ merging is not supported. The log records the calculation times and dimensions.
 
 ## hapla admix
 
-Estimate ancestry proportions Q and categorical cluster frequencies P.
-Missing assignments contribute no observed likelihood or counts. Windows with
-K=0 are supported alongside observed windows. Fully unobserved individuals
-receive uniform Q unless ancestry is fixed by supervision.
+Estimate ancestry proportions Q and cluster frequencies P. Missing assignments
+contribute no likelihood or counts; empty windows are allowed. Individuals with
+no observed assignments receive uniform Q unless fixed by supervision.
 
 | Option | Default | Description |
 | --- | --- | --- |
@@ -309,8 +315,8 @@ four decimal places. Fully unobserved or undefined rows are zero.
 
 ## Development
 
-Tests use `unittest`, small fixtures, and independent numerical references.
-No external genotype dataset is required. After installing the package:
+The test suite uses small fixtures and needs no external genotype data. After
+installing hapla, run:
 
 ```bash
 python tests/run.py --installed
@@ -319,12 +325,10 @@ python -m ruff check --no-cache hapla tests setup.py
 python -m ruff format --check --no-cache hapla tests setup.py
 ```
 
-The [GitHub workflow](.github/workflows/ci.yml) builds and validates the wheel
-and source archive, runs installed tests with one and two native threads, and
-checks the CLI. Pushes and pull requests test Linux. Manual runs also cover
-macOS and Python 3.10, 3.12, and 3.14. Linux CI builds against HTSlib 1.20.
-Local reports, benchmarks, analysis outputs, and compiled files are excluded
-from source distributions.
+[CI](.github/workflows/ci.yml) checks style, builds the wheel and source
+archive, and runs the installed tests with one and two native threads. Pushes
+and pull requests run on Linux; manual runs also cover macOS and Python 3.10,
+3.12, and 3.14.
 
 ## Citation
 
