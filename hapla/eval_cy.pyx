@@ -79,6 +79,7 @@ cdef int _fixed(f64 val, char* buf) noexcept nogil:
     if bits >> 63:
         buf[0] = 45
         n = 1
+
     # IEEE binary64: abs(val)*10000 = mantissa*625 / 2**(1071-exponent), within uint64.
     shift = 1071 - <int>((bits >> 52) & 2047)
     if shift < 64:

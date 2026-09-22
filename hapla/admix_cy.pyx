@@ -16,12 +16,8 @@ cdef f32 FLT_MIN = 1e-5
 cdef f32 FLT_MAX = 1.0 - (1e-5)
 
 
-##### Admixture updates
-
 ### Bound the quasi-Newton step
 cdef inline f64 _clamp2(f64 a) noexcept nogil: return fmax(ACC_MIN, fmin(a, ACC_MAX))
-
-
 cdef inline f32 _clamp3(f32 a) noexcept nogil: return fmaxf(FLT_MIN, fminf(a, FLT_MAX))
 
 
@@ -496,8 +492,6 @@ cpdef void jumpQ(
         _computeQ(&Q0[i, 0], &Q1[i, 0], &Q2[i, 0], c1, c2, K)
 
 
-##### Initialization and scoring
-
 ### Normalize P and Q once after initialization
 cpdef void createP(f64[::1] P, const u32[::1] k_vec, const u32[::1] c_vec,
                    Py_ssize_t K) noexcept nogil:
@@ -602,8 +596,6 @@ cpdef f32 rmseQ(
     return sqrtf(r / (<f32>(N) * <f32>(K)))
 
 
-##### Supervised mode
-
 ### Initialize supervised frequencies from observed labels
 cpdef void superP(const u8[:, ::1] Z, f64[:, ::1] P,
                   const u32[::1] k_vec, const u32[::1] c_vec,
@@ -634,8 +626,6 @@ cpdef void superQ(
             for k in range(K):
                 Q[i, k] = 1.0 - (K-1)*PRO_MIN if k == y[i]-1 else PRO_MIN
 
-
-##### Projection mode
 
 ### Check haplotype cluster frequencies input
 cpdef void checkP(

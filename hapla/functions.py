@@ -4,7 +4,7 @@ import numpy as np
 
 from hapla import admix_cy
 
-##### Admixture updates
+# Admixture updates
 
 
 ### One EM update, sharing scratch across full, batch, and projection modes
@@ -33,7 +33,7 @@ def emQuasi(P, Q, P1, P2, Q1, Q2, ctx, rows=None, qo=None):
         admix_cy.superQ(Q, ctx[-1])
 
 
-##### Initialization
+# Initialization
 
 
 ### Centered label products for SVD/ALS initialization, without dosage expansion
@@ -73,6 +73,21 @@ def centerSVD(Z, p_vec, c_vec, W, K, chunk, power, rng, obs=None):
     )
 
 
+### One alternating least squares update for P and Q
+def _alsStep(Y, V, p_vec, k_vec, c_vec, Q, P=None):
+    H = np.dot(Q, np.linalg.pinv(np.dot(Q.T, Q)))
+    P = np.dot(Y, np.dot(V.T, H), out=P)
+    P *= 0.5
+    P += np.outer(p_vec, np.sum(H, axis=0))
+    admix_cy.projectP(P, k_vec, c_vec)
+    H = np.dot(P, np.linalg.pinv(np.dot(P.T, P)))
+    Q = 0.5 * np.dot(V, np.dot(Y.T, H))
+    H *= p_vec[:, None]
+    Q += H.sum(axis=0)
+    admix_cy.projectQ(Q)
+    return P, Q
+
+
 ### Alternating least square (ALS) for initializing Q and P
 def factorALS(U, S, V, p_vec, k_vec, c_vec, iter, tole, rng):
     M, D = U.shape
@@ -88,19 +103,7 @@ def factorALS(U, S, V, p_vec, k_vec, c_vec, iter, tole, rng):
 
     # Perform ALS iterations
     for _ in range(iter):
-        # Update P
-        H = np.dot(Q, np.linalg.pinv(np.dot(Q.T, Q)))
-        np.dot(Y, np.dot(V.T, H), out=P)
-        P *= 0.5
-        P += np.outer(p_vec, np.sum(H, axis=0))
-        admix_cy.projectP(P, k_vec, c_vec)
-
-        # Update Q
-        H = np.dot(P, np.linalg.pinv(np.dot(P.T, P)))
-        Q = 0.5 * np.dot(V, np.dot(Y.T, H))
-        H *= p_vec[:, None]
-        Q += H.sum(axis=0)
-        admix_cy.projectQ(Q)
+        P, Q = _alsStep(Y, V, p_vec, k_vec, c_vec, Q, P)
 
         # Check convergence
         if admix_cy.rmseQ(Q, Q0) < tole:
@@ -141,14 +144,5 @@ def factorSub(U_sub, U_rem, S, V, p_vec, k_vec, c_vec, W_sub, iter, tole, rng):
 
     # Perform extra full ALS iteration
     Y = np.ascontiguousarray(np.concatenate((U_sub, U_rem), axis=0) * S)
-    H = np.dot(Q, np.linalg.pinv(np.dot(Q.T, Q)))
-    P = np.dot(Y, np.dot(V.T, H))
-    P *= 0.5
-    P += np.outer(p_vec, np.sum(H, axis=0))
-    admix_cy.projectP(P, k_vec, c_vec)
-    H = np.dot(P, np.linalg.pinv(np.dot(P.T, P)))
-    Q = 0.5 * np.dot(V, np.dot(Y.T, H))
-    H *= p_vec[:, None]
-    Q += H.sum(axis=0)
-    admix_cy.projectQ(Q)
+    P, Q = _alsStep(Y, V, p_vec, k_vec, c_vec, Q)
     return P, Q

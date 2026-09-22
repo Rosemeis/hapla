@@ -198,7 +198,10 @@ def grm(data, p, chunk, center=True, tile=None, info=None):
     if den <= 0:
         raise ValueError("GRM estimation requires variable cluster alleles")
     G = np.zeros(N * (N + 1) // 2)
-    tile = min(N, max(1, 16 * 1024**2 // N) if tile is None else tile)
+    if tile is None:
+        b_tile = 16 * 1024**2
+        tile = max(1, b_tile // (N * np.dtype(np.float32).itemsize))
+    tile = min(N, tile)
     T = np.empty(tile * N, dtype=np.float32)
     for Z, c, s, obs in blocks(data, chunk):
         rows = np.r_[0, np.cumsum(np.maximum(np.diff(c) - 1, 0))]
@@ -316,6 +319,7 @@ def main(args):
         if args.grm:
             tick = perf_counter()
             print("\nComputing GRM.", flush=True)
+
             # One represented categorical contrast per additional observed cluster allele.
             c = np.r_[0, np.cumsum(k, dtype=np.int64)]
             seen = np.r_[0, np.cumsum(p > 0, dtype=np.int64)]

@@ -506,6 +506,7 @@ class FormatAndPipelineTests(TemporaryTests):
         np.testing.assert_array_equal(
             labels == 255, [[False] * 6, [False, False, True, False, False, False]]
         )
+
         # Two clusters per window, one byte per PLINK variant, second sample is missing.
         bed = Path(f"{target}.bed").read_bytes()[3:]
         self.assertTrue(all((byte >> 2) & 3 == 1 for byte in bed[2:]))

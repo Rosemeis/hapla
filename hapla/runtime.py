@@ -46,6 +46,7 @@ def threadPlan(threads, nio=None):
             "--io-threads must be nonnegative and leave threads for reading, window processing, "
             "and HTSlib's I/O coordinator (at least 4 total for threaded decompression)"
         )
+
     # The caller reads input. Workers run GIL-free serial kernels. No nested OpenMP.
     # BGZF adds a coordinator thread as well as the requested decompression pool.
     workers = max(1, threads - nio - 1 - bool(nio))
@@ -100,7 +101,7 @@ def commitOutputs(pfx, out, *, stale=_OPTIONAL):
         raise
 
 
-##### Console and log output
+# Console and log output
 
 
 ### Print one compact command header before native diagnostics
@@ -282,7 +283,7 @@ def openReader(stack, path, threads, phased=True):
     return src, notes
 
 
-##### Bounded scheduling
+# Bounded scheduling
 
 
 ### Collect a bounded number of windows per task

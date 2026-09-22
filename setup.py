@@ -41,6 +41,7 @@ def htsFlags():
 def extensions():
     cc = ["-O3", "-fno-math-errno"]
     ld = ["-lm"]
+
     # Portable by default for heterogeneous HPC nodes. Opt in to local tuning.
     if os.environ.get("HAPLA_NATIVE") == "1":
         cc.append("-march=native")

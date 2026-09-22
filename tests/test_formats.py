@@ -68,6 +68,7 @@ class SharedInputTests(TemporaryTests):
         writeVcf(vcf, [("1", i + 1, calls) for i in range(32)])
         ref = self.root / "ref"
         command("cluster", "--vcf", vcf, "--size", 8, "--out", ref)
+
         # Repeating the same chromosome doubles the data, with identical sample order
         from hapla.formats import MAGIC
 

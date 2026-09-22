@@ -136,6 +136,7 @@ class StructureContracts(TemporaryTests):
             success=False,
         )
         self.assertIn("Ordered cluster references", result.stderr)
+
         # Equal coordinates/counts alone do not establish the meaning of labels.
         ref = writeClusters(self.root, "original", Z, c)
         export(ref, model)

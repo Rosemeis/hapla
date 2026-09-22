@@ -15,7 +15,7 @@ def main():
     parser.add_argument("--version", action="version", version=f"v{__version__}")
     subs = parser.add_subparsers(title="hapla commands")
 
-    ##### Shared options
+    # Shared options
     cmds = {
         name: subs.add_parser(name)
         for name in ("cluster", "predict", "struct", "admix", "fatash", "eval")
@@ -92,7 +92,7 @@ def main():
             "-q", "--qfile", metavar="FILE", help="Path to file with ancestry proportions"
         )
 
-    ##### hapla cluster
+    # hapla cluster
     clu.add_argument(
         "-g", "--vcf", "--bcf", metavar="FILE", help="Input phased genotype file in VCF/BCF format"
     )
@@ -156,7 +156,7 @@ def main():
         help="Mark an affected haplotype window missing, or reject missing GT (window)",
     )
 
-    ##### hapla predict
+    # hapla predict
     pre.add_argument(
         "-g",
         "--vcf",
@@ -180,7 +180,7 @@ def main():
         help="Detect phase per sample/window, require phased GT, or ignore phase (auto)",
     )
 
-    ##### hapla struct
+    # hapla struct
     pca.add_argument(
         "--grm", action="store_true", help="Estimate genome-wide relationship matrix (GRM)"
     )
@@ -192,7 +192,7 @@ def main():
     pca.add_argument("--loadings", action="store_true", help="Save frequencies and loadings of SVD")
     pca.add_argument("--raw", action="store_true", help="Raw output without '*.fam' info")
 
-    ##### hapla admix
+    # hapla admix
     adm.add_argument("-k", "--K", type=int, metavar="INT", help="Number of ancestral components")
     adm.add_argument(
         "--keep", metavar="FILE", help="File with sample IDs to include, one ID per line"
@@ -257,7 +257,7 @@ def main():
         help="Prefix for multiple haplotype cluster frequency files",
     )
 
-    ##### hapla fatash
+    # hapla fatash
     lai.description = (
         "Local ancestry inference with regularized Baum-Welch fitting of supplied P/Q by default."
     )
@@ -371,7 +371,7 @@ def main():
         "--simple", action="store_true", help="Use column-normalized simplified HMM transitions"
     )
 
-    ##### hapla eval
+    # hapla eval
     eva.add_argument(
         "--keep",
         metavar="FILE",

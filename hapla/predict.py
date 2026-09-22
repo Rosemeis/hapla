@@ -71,10 +71,10 @@ def predictBatch(batch):
 
     out = []
     for meta, G, phase, R in batch:
-        n_unph = int(np.count_nonzero(phase))
+        n_unph = 0 if phase is None else int(np.count_nonzero(phase))
         z = (
             np.full(G.shape[1], 255, np.uint8)
-            if not len(R) or n_unph == len(phase)
+            if not len(R) or (phase is not None and n_unph == len(phase))
             else packed_cy.predict_haplotypes(G, R)
         )
         if len(R) and n_unph:
@@ -144,9 +144,12 @@ def main(args):
             if eof and sites.read(1):
                 raise ValueError("Input ends before the reference variant set")
 
-        buf = createBuffer(read, ids, chroms, mem // 4, phase=True, sites=checkSites)
+        buf = createBuffer(
+            read, ids, chroms, mem // 4, phase=args.phase_mode != "phased", sites=checkSites
+        )
+        b_sample = 2 if args.phase_mode == "phased" else 3
         n = batchSize(
-            max(meta[4] for meta, _, _ in ref) * len(ids) * 3,
+            max(meta[4] for meta, _, _ in ref) * len(ids) * b_sample,
             args.batch_windows,
             mem // 4,
             mem // 2,
@@ -170,10 +173,14 @@ def main(args):
                 workers=nt,
                 par=args.threads > 1,
                 b_buf=mem // 2,
-                size_of=lambda batch: sum(G.nbytes + phase.nbytes for _, G, phase, _ in batch),
+                size_of=lambda batch: sum(
+                    G.nbytes + (0 if phase is None else phase.nbytes)
+                    for _, G, phase, _ in batch
+                ),
             )
 
         writeIdentity(out, ident["reference"], ident["windows"], ident["clusters"])
+
         # Flush staged files before replacing previous outputs
         stats.update(
             variants=buf["variants"],

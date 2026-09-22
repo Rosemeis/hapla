@@ -16,8 +16,6 @@ ctypedef double f64
 ctypedef float f32
 
 
-##### Probability arithmetic
-
 ### Add log probabilities, including exact zeros
 cdef inline f64 _add(f64 a, f64 b) noexcept nogil:
     if a == -INFINITY: return b
@@ -48,8 +46,6 @@ cdef void _exclude(const f64* x, f64* out, Py_ssize_t K) noexcept nogil:
         out[k] = _add(out[k], s)
         s = _add(s, x[k])
 
-
-##### Emissions
 
 ### Normalize file frequencies after checking each ancestral simplex
 def normalizeP(f64[:, ::1] P, const i64[::1] c):
@@ -167,8 +163,6 @@ def emissions(const u8[:, ::1] Z, const f64[::1] table, const i64[::1] c,
                     for k in range(K): E[i, b, k] += table[(c[w]+z)*K+k]
     return np.asarray(E)
 
-
-##### Posterior decoding
 
 ### Check priors and alpha once before entering unchecked recursions
 def _arguments(E, Q, alpha):
@@ -350,8 +344,6 @@ def posterior(const f64[:, :, ::1] E, Q, alpha, bint simple=False, bint resets=F
     return np.asarray(G), np.asarray(C), np.asarray(ll)
 
 
-##### Viterbi decoding
-
 ### Small state spaces favor a tight dense loop with rolling score vectors
 cdef f64 _viterbi_small(const f64* E, const f64* q, u8* path, u8* prev,
                          f64* work, Py_ssize_t W, Py_ssize_t K,
@@ -380,6 +372,7 @@ cdef f64 _viterbi_small(const f64* E, const f64* q, u8* path, u8* prev,
             prev[w*K+k] = src
             norm = max(norm, b[k])
         if norm == -INFINITY: return norm
+
         # Periodic centering avoids growth of accumulated scores. Huge blocks center immediately.
         if w % 64 == 0 or norm < -1e4 or norm > 1e4:
             for k in range(K): b[k] -= norm
@@ -485,8 +478,6 @@ def viterbi(const f64[:, :, ::1] E, Q, alpha, bint simple=False):
     return np.asarray(D)
 
 
-##### Baum-Welch updates
-
 ### Count observed assignments once for convergence scaling and empty samples
 def observations(const u8[:, ::1] Z, const u8[::1] use):
     cdef Py_ssize_t W = Z.shape[0], N = Z.shape[1] // 2, i, w, t
@@ -551,8 +542,6 @@ def refineP(const f64[::1] base, const f64[::1] counts,
                             if total > 0 else base[a*K+k])
     return np.asarray(P)
 
-
-##### Ancestry output
 
 ### Correct reciprocal phase switches in pairs of haplotypes
 def phaseCorrect(

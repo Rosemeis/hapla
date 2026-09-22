@@ -84,6 +84,7 @@ def covariance(data, Q, chunk=1024):
                     u, h = U, None
                 else:
                     h = (Z[w, ::2] != 255).astype(float) + (Z[w, 1::2] != 255)
+
                     # Reuse one missingness pattern, including across dosage blocks.
                     if last is None or not np.array_equal(h, last):
                         if last is not None:

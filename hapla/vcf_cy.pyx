@@ -89,6 +89,7 @@ cdef bint decode8(const int8_t* raw, uint8_t* output, int samples,
         invalid |= unph & strict
         phase[i] = unph
         absent |= (a < 2) | (b < 2)
+
         # HTSlib missing 0/1 maps directly to unsigned byte 255.
         output[2*i] = <uint8_t>((a >> 1) - 1)
         output[2*i+1] = <uint8_t>((b >> 1) - 1)
@@ -275,6 +276,7 @@ cdef class Reader:
                         a, b = raw[2*i], raw[2*i+1]
                     else:
                         a, b = self.gt[2*i], self.gt[2*i+1]
+
                     # Missing is 0/1. Negative values include vector-end/ploidy markers.
                     if a < 0 or b < 0:
                         error = 6
@@ -282,6 +284,7 @@ cdef class Reader:
                     if a > 5 or b > 5:
                         error = 7
                         break
+
                     # Homozygous or wholly missing calls have no phase ambiguity.
                     if (a >> 1) != (b >> 1) and not (b & 1):
                         if self.phased:
@@ -298,6 +301,7 @@ cdef class Reader:
                     if bcf_unpack(self.record, BCF_UN_STR) < 0:
                         error = 1
                         break
+
                     # Format a whole read block without taking the GIL for each variant.
                     status = kputs(bcf_hdr_id2name(self.header, self.record.rid), &self.sbuf)
                     status |= kputc(9, &self.sbuf)

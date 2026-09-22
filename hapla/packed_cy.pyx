@@ -54,6 +54,7 @@ cdef void radix_order(const u64[:, ::1] X_pack, u32[::1] order,
             cnt[bucket] = 0
         for i in range(H):
             cnt[(X_pack[src[i], q] >> shift) & 255] += 1
+
         # Constant digits cannot change the ordering.
         if cnt[(X_pack[src[0], q] >> shift) & 255] == H:
             continue
@@ -214,6 +215,7 @@ def fit_window(const u8[:, ::1] G, double alpha=0.1, double min_freq=0.005,
     n_min = int(min_mac) if min_mac is not None else math.ceil(H_obs * min_freq)
     if n_min > <u64>H_obs:
         raise ValueError("Minimum cluster count exceeds the observed haplotypes in this window")
+
     # Collapse identical haplotypes and retain an inverse map for output
     cdef u32[::1] order = np.empty(H_obs, dtype=np.uint32)
     cdef u32[::1] tmp = np.empty(H_obs, dtype=np.uint32)
@@ -245,6 +247,7 @@ def fit_window(const u8[:, ::1] G, double alpha=0.1, double min_freq=0.005,
             prev = h
     X = X[:U]
     w_vec = w_vec[:U]
+
     # Drop packing/sort temporaries before allocating iterative working state.
     X_pack = None
     order = tmp = None
@@ -270,6 +273,7 @@ def fit_window(const u8[:, ::1] G, double alpha=0.1, double min_freq=0.005,
         for i in range(U):
             for j in range(B):
                 C[0, j] += w_vec[i] * ((X[i, j >> 6] >> (j & 63)) & 1)
+
         # Orient the major allele as zero. Balanced sites follow the first complete haplotype.
         for j in range(B):
             if 2*C[0, j] > <u64>H_obs or (2*C[0, j] == <u64>H_obs and G[j, first]):
@@ -280,6 +284,7 @@ def fit_window(const u8[:, ::1] G, double alpha=0.1, double min_freq=0.005,
             for i in range(U):
                 for q in range(Q):
                     X[i, q] ^= flip[q]
+
         # The initial strict-majority median is now zero at every site.
         for it in range(n_iter):
             if Q == 1:

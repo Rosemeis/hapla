@@ -66,6 +66,7 @@ cdef void _pair(const u8* x, const u64[:, ::1] R, u64* hom, u64* het,
         for b in range(K):
             d = errors[b]
             for q in range(Q): d += hapla_popcount(het[q] & ~(R[a, q] ^ R[b, q]))
+
             # Preserve the existing weights, traversal order, and float32 tie behavior.
             if 0.66 * <float>errors[a] + 0.33 * <float>d < best:
                 best = 0.66 * <float>errors[a] + 0.33 * <float>d

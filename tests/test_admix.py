@@ -115,6 +115,7 @@ class AdmixtureTests(TemporaryTests):
                 self.assertGreaterEqual(P.min(), 1e-5)
                 self.assertGreaterEqual(Q.min(), 1e-5)
                 old = now
+
         # Audit counterexample: a minor ancestry must retain its supported allele.
         N, K = 1000, 5
         Z, k, c = (

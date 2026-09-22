@@ -76,6 +76,7 @@ class HMMCorrectness(unittest.TestCase):
                 W = 193
                 q = rng.dirichlet(np.ones(K))
                 E = np.log(rng.uniform(0.001, 1, (W, K)))
+
                 # Cross periodic score recentering and large block log offsets.
                 E[97] -= 1e6
                 with np.errstate(divide="ignore"):
@@ -173,6 +174,7 @@ class HMMCorrectness(unittest.TestCase):
         np.testing.assert_allclose(np.exp(table), 0.5, atol=2e-15)
         with self.assertRaisesRegex(ValueError, "finite support"):
             cy.emissionTable(P, c, 2, np.full(4, -np.inf, np.float32))
+
         # A tiny candidate likelihood must survive even when another ancestry has zero frequency.
         rare = cy.emissionTable(
             np.array([1.0, 0.0, 0.0, 1.0]), c, 2, np.array([0.0, -1000.0, -1000.0, 0.0], np.float32)
@@ -279,6 +281,7 @@ class HMMCorrectness(unittest.TestCase):
         self.assertEqual(info["stop"], "converged")
         self.assertLess(info["iterations"], 50)
         self.assertTrue(np.all(np.diff([r["objective"] for r in info["history"]]) >= -1e-12))
+
         # An invalid M-step must never replace the last accepted model.
         with patch.object(cy, "refineP", return_value=np.array([0.01, 0.01, 0.99, 0.99])):
             pp, qq, info = refine(data, P, Q, [0.1], args)
@@ -466,6 +469,7 @@ class FatashPipeline(TemporaryTests):
         np.testing.assert_allclose(
             np.loadtxt(f"{out}.prob"), np.concatenate(confidence, axis=1), atol=5e-9
         )
+
         # A block larger than the chromosome must allocate only real output windows.
         command(
             "fatash",

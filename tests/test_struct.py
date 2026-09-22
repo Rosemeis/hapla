@@ -41,6 +41,7 @@ class DirectProducts(unittest.TestCase):
         np.testing.assert_allclose(V[0], 0, atol=1e-13)
         U = np.ascontiguousarray(X @ V / S)
         np.testing.assert_allclose(struct.project(data, p, U, S * S / len(p), 7), V, atol=3e-12)
+
         # A different query has missing haplotypes: impute from reference p.
         query = Z.copy()
         query[:, 3:7] = 255

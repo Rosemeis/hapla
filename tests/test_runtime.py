@@ -153,6 +153,7 @@ print(json.dumps([
             b_buf=8192,
             size_of=lambda batch: 4096,
         )
+
         # Two submitted batches and one producer batch may be retained.
         self.assertLessEqual(peak, 3)
         self.assertEqual(output, list(range(100)))

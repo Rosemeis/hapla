@@ -135,6 +135,7 @@ def batchSize(N, W, regions, K, A, args):
     B = max((end - beg + args.block - 1) // args.block for beg, end in regions)
     viterbi = args.viterbi and args.fixed_model
     row = W * (2 + 8 * args.save_posteriors) + B * K * (8 if viterbi else 16) + 8 * (3 * K + A)
+
     # Include argmax temporaries and expansion of blocked paths/confidence.
     row += B * (1 if viterbi else 9)
     if args.block > 1:
@@ -237,6 +238,7 @@ def refine(data, P, Q, alpha, args):
         Q = baseQ.copy()
         np.divide(countQ, total, out=Q, where=total > 0)
         Q[obs == 0] = baseQ[obs == 0]
+
     # Report a final partial block using only accepted updates, including after rollback.
     it = max(0, len(history) - 1)
     if it % 5:
