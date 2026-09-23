@@ -139,6 +139,22 @@ class HMMCorrectness(unittest.TestCase):
         D = cy.viterbi(E, Q, np.full(257, 0.03))
         np.testing.assert_array_equal(D, cy.viterbi(E, Q, 0.03))
 
+    def test_direct_decode_matches_mean_posterior(self):
+        rng = np.random.default_rng(31)
+        E = np.log(rng.uniform(0.001, 1, (4, 23, 5)))
+        Q = rng.dirichlet(np.ones(5), 4)
+        alpha = np.array([1e-9, 1e-5, 0.1])
+        for simple in (False, True):
+            G, _, L = cy.posterior(E, Q, alpha, simple)
+            D, P, score = cy.posteriorDecode(E, Q, alpha, simple, True)
+            np.testing.assert_array_equal(D, G.argmax(axis=2))
+            np.testing.assert_array_equal(P, G.max(axis=2))
+            np.testing.assert_array_equal(score, L)
+            path, empty, score = cy.posteriorDecode(E, Q, alpha, simple)
+            np.testing.assert_array_equal(path, D)
+            self.assertEqual(empty.size, 0)
+            np.testing.assert_array_equal(score, L)
+
     def test_extreme_log_ranges_zero_priors_and_long_neutral_chains(self):
         cases = [
             (np.array([[-1000.0, 0], [0, -1000.0], [-1000.0, 0]]), [0.8, 0.2], 1e-250),
@@ -154,6 +170,10 @@ class HMMCorrectness(unittest.TestCase):
             exact, ll = dense_hmm(E, Q[0], alpha)
             np.testing.assert_allclose(G[0], exact, atol=2e-10)
             np.testing.assert_allclose(L, ll, atol=2e-10)
+            D, P, score = cy.posteriorDecode(E[None], Q, alpha, confidence=True)
+            np.testing.assert_array_equal(D, G.argmax(axis=2))
+            np.testing.assert_allclose(P, G.max(axis=2), atol=2e-10)
+            np.testing.assert_array_equal(score, L)
         Q = np.array([[0.7, 0.2, 0.1], [1, 0, 0]])
         E = np.zeros((2, 10000, 3))
         G, _, L = cy.posterior(E, Q, [1e-20, 0.1, 1000.0])
@@ -370,6 +390,19 @@ class HMMCorrectness(unittest.TestCase):
 
 
 class FatashPipeline(TemporaryTests):
+    def test_saved_q_ids_must_match_cluster_order(self):
+        ref, _, _, _, _ = self.fixture()
+        qfile = self.root / "swapped.Q"
+        qfile.write_bytes(Path(f"{ref}.Q").read_bytes())
+        side = qfile.with_suffix(".ids")
+        side.write_text("".join(f"s{i}\n" for i in reversed(range(7))))
+        opts = ("--clusters", ref, "--pfile", f"{ref}.P", "--qfile", qfile, "--fixed-model")
+        out = self.root / "order"
+        res = command("fatash", *opts, "--out", out, success=False)
+        self.assertIn("Q sample IDs differ", res.stderr)
+        side.unlink()
+        command("fatash", *opts, "--out", out)
+
     def test_native_text_output_appends_across_buffer_boundaries(self):
         D = np.tile(np.arange(255, dtype=np.uint8), (1200, 1))
         P = np.linspace(0, 1, D.size).reshape(D.shape)
@@ -379,6 +412,13 @@ class FatashPipeline(TemporaryTests):
                 for rows in (data[:400], data[400:]):
                     cy.writeRows(dst.fileno(), **({"D": rows} if name == "path" else {"P": rows}))
             np.testing.assert_allclose(np.loadtxt(pth), data, atol=5e-9)
+        edge = np.array(
+            [[0.001, 0.00987654321, 0.01, 0.0987654321, 0.1, 0.987654321, 1, 0, -0.5, 1.5]]
+        )
+        pth = self.root / "edge"
+        with pth.open("w") as dst:
+            cy.writeRows(dst.fileno(), P=edge)
+        self.assertEqual(pth.read_text(), " ".join(f"{x:.8g}" for x in edge[0]) + "\n")
         with (self.root / "path").open("r") as src:
             with self.assertRaises(OSError):
                 cy.writeRows(src.fileno(), D=D[:1])

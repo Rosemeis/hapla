@@ -100,7 +100,13 @@ def main(args):
         raise ValueError("--buffer-mb and --batch-windows must be positive")
     if args.bfile is not None and args.phase_mode == "phased":
         raise ValueError("PLINK BED input is unphased")
-    nt, nio = threadPlan(args.threads, args.io_threads)
+    if args.bfile is not None and args.io_threads not in (None, 0):
+        raise ValueError("--io-threads requires BCF/VCF input")
+    # Balance decompression with the cheaper nearest-median worker.
+    io = 0 if args.bfile is not None else args.io_threads
+    if io is None:
+        io = min(3, max(0, (args.threads - 2) // 2))
+    nt, nio = threadPlan(args.threads, io)
     from hapla.formats import FORMAT_VERSION, openOutputs, outputSuffixes, readHeader, writeWindow
     from hapla.identity import readIdentity, writeIdentity
     from hapla.plink import openPlink
@@ -136,11 +142,17 @@ def main(args):
 
         # Require exact chromosome, position, REF and ALT order
         def checkSites(eof):
-            for row in src.sites if args.vcf else rows:
-                if sites.readline() != row:
+            if args.vcf:
+                if sites.read(len(src.sites)) != src.sites:
                     raise ValueError(
                         "Input sites differ from the reference (chromosome, position, REF/ALT order)"
                     )
+            else:
+                for row in rows:
+                    if sites.readline() != row:
+                        raise ValueError(
+                            "Input sites differ from the reference (chromosome, position, REF/ALT order)"
+                        )
             if eof and sites.read(1):
                 raise ValueError("Input ends before the reference variant set")
 

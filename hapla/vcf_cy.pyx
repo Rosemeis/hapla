@@ -133,7 +133,7 @@ cdef class Reader:
         self.path = os.fspath(path)
         self.phased = phased
         self.save = save
-        self.sites = []
+        self.sites = b""
         self.htslib_version = hts_version().decode("ascii")
         self.htslib_features = hts_feature_string().decode("ascii")
         encoded = os.fsencode(path)
@@ -217,7 +217,7 @@ cdef class Reader:
             raise ValueError("Phase buffer has the wrong dimensions")
         if not self.phased and unph is None:
             raise ValueError("Prediction reading requires a phase buffer")
-        self.sites = []
+        self.sites = b""
         self.sbuf.l = 0
         if self.finished:
             return 0
@@ -321,7 +321,7 @@ cdef class Reader:
                 row += 1
         self.busy = False
         if self.sbuf.l:
-            self.sites = self.sbuf.s[:self.sbuf.l].splitlines(keepends=True)
+            self.sites = self.sbuf.s[:self.sbuf.l]
         if error:
             self.failed = True
             if error == 9:

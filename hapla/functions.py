@@ -4,7 +4,7 @@ import numpy as np
 
 from hapla import admix_cy
 
-# Admixture updates
+##### Admixture updates
 
 
 ### One EM update, sharing scratch across full, batch, and projection modes
@@ -33,7 +33,7 @@ def emQuasi(P, Q, P1, P2, Q1, Q2, ctx, rows=None, qo=None):
         admix_cy.superQ(Q, ctx[-1])
 
 
-# Initialization
+##### Initialization
 
 
 ### Centered label products for SVD/ALS initialization, without dosage expansion

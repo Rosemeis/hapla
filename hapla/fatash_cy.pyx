@@ -204,7 +204,7 @@ cdef int _prepare(const f64* E, f64* S, f64* shift, const f64* q,
 
 
 ### Scaled forward/backward: T = exp(-alpha) I + (1-exp(-alpha)) q 1'
-cdef f64 _fb_prob(const f64* E, const f64* shift, f64* F, f64* work,
+cdef f64 _fb_prob(const f64* E, const f64* shift, f64* scale, f64* F, f64* work,
                    const f64* q, f64* G, f64* count, Py_ssize_t W,
                    Py_ssize_t K, f64 alpha, f64 weight) noexcept nogil:
     cdef Py_ssize_t w, k
@@ -218,29 +218,26 @@ cdef f64 _fb_prob(const f64* E, const f64* shift, f64* F, f64* work,
             norm += F[w*K+k]
         if norm <= 0: return -INFINITY
         ll += log(norm)+shift[w]
+        if scale != NULL: scale[w] = norm
         for k in range(K): F[w*K+k] /= norm
     if G == NULL: return ll
     for k in range(K): beta[k] = 1
     for w in range(W-1, -1, -1):
-        norm = 0
-        for k in range(K): norm += F[w*K+k]*beta[k]
         for k in range(K):
-            value = F[w*K+k]*beta[k]/norm
+            value = F[w*K+k]*beta[k]
             G[w*K+k] += weight*value
             if count != NULL and w == 0: count[k] += weight*value
             v[k] = E[w*K+k]*beta[k]
         if w:
-            if count != NULL:
-                norm = 0
-                for k in range(K): norm += (e*F[(w-1)*K+k]+s*q[k])*v[k]
-                for k in range(K): count[k] += weight*s*q[k]*v[k]/norm
             total = 0
             for k in range(K): total += q[k]*v[k]
-            norm = 0
-            for k in range(K):
-                beta[k] = e*v[k]+s*total
-                norm += beta[k]
-            for k in range(K): beta[k] /= norm
+            norm = 1.0/scale[w]
+            if count != NULL:
+                for k in range(K):
+                    count[k] += weight*s*q[k]*v[k]*norm
+                    beta[k] = (e*v[k]+s*total)*norm
+            else:
+                for k in range(K): beta[k] = (e*v[k]+s*total)*norm
     return ll
 
 
@@ -322,6 +319,7 @@ def posterior(const f64[:, :, ::1] E, Q, alpha, bint simple=False, bint resets=F
     cdef f64[:, ::1] F = np.empty((nt, W*K))
     cdef f64[:, ::1] S = np.empty((nt, W*K))
     cdef f64[:, ::1] shift = np.empty((nt, W))
+    cdef f64[:, ::1] scale = np.empty((nt, W)) if not score else np.empty((0, 0))
     cdef f64[:, ::1] tmp = np.empty((nt, 5*K))
     for i in prange(N, nogil=True, schedule='static', num_threads=nt):
         t = threadid()
@@ -336,12 +334,61 @@ def posterior(const f64[:, :, ::1] E, Q, alpha, bint simple=False, bint resets=F
                 value = _fb_log(&E[i, 0, 0], &shift[t, 0], &F[t, 0], &tmp[t, 0], &q[i, 0],
                                 g, count, W, K, rates[a], 1.0/A, simple)
             else:
-                value = _fb_prob(&S[t, 0], &shift[t, 0], &F[t, 0], &tmp[t, 0], &q[i, 0],
+                value = _fb_prob(&S[t, 0], &shift[t, 0], &scale[t, 0] if not score else NULL,
+                                 &F[t, 0], &tmp[t, 0], &q[i, 0],
                                  g, count, W, K, rates[a], 1.0/A)
             ll[i, a] = value
             if not isfinite(value): bad |= 1
     if bad: raise ValueError("Nonfinite emissions or no supported HMM path for an observed haplotype")
     return np.asarray(G), np.asarray(C), np.asarray(ll)
+
+
+### Decode the mean posterior from bounded per-thread scratch
+def posteriorDecode(const f64[:, :, ::1] E, Q, alpha, bint simple=False, bint confidence=False):
+    Q, alpha = _arguments(np.asarray(E), Q, alpha)
+    cdef const f64[:, ::1] q = Q
+    cdef const f64[::1] rates = alpha
+    cdef Py_ssize_t N = E.shape[0], W = E.shape[1], K = E.shape[2], A = len(alpha)
+    cdef Py_ssize_t nt = min(N, omp.omp_get_max_threads()), i, a, t, w, k, dst
+    cdef int mode, bad = 0
+    cdef f64 amin = min(alpha), value, best
+    cdef u8[:, ::1] D = np.empty((N, W), np.uint8)
+    cdef f64[:, ::1] P = np.empty((N, W)) if confidence else np.empty((0, 0))
+    cdef f64[:, ::1] ll = np.empty((N, A))
+    cdef f64[:, ::1] F = np.empty((nt, W*K))
+    cdef f64[:, ::1] S = np.empty((nt, W*K))
+    cdef f64[:, ::1] G = np.empty((nt, W*K))
+    cdef f64[:, ::1] shift = np.empty((nt, W))
+    cdef f64[:, ::1] scale = np.empty((nt, W))
+    cdef f64[:, ::1] tmp = np.empty((nt, 5*K))
+    for i in prange(N, nogil=True, schedule='static', num_threads=nt):
+        t = threadid()
+        mode = _prepare(&E[i, 0, 0], &S[t, 0], &shift[t, 0], &q[i, 0], W, K, amin)
+        if mode < 0:
+            bad |= 1
+            continue
+        for w in range(W*K): G[t, w] = 0
+        for a in range(A):
+            if mode or simple:
+                value = _fb_log(&E[i, 0, 0], &shift[t, 0], &F[t, 0], &tmp[t, 0], &q[i, 0],
+                                &G[t, 0], NULL, W, K, rates[a], 1.0/A, simple)
+            else:
+                value = _fb_prob(&S[t, 0], &shift[t, 0], &scale[t, 0], &F[t, 0],
+                                 &tmp[t, 0], &q[i, 0], &G[t, 0], NULL, W, K, rates[a], 1.0/A)
+            ll[i, a] = value
+            if not isfinite(value): bad |= 1
+        for w in range(W):
+            dst = 0
+            best = G[t, w*K]
+            for k in range(1, K):
+                value = G[t, w*K+k]
+                if value > best:
+                    best = value
+                    dst = k
+            D[i, w] = dst
+            if confidence: P[i, w] = best
+    if bad: raise ValueError("Nonfinite emissions or no supported HMM path for an observed haplotype")
+    return np.asarray(D), np.asarray(P), np.asarray(ll)
 
 
 ### Small state spaces favor a tight dense loop with rolling score vectors
@@ -619,9 +666,11 @@ def phaseCorrect(
 
 ### Format text output in one fixed buffer, without Python objects per value
 def writeRows(int fd, const u8[:, ::1] D=None, const f64[:, ::1] P=None):
-    cdef Py_ssize_t N, W, i, w
+    cdef Py_ssize_t N, W, i, w, d, ndec
     cdef size_t n = 0, size = 1024*1024
     cdef int copy, value, digits, error = 0
+    cdef unsigned long long rounded, place, digit, scale
+    cdef f64 x, scaled
     cdef FILE* out
     cdef u8[::1] buffer = np.empty(size, np.uint8)
     if (D is None) == (P is None):
@@ -652,7 +701,36 @@ def writeRows(int fd, const u8[:, ::1] D=None, const f64[:, ::1] P=None):
                     buffer[n] = 48+value%10
                     n += 1
                 else:
-                    digits = snprintf(<char*>&buffer[n], 32, "%.8g", P[i, w])
+                    x = P[i, w]
+                    if isfinite(x) and x >= 0.001 and x <= 1:
+                        if x >= 0.1:
+                            scale, place, ndec = 100000000, 10000000, 8
+                        elif x >= 0.01:
+                            scale, place, ndec = 1000000000, 100000000, 9
+                        else:
+                            scale, place, ndec = 10000000000, 1000000000, 10
+                        scaled = x * scale
+                        rounded = <unsigned long long>(scaled + 0.5)
+                        if fabs(scaled - (<f64>rounded - 0.5)) >= 1e-7:
+                            if rounded == scale:
+                                buffer[n] = 49
+                                n += 1
+                            else:
+                                buffer[n] = 48
+                                buffer[n+1] = 46
+                                n += 2
+                                for d in range(ndec):
+                                    digit = rounded // place
+                                    buffer[n] = 48 + digit
+                                    n += 1
+                                    rounded -= digit*place
+                                    place //= 10
+                                while buffer[n-1] == 48: n -= 1
+                                if buffer[n-1] == 46: n -= 1
+                            buffer[n] = 10 if w+1 == W else 32
+                            n += 1
+                            continue
+                    digits = snprintf(<char*>&buffer[n], 32, "%.8g", x)
                     if digits < 0 or digits >= 32:
                         error = 1
                         break

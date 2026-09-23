@@ -69,6 +69,11 @@ class StructureContracts(TemporaryTests):
                 "struct", "--clusters", ref, "--pca", 1, "--chunk", 7, "--out", out, success=False
             )
             self.assertIn("empirical dosage variation", result.stderr)
+            for opts in ((), ("--no-centering",)):
+                result = command(
+                    "struct", "--clusters", ref, "--grm", *opts, "--out", out, success=False
+                )
+                self.assertIn("empirical dosage variation", result.stderr)
             self.assertEqual(Path(f"{out}.eigenvecs").read_text(), "previous\n")
 
     def test_pca_replacement_removes_the_entire_obsolete_model(self):

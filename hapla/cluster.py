@@ -146,10 +146,9 @@ def main(args):
             site_id, fit_key = sha256(), sha256()
 
             def sites(eof):
-                for row in src.sites:
-                    site_id.update(row)
+                site_id.update(src.sites)
                 if args.medians:
-                    files[".sites"].writelines(src.sites)
+                    files[".sites"].write(src.sites)
 
             buf["sites"] = sites
 

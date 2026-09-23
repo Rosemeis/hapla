@@ -286,7 +286,7 @@ def main(args):
     keys = featureKeys(paths, k, sizes) if args.loadings or args.projection else None
     if args.projection:
         checkModel(args.projection, keys)
-    v = variation(data, p) if args.pca is not None or args.grm else None
+    v = variation(data, p) if args.pca is not None else None
     stats = dict(
         samples=len(ids),
         windows=len(k),

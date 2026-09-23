@@ -130,17 +130,27 @@ def readP(pth, c, K):
     return P.ravel()
 
 
-### Budget emissions, posterior/traceback scratch, and paired output rows
-def batchSize(N, W, regions, K, A, args):
+### Budget emissions, per-thread scratch, and paired output rows
+def batchSize(N, W, regions, K, A, args, decode=False):
     B = max((end - beg + args.block - 1) // args.block for beg, end in regions)
-    viterbi = args.viterbi and args.fixed_model
-    row = W * (2 + 8 * args.save_posteriors) + B * K * (8 if viterbi else 16) + 8 * (3 * K + A)
+    viterbi = args.viterbi and (decode or args.fixed_model)
+    stream = decode and not viterbi
+    row = W * (2 + 8 * args.save_posteriors) + B * K * (8 if viterbi or stream else 16)
+    row += 8 * (3 * K + A)
 
-    # Include argmax temporaries and expansion of blocked paths/confidence.
-    row += B * (1 if viterbi else 9)
+    # Include decoder output and expansion of blocked paths/confidence.
+    if viterbi:
+        row += B
+        state = 5 if A > 1 else 1
+    elif stream:
+        row += B * (1 + 8 * args.save_posteriors)
+        state = 24
+    else:
+        row += B * 9
+        state = 16
     if args.block > 1:
         row += W * (1 + 8 * args.save_posteriors) * 2
-    scratch = B * K * ((5 if A > 1 else 1) if viterbi else 16) + B * 8 + K * 40
+    scratch = B * K * state + B * (8 if viterbi else 16) + K * 40
     budget = args.buffer_mb * 1024**2
     nt = min(N, args.threads)
     n = (budget - nt * scratch) // row
@@ -284,11 +294,11 @@ def decode(Z, table, Q, c, use, regions, size, alpha, args, path, prob):
                     d = cy.viterbi(E, q, alpha, args.simple)
                     p = None
                 else:
-                    G, _, L = cy.posterior(E, q, alpha, args.simple)
-                    d = G.argmax(axis=2).astype(np.uint8)
-                    p = G.max(axis=2) if conf else None
+                    d, p, L = cy.posteriorDecode(E, q, alpha, args.simple, conf is not None)
+                    if conf is None:
+                        p = None
                     ll += float(L.mean(axis=1).sum())
-                    del G, L
+                    del L
                 del E
                 if args.block > 1:
                     repeat = np.full(d.shape[1], args.block, dtype=np.intp)
@@ -322,7 +332,7 @@ def main(args):
     import numpy as np
 
     from hapla import fatash_cy as cy
-    from hapla.formats import MAGIC, readHeader, readMetadata, readPaths
+    from hapla.formats import MAGIC, checkQIds, readHeader, readMetadata, readPaths
     from hapla.struct import readData
 
     tick = perf_counter()
@@ -332,6 +342,7 @@ def main(args):
     pfiles = readPaths(args.pfilelist, args.pfile)
     if len(pfiles) != len(paths):
         raise ValueError("Assignment and P file counts differ")
+    q_ids = checkQIds(args.qfile, ids)
     Q = readQ(args.qfile, len(ids))
     K, N = Q.shape[1], 2 * len(Q)
     with np.errstate(over="ignore", under="ignore"):
@@ -351,7 +362,7 @@ def main(args):
         sfxs += stale
     if len(paths) == 1:
         stale.append(".pfilelist")
-    inputs = [args.filelist, args.pfilelist, args.qfile, *pfiles] + [
+    inputs = [args.filelist, args.pfilelist, args.qfile, q_ids, *pfiles] + [
         f"{p}{s}"
         for p in paths
         for s in ((".bca", ".ids", ".win", ".blk") if args.medians else (".bca", ".ids", ".win"))
@@ -375,7 +386,7 @@ def main(args):
             mapped, _ = readData([pfx], k, [W], len(ids), freq=False)
             Z, c, obs = mapped[0]
             regions, use = readWindows(pfx, k, args)
-            size = batchSize(N, W, regions, K, len(alpha), args)
+            size = batchSize(N, W, regions, K, len(alpha), args, decode=args.fixed_model)
             data.append((Z, c, use, regions, size))
             P.append(readP(pfile, c, K))
             stats["files"].append(
@@ -408,6 +419,8 @@ def main(args):
             zip(paths, stems, data, P)
         ):
             start = perf_counter()
+            size = batchSize(N, len(Z), regions, K, len(alpha), args, decode=True)
+            stats["files"][index]["batch_haplotypes"] = size
             likes = None
             if args.medians:
                 pth = Path(f"{pfx}.blk")

@@ -39,6 +39,21 @@ def unphased_reference(G, R):
 
 
 class PackedPredictionTests(unittest.TestCase):
+    def test_short_window_lookup_matches_reference_with_duplicates_and_missingness(self):
+        rng = np.random.default_rng(904)
+        B, H, K = 16, 1024, 17
+        R = rng.integers(0, 2, (K, B), dtype=np.uint8)
+        R[-1] = R[0]
+        for unique in (8, H):
+            G = rng.integers(0, 2, (B, unique), dtype=np.uint8)
+            if unique != H:
+                G = np.ascontiguousarray(G[:, rng.integers(0, unique, H)])
+            G[0, 5] = G[7, 700] = 255
+            D = np.stack([np.count_nonzero(G != r[:, None], axis=0) for r in R])
+            expected = (K - 1 - np.argmin(D[::-1], axis=0)).astype(np.uint8)
+            expected[np.any(G == 255, axis=0)] = 255
+            np.testing.assert_array_equal(packed_cy.predict_haplotypes(G, R), expected)
+
     def test_unphased_packed_pairs_and_ties_match_scalar_reference(self):
         from hapla.predict import predictBatch
 
@@ -126,7 +141,9 @@ class NativePredictionTests(TemporaryTests):
                 phase = np.empty((3, 3), np.uint8)
                 self.assertEqual(reader.read_into(G, pos, rid, absent, phase), 3)
                 np.testing.assert_array_equal(phase, [[0, 0, 0], [1, 0, 1], [0, 0, 0]])
-                self.assertEqual(reader.sites, [f"1\t{i}\tA\tG\n".encode() for i in (1, 2, 3)])
+                self.assertEqual(
+                    reader.sites, b"".join(f"1\t{i}\tA\tG\n".encode() for i in (1, 2, 3))
+                )
         with Reader(path) as reader:
             with self.assertRaisesRegex(ValueError, "Unphased"):
                 reader.read_into(G, pos, rid, absent)

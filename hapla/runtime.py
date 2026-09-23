@@ -101,7 +101,7 @@ def commitOutputs(pfx, out, *, stale=_OPTIONAL):
         raise
 
 
-# Console and log output
+##### Console and log output
 
 
 ### Print one compact command header before native diagnostics
@@ -283,7 +283,7 @@ def openReader(stack, path, threads, phased=True):
     return src, notes
 
 
-# Bounded scheduling
+##### Bounded scheduling
 
 
 ### Collect a bounded number of windows per task

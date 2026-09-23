@@ -214,6 +214,7 @@ def main(args):
         admix_cy.checkP(P, p_sum, k_vec, c_vec, args.K)
         if not (np.allclose(p_sum[k_vec > 0], 1.0, atol=1e-3)):
             raise ValueError("Wrong format for haplotype cluster alleles!")
+        admix_cy.normalizeP(P, p_sum, k_vec, c_vec, args.K)
         del p_sum
 
         # Initialize Q matrix

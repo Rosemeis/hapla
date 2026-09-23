@@ -30,6 +30,17 @@ def readIds(pth):
     return np.asarray(ids, dtype=np.str_)
 
 
+### Check the sample sidecar when reading a saved Hapla Q matrix
+def checkQIds(pth, ids):
+    path = Path(pth)
+    side = path.with_suffix(".ids") if path.suffix == ".Q" else None
+    if side is None or not side.is_file():
+        return None
+    if not np.array_equal(readIds(side), ids):
+        raise ValueError("Q sample IDs differ from cluster sample order")
+    return side
+
+
 ### Read six exact window fields before passing counts to native kernels
 def readWindows(pfx):
     rows = []

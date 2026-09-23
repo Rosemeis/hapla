@@ -56,7 +56,10 @@ Bash and Zsh expand unquoted braces. Hapla uses the resulting order as given.
 For a saved list, use `--filelist prefixes.txt` with one prefix per line.
 `fatash` also accepts `--pfilelist fit.K5.s42.pfilelist`. Cluster and P-file
 lists must have the same order, and sample IDs must match across cluster files.
-Q rows must follow that sample order.
+Q rows must follow that sample order. Hapla checks the sibling `.ids` file for
+saved `.Q` files when present. Check each log for convergence and input notes.
+For `admix`, compare several seeds at each K. Component labels may permute
+between fits.
 
 Each command writes a `.log` with its arguments, results, and timings. Outputs
 are staged before they replace files at the requested prefix. Use separate

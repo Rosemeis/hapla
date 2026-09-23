@@ -7,6 +7,7 @@ import numpy as np
 
 from libc.stdint cimport uint8_t, uint32_t, uint64_t
 from libc.math cimport log
+from libc.string cimport memset
 
 ctypedef uint8_t u8
 ctypedef uint32_t u32
@@ -255,7 +256,7 @@ def fit_window(const u8[:, ::1] G, double alpha=0.1, double min_freq=0.005,
     # Maintain counts and cached assignments across growth and pruning
     cdef u64[:, ::1] R = np.zeros((K_max, Q), dtype=np.uint64)
     cdef u64[:, ::1] R_old = np.zeros((K_max, Q), dtype=np.uint64)
-    cdef u64[:, ::1] C = np.zeros((K_max, B), dtype=np.uint64)
+    cdef u64[:, ::1] C = np.empty((K_max, B), dtype=np.uint64)
     cdef u64[::1] n = np.zeros(K_max, dtype=np.uint64)
     cdef u8[::1] active = np.zeros(K_max, dtype=np.uint8)
     cdef u8[::1] a_old = np.zeros(K_max, dtype=np.uint8)
@@ -270,6 +271,8 @@ def fit_window(const u8[:, ::1] G, double alpha=0.1, double min_freq=0.005,
     active[0] = 1
     n[0] = H_obs
     with nogil:
+        for j in range(B):
+            C[0, j] = 0
         for i in range(U):
             for j in range(B):
                 C[0, j] += w_vec[i] * ((X[i, j >> 6] >> (j & 63)) & 1)
@@ -304,6 +307,8 @@ def fit_window(const u8[:, ::1] G, double alpha=0.1, double min_freq=0.005,
                     d_max, w_max = d_vec[i], w_vec[i]
             born = d_max >= d_lim and slot < K_max
             if born:
+                for j in range(B):
+                    C[slot, j] = 0
                 move_counts(&X[cand, 0], C, n, z[cand], slot, w_vec[cand], B)
                 z[cand] = slot
                 d_vec[cand] = 0
@@ -448,6 +453,48 @@ cdef void nearest(words mode, const u64[:, ::1] X, const u64[:, ::1] R,
             labels[h] = dst
 
 
+### Reuse exact nearest-median labels for repeated short haplotypes
+cdef void nearest_cached(const u64[:, ::1] X, const u64[:, ::1] R,
+                         const u8[::1] valid, u8[::1] labels, u8* cache,
+                         Py_ssize_t B) noexcept nogil:
+    cdef Py_ssize_t h, k, key
+    cdef u32 best, d
+    cdef u8 dst
+    for h in range(X.shape[0]):
+        if valid[h]:
+            key = X[h, 0]
+            dst = cache[key]
+            if dst == 255:
+                best, dst = B + 1, 0
+                for k in range(R.shape[0]):
+                    d = hapla_popcount(X[h, 0] ^ R[k, 0])
+                    if d <= best:
+                        best, dst = d, k
+                cache[key] = dst
+            labels[h] = dst
+
+
+### Skip the lookup when short haplotypes have few repeated patterns
+cdef bint repeated_sample(const u64[:, ::1] X, const u8[::1] valid) noexcept nogil:
+    cdef u64 seen[16]
+    cdef Py_ssize_t i, h, j, n = 0, sampled = 0, H = X.shape[0]
+    cdef bint found
+    for i in range(16):
+        h = i * H // 16
+        if not valid[h]:
+            continue
+        sampled += 1
+        found = False
+        for j in range(n):
+            if seen[j] == X[h, 0]:
+                found = True
+                break
+        if not found:
+            seen[n] = X[h, 0]
+            n += 1
+    return sampled >= 8 and n * 4 <= sampled * 3
+
+
 ### Assign complete haplotypes to their nearest packed reference median
 def predict_haplotypes(const u8[:, ::1] G, const u8[:, ::1] medians):
     """Exact packed nearest-median assignment. Any missing allele excludes its haplotype."""
@@ -461,6 +508,7 @@ def predict_haplotypes(const u8[:, ::1] G, const u8[:, ::1] medians):
     cdef u64[:, ::1] R = np.zeros((K, Q), dtype=np.uint64)
     cdef u8[::1] valid = np.ones(H, dtype=np.uint8)
     cdef u8[::1] labels = np.full(H, 255, dtype=np.uint8)
+    cdef u8 cache[65536]
     with nogil:
         for j in range(B):
             for h in range(H):
@@ -478,7 +526,10 @@ def predict_haplotypes(const u8[:, ::1] G, const u8[:, ::1] medians):
                 else:
                     R[k, j >> 6] |= <u64>value << (j & 63)
         if not bad and K:
-            if Q == 1:
+            if B <= 16 and H >= 512 and K > 1 and (B <= 12 or repeated_sample(X, valid)):
+                memset(cache, 255, 1 << B)
+                nearest_cached(X, R, valid, labels, cache, B)
+            elif Q == 1:
                 nearest[u8](0, X, R, valid, labels, B)
             else:
                 nearest[u64](0, X, R, valid, labels, B)

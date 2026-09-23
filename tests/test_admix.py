@@ -174,6 +174,30 @@ class AdmixtureTests(TemporaryTests):
         res = command("admix", "--clusters", empty, "--K", 5, "--out", out, success=False)
         self.assertIn("No observed", res.stderr)
 
+    def test_projection_normalizes_accepted_reference_probabilities(self):
+        ref = writeClusters(self.root, "single", np.zeros((1, 200), np.uint8), np.array([0, 1]))
+        pfile = self.root / "rounded.P"
+        np.savetxt(pfile, np.full((1, 5), 1.0005))
+        out = self.root / "project"
+        command(
+            "admix",
+            "--clusters",
+            ref,
+            "--K",
+            5,
+            "--projection",
+            pfile,
+            "--iter",
+            1,
+            "--batches",
+            1,
+            "--out",
+            out,
+        )
+        log = readLog(f"{out}.project.K5.s42")
+        self.assertAlmostEqual(float(log["Initial log-like"]), 0)
+        self.assertAlmostEqual(float(log["Final log-like"]), 0)
+
     def test_em_matches_dense_full_batch_missing_and_projection(self):
         for K in (3, 5, 6):
             for missing in (False, True):

@@ -140,7 +140,7 @@ def main(args):
     import numpy as np
 
     from hapla import eval_cy as cy
-    from hapla.formats import readMetadata, sampleIndices
+    from hapla.formats import checkQIds, readMetadata, sampleIndices
     from hapla.struct import readData
 
     start = perf_counter()
@@ -158,6 +158,7 @@ def main(args):
             subset.append((Z, c, obs if obs is not None and np.any(obs != len(h)) else None))
         data = subset
         ids = ids[idx]
+    q_ids = checkQIds(args.qfile, ids)
     Q = np.loadtxt(args.qfile, ndmin=2)
     if Q.shape[0] != len(ids) or Q.shape[1] < 2 or not np.all(np.isfinite(Q)) or np.any(Q < 0):
         raise ValueError(
@@ -168,7 +169,7 @@ def main(args):
     Q /= Q.sum(axis=1, keepdims=True)
     print(f"Data size: {len(ids):,} samples, {len(k):,} windows", flush=True)
     print("Computing residual correlations.", flush=True)
-    inputs = [args.filelist, args.qfile, args.keep]
+    inputs = [args.filelist, args.qfile, q_ids, args.keep]
     inputs += [f"{p}{s}" for p in paths for s in (".bca", ".win", ".ids")]
     sfxs = (".bhat", ".chat", ".corres", ".ids", ".log")
     with ExitStack() as stack:

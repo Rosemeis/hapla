@@ -96,6 +96,19 @@ class CovarianceTests(unittest.TestCase):
 
 
 class EvaluationPipeline(TemporaryTests):
+    def test_saved_q_ids_must_match_cluster_order(self):
+        Z, c, _, Q = fixture(False)
+        ref = writeClusters(self.root, "ref", Z, c)
+        qfile = self.root / "swapped.Q"
+        np.savetxt(qfile, Q)
+        side = qfile.with_suffix(".ids")
+        side.write_text("".join(f"s{i}\n" for i in reversed(range(len(Q)))))
+        out = self.root / "order"
+        res = command("eval", "--clusters", ref, "--qfile", qfile, "--out", out, success=False)
+        self.assertIn("Q sample IDs differ", res.stderr)
+        side.unlink()
+        command("eval", "--clusters", ref, "--qfile", qfile, "--out", out)
+
     def test_parallel_text_blocks_match_numpy_rounding_and_subtraction(self):
         rng = np.random.default_rng(96)
         A = rng.uniform(-1, 1, (129, 513))

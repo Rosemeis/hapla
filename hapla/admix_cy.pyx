@@ -447,7 +447,7 @@ cpdef void accelQ(
     cdef:
         Py_ssize_t N = Q.shape[0]
         Py_ssize_t K = Q.shape[1]
-        size_t i, k
+        size_t i
         f64 S = 1.0 / <f64>(W << 1)
     for i in prange(N, schedule='guided'):
         _outerAccelQ(&Q[i, 0], &Q_new[i, 0], &Q_tmp[i, 0], S, K)
@@ -484,8 +484,8 @@ cpdef void jumpQ(
     cdef:
         Py_ssize_t N = Q0.shape[0]
         Py_ssize_t K = Q0.shape[1]
-        size_t i, k
-        f64 a, c1, c2
+        size_t i
+        f64 c1, c2
     c1 = _qnC(&Q0[0, 0], &Q1[0, 0], &Q2[0, 0], N * K)
     c2 = 1.0 - c1
     for i in prange(N, schedule='guided'):
@@ -647,3 +647,15 @@ cpdef void checkP(
             p = &P[l + c * K]
             for k in range(K):
                 p_sum[w, k] += p[k]
+
+
+### Normalize accepted reference frequencies without another full-sized array
+cpdef void normalizeP(f64[::1] P, const f64[:, ::1] p_sum,
+                      const u32[::1] k_vec, const u32[::1] c_vec,
+                      Py_ssize_t K) noexcept nogil:
+    cdef Py_ssize_t w, c, k, off
+    for w in prange(k_vec.shape[0], schedule='static'):
+        off = c_vec[w]
+        for c in range(k_vec[w]):
+            for k in range(K):
+                P[off + c*K + k] /= p_sum[w, k]

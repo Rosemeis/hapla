@@ -194,8 +194,8 @@ cpdef f64 normalizeGram(f64[::1] G, f64 den, f64[::1] u, bint center):
                 u[i] /= N
                 mean += u[i] / N
             trace -= N * mean
-    if center and trace <= 0:
-        raise ValueError("GRM centering requires positive variation")
+    if trace <= 0:
+        raise ValueError("Population structure requires positive empirical dosage variation")
     if center:
         scale = (N-1) / trace
         for i in prange(N, nogil=True, schedule='static'):
