@@ -1,5 +1,7 @@
 """Bind assignment bundles and projection models to ordered cluster definitions."""
 
+__author__ = "Jonas Meisner"
+
 import json
 from hashlib import sha256
 from pathlib import Path

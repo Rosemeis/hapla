@@ -2,6 +2,8 @@
 # cython: cdivision=True
 """Exact weighted binary medians with packed distances and incremental updates."""
 
+__author__ = "Jonas Meisner"
+
 import math
 import numpy as np
 
@@ -26,13 +28,11 @@ cdef extern from *:
     unsigned hapla_popcount(unsigned long long) noexcept nogil
 
 
-### Count differing packed bits, stopping above the best distance
-cdef inline u32 distance(words mode, const u64* a, const u64* b, Py_ssize_t count,
-                         u32 best) noexcept nogil:
+### Count differing bits across words, stopping above the best distance
+cdef inline u32 _distance(const u64* a, const u64* b, Py_ssize_t count,
+                          u32 best) noexcept nogil:
     cdef Py_ssize_t q
     cdef u32 d = 0
-    if words is u8:
-        return hapla_popcount(a[0] ^ b[0])
     for q in range(count):
         d += hapla_popcount(a[q] ^ b[q])
         if d > best:
@@ -40,15 +40,23 @@ cdef inline u32 distance(words mode, const u64* a, const u64* b, Py_ssize_t coun
     return d
 
 
+### Use one popcount for windows that fit in a word
+cdef inline u32 distance(words mode, const u64* a, const u64* b, Py_ssize_t count,
+                         u32 best) noexcept nogil:
+    if words is u8:
+        return hapla_popcount(a[0] ^ b[0])
+    else:
+        return _distance(a, b, count, best)
+
+
 ### Stably sort observed indices by reversed-SNP order
-cdef void radix_order(const u64[:, ::1] X_pack, u32[::1] order,
+cdef void radixOrder(const u64[:, ::1] X_pack, u32[::1] order,
                       u32[::1] tmp, Py_ssize_t bits) noexcept nogil:
     cdef Py_ssize_t cnt[256]
     cdef Py_ssize_t off[256]
     cdef Py_ssize_t i, bit, q, shift, bucket, total, count, H = order.shape[0]
     cdef u32* src = &order[0]
     cdef u32* dst = &tmp[0]
-    cdef u32* swap
     for bit in range(0, bits, 8):
         q, shift = bit >> 6, bit & 63
         for bucket in range(256):
@@ -68,14 +76,14 @@ cdef void radix_order(const u64[:, ::1] X_pack, u32[::1] order,
             bucket = (X_pack[src[i], q] >> shift) & 255
             dst[off[bucket]] = src[i]
             off[bucket] += 1
-        swap, src, dst = src, dst, src
+        src, dst = dst, src
     if src != &order[0]:
         for i in range(H):
             order[i] = src[i]
 
 
 ### Move weighted allele counts between clusters
-cdef void move_counts(const u64* x, u64[:, ::1] C, u64[::1] n,
+cdef void moveCounts(const u64* x, u64[:, ::1] C, u64[::1] n,
                       int old, int dst, u64 weight, Py_ssize_t B) noexcept nogil:
     cdef Py_ssize_t j
     cdef u64 value
@@ -130,7 +138,7 @@ cdef u64 assign(words mode, const u64[:, ::1] X, const u64[::1] w_vec, u64[:, ::
                 if d < best or (d == best and k > dst):
                     best, dst = d, k
         if old != dst:
-            move_counts(&X[i, 0], C, n, old, dst, w_vec[i], B)
+            moveCounts(&X[i, 0], C, n, old, dst, w_vec[i], B)
             z[i] = dst
         d_vec[i] = best
     return pairs
@@ -230,7 +238,7 @@ def fit_window(const u8[:, ::1] G, double alpha=0.1, double min_freq=0.005,
                 order[i] = h
                 i += 1
         first = order[0]
-        radix_order(X_pack, order, tmp, B)
+        radixOrder(X_pack, order, tmp, B)
         for i in range(H_obs):
             h = order[i]
             equal = prev >= 0
@@ -309,7 +317,7 @@ def fit_window(const u8[:, ::1] G, double alpha=0.1, double min_freq=0.005,
             if born:
                 for j in range(B):
                     C[slot, j] = 0
-                move_counts(&X[cand, 0], C, n, z[cand], slot, w_vec[cand], B)
+                moveCounts(&X[cand, 0], C, n, z[cand], slot, w_vec[cand], B)
                 z[cand] = slot
                 d_vec[cand] = 0
                 active[slot] = 1
@@ -332,7 +340,8 @@ def fit_window(const u8[:, ::1] G, double alpha=0.1, double min_freq=0.005,
                         total, k_min = n[k], k
                 if total < n_min:
                     active[k_min] = 0
-                # A converged growth state with feasible sizes needs no pruning pass.
+
+                # Converged growth with feasible sizes needs no pruning pass
                 elif it == 0:
                     p_done = True
                     break
@@ -454,7 +463,7 @@ cdef void nearest(words mode, const u64[:, ::1] X, const u64[:, ::1] R,
 
 
 ### Reuse exact nearest-median labels for repeated short haplotypes
-cdef void nearest_cached(const u64[:, ::1] X, const u64[:, ::1] R,
+cdef void nearestCached(const u64[:, ::1] X, const u64[:, ::1] R,
                          const u8[::1] valid, u8[::1] labels, u8* cache,
                          Py_ssize_t B) noexcept nogil:
     cdef Py_ssize_t h, k, key
@@ -475,7 +484,7 @@ cdef void nearest_cached(const u64[:, ::1] X, const u64[:, ::1] R,
 
 
 ### Skip the lookup when short haplotypes have few repeated patterns
-cdef bint repeated_sample(const u64[:, ::1] X, const u8[::1] valid) noexcept nogil:
+cdef bint repeatedSample(const u64[:, ::1] X, const u8[::1] valid) noexcept nogil:
     cdef u64 seen[16]
     cdef Py_ssize_t i, h, j, n = 0, sampled = 0, H = X.shape[0]
     cdef bint found
@@ -526,9 +535,9 @@ def predict_haplotypes(const u8[:, ::1] G, const u8[:, ::1] medians):
                 else:
                     R[k, j >> 6] |= <u64>value << (j & 63)
         if not bad and K:
-            if B <= 16 and H >= 512 and K > 1 and (B <= 12 or repeated_sample(X, valid)):
+            if B <= 16 and H >= 512 and K > 1 and (B <= 12 or repeatedSample(X, valid)):
                 memset(cache, 255, 1 << B)
-                nearest_cached(X, R, valid, labels, cache, B)
+                nearestCached(X, R, valid, labels, cache, B)
             elif Q == 1:
                 nearest[u8](0, X, R, valid, labels, B)
             else:

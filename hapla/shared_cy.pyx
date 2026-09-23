@@ -1,6 +1,8 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, initializedcheck=False, cdivision=True
 """PLINK decoding and packed cluster-pair distances for unphased prediction."""
 
+__author__ = "Jonas Meisner"
+
 import numpy as np
 cimport openmp as omp
 from cython.parallel cimport prange, threadid
@@ -25,7 +27,7 @@ cpdef void readPlink(const u8[:, ::1] D, u8[:, ::1] G) noexcept nogil:
         Py_ssize_t M = G.shape[0]
         Py_ssize_t N = G.shape[1]
         Py_ssize_t B = D.shape[1]
-        size_t b, i, j, part
+        size_t b, i, j, _
         u8[4] recode = [2, 9, 1, 0]
         u8 mask = 3
         u8 byte
@@ -33,7 +35,7 @@ cpdef void readPlink(const u8[:, ::1] D, u8[:, ::1] G) noexcept nogil:
         i = 0
         for b in range(B):
             byte = D[j, b]
-            for part in range(4):
+            for _ in range(4):
                 G[j, i] = recode[byte & mask]
                 byte = byte >> 2
                 i = i + 1

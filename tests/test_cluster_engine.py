@@ -1,11 +1,14 @@
 """Independent full-distance reference and boundary contracts for packed clustering."""
 
+__author__ = "Jonas Meisner"
+
 import unittest
 
 import numpy as np
 from hapla.packed_cy import fit_window, likelihoods, plink_window, predict_haplotypes
 
 
+### Fit weighted medians using a full distance matrix
 def reference(G, alpha=0.1, min_freq=0.005, min_mac=None, K_max=255):
     observed = np.all(G != 255, axis=0)
     H = G[:, observed].T
@@ -88,8 +91,9 @@ def reference(G, alpha=0.1, min_freq=0.005, min_mac=None, K_max=255):
     )
 
 
+### Compare packed clustering with independent dense fits
 class PackedClusteringTests(unittest.TestCase):
-    def check_reference(self, G, **options):
+    def checkReference(self, G, **options):
         expected = reference(G, **options)
         result = fit_window(G, **options)
         for value, key in zip(expected, ("labels", "medians", "counts")):
@@ -106,7 +110,7 @@ class PackedClusteringTests(unittest.TestCase):
                 G = np.repeat(patterns, weights, axis=0).T.copy()
                 if repeat % 2:
                     G[0, 0] = 255
-                self.check_reference(G, min_mac=min(8, G.shape[1] - 1), K_max=16)
+                self.checkReference(G, min_mac=min(8, G.shape[1] - 1), K_max=16)
 
     def test_complete_fast_path_is_identical(self):
         G = np.random.default_rng(33).integers(0, 2, (65, 100), dtype=np.uint8)
@@ -116,7 +120,7 @@ class PackedClusteringTests(unittest.TestCase):
             np.testing.assert_array_equal(full[key], fast[key])
         self.assertEqual(full["stats"], fast["stats"])
 
-    def check_flip(self, G, flip, **options):
+    def checkFlip(self, G, flip, **options):
         A = fit_window(G, **options)
         X = np.where(G == 255, 255, G ^ flip[:, None]).astype(np.uint8)
         B = fit_window(X, **options)
@@ -145,14 +149,14 @@ class PackedClusteringTests(unittest.TestCase):
                 if missing:
                     G[0, 0] = G[-1, 1] = 255
                 for flip in (rng.integers(0, 2, width, dtype=np.uint8), np.ones(width, np.uint8)):
-                    self.check_flip(G, flip, min_mac=5, K_max=4, missing=missing)
+                    self.checkFlip(G, flip, min_mac=5, K_max=4, missing=missing)
 
     def test_all_small_window_recodings_and_single_cluster_ties(self):
         G = ((np.arange(16)[:, None] >> np.arange(4)) & 1).astype(np.uint8).T.copy()
         for cap in (1, 3, 16):
             for flip in G.T:
-                self.check_flip(G, flip, K_max=cap, min_mac=3)
-        self.check_flip(np.full((4, 6), 255, np.uint8), np.ones(4, np.uint8))
+                self.checkFlip(G, flip, K_max=cap, min_mac=3)
+        self.checkFlip(np.full((4, 6), 255, np.uint8), np.ones(4, np.uint8))
 
     def test_sample_order_does_not_affect_windows_without_balanced_sites(self):
         rng = np.random.default_rng(819)
@@ -163,7 +167,7 @@ class PackedClusteringTests(unittest.TestCase):
         np.testing.assert_array_equal(A["labels"][order], B["labels"])
         for key in ("medians", "counts", "sizes"):
             np.testing.assert_array_equal(A[key], B[key])
-        self.check_flip(G, rng.integers(0, 2, len(G), dtype=np.uint8), K_max=7, min_mac=3)
+        self.checkFlip(G, rng.integers(0, 2, len(G), dtype=np.uint8), K_max=7, min_mac=3)
 
     def test_255_clusters_and_missing_sentinel(self):
         patterns = ((np.arange(255)[:, None] >> np.arange(8)) & 1).astype(np.uint8)
@@ -175,7 +179,7 @@ class PackedClusteringTests(unittest.TestCase):
         np.testing.assert_array_equal(np.unique(result["labels"][:-2]), np.arange(255))
         np.testing.assert_array_equal(result["labels"][-2:], [255, 255])
         self.assertFalse(result["stats"]["capped"])
-        self.check_flip(G, np.ones(8, np.uint8), min_mac=1)
+        self.checkFlip(G, np.ones(8, np.uint8), min_mac=1)
 
     def test_cluster_cap_never_labels_observed_haplotypes_missing(self):
         G = ((np.arange(256)[:, None] >> np.arange(8)) & 1).astype(np.uint8).T.copy()
@@ -183,11 +187,11 @@ class PackedClusteringTests(unittest.TestCase):
         self.assertTrue(result["stats"]["capped"])
         self.assertEqual(result["stats"]["K"], 255)
         self.assertTrue(np.all(result["labels"] < 255))
-        self.check_flip(G, np.array([0, 1] * 4, np.uint8), min_mac=1)
+        self.checkFlip(G, np.array([0, 1] * 4, np.uint8), min_mac=1)
 
     def test_missing_windows_and_frequency_denominator(self):
         G = np.array([[0, 0, 1, 255], [0, 0, 1, 0]], np.uint8)
-        result = self.check_reference(G, min_freq=0.3)
+        result = self.checkReference(G, min_freq=0.3)
         self.assertEqual(result["stats"]["K"], 2)
         self.assertEqual(result["labels"][3], 255)
         empty = fit_window(np.full((8, 6), 255, np.uint8))
@@ -198,7 +202,7 @@ class PackedClusteringTests(unittest.TestCase):
         )
 
     def test_single_cluster_and_strict_minimum(self):
-        result = self.check_reference(np.array([[0] * 99 + [1]] * 8, np.uint8), min_mac=10)
+        result = self.checkReference(np.array([[0] * 99 + [1]] * 8, np.uint8), min_mac=10)
         self.assertEqual(result["stats"]["K"], 1)
         same = fit_window(np.zeros((16, 4), np.uint8), K_max=1)
         self.assertEqual(same["stats"]["K"], 1)

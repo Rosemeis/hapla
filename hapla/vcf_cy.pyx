@@ -1,6 +1,8 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, initializedcheck=False
 """Bounded native HTSlib reading of phased, diploid, biallelic GT."""
 
+__author__ = "Jonas Meisner"
+
 import os
 
 from libc.stdint cimport uint8_t, uint32_t, int8_t, int32_t, int64_t
@@ -62,7 +64,7 @@ cdef extern from "htslib/vcf.h" nogil:
 
 
 ### Decode strict INT8 GT without phase-buffer bookkeeping
-cdef bint decode_phased8(const int8_t* raw, uint8_t* output, int samples,
+cdef bint decodePhased8(const int8_t* raw, uint8_t* output, int samples,
                          uint8_t* missing) noexcept nogil:
     cdef int i, a, b
     cdef unsigned int invalid = 0, absent = 0
@@ -127,7 +129,6 @@ cdef class Reader:
     def __init__(self, path, int threads=0, bint phased=True,
                  bint save=False):
         cdef bytes encoded
-        cdef int i
         if threads < 0:
             raise ValueError("HTSlib threads must be nonnegative")
         self.path = os.fspath(path)
@@ -153,12 +154,14 @@ cdef class Reader:
         self.samples = [self.header.samples[i].decode("utf-8") for i in range(self.N)]
         if len(set(self.samples)) != len(self.samples):
             raise ValueError("VCF/BCF sample IDs must be unique")
-        if any(not s or any(c.isspace() for c in s) for s in self.samples):
-            raise ValueError("Sample IDs must be nonempty and contain no whitespace")
+        for name in self.samples:
+            if not name or any(map(str.isspace, name)):
+                raise ValueError("Sample IDs must be nonempty and contain no whitespace")
         self.contigs = [bcf_hdr_id2name(self.header, i).decode("utf-8")
                         for i in range(self.header.n[BCF_DT_CTG])]
-        if any(not s or any(c.isspace() for c in s) for s in self.contigs):
-            raise ValueError("Contig names must be nonempty and contain no whitespace")
+        for name in self.contigs:
+            if not name or any(map(str.isspace, name)):
+                raise ValueError("Contig names must be nonempty and contain no whitespace")
         self.record = bcf_init()
         if self.record == NULL:
             raise MemoryError("Cannot allocate HTSlib record")
@@ -203,7 +206,7 @@ cdef class Reader:
         cdef Py_ssize_t row = 0, i, size = output.shape[0]
         cdef int status = 0, a = 0, b = 0, error = 0
         cdef bcf_fmt_t* fmt
-        cdef int8_t* raw
+        cdef int8_t* raw = NULL
         cdef bint decoded
         if self.busy:
             raise RuntimeError("Concurrent calls on the same genotype reader are unsupported")
@@ -265,7 +268,7 @@ cdef class Reader:
                 decoded = False
                 if fmt.type == BCF_BT_INT8:
                     if unph is None:
-                        decoded = decode_phased8(raw, &output[row, 0], self.N, &missing[row])
+                        decoded = decodePhased8(raw, &output[row, 0], self.N, &missing[row])
                     else:
                         decoded = decode8(raw, &output[row, 0], self.N, &missing[row],
                                           &unph[row, 0], self.phased)

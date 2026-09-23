@@ -1,6 +1,8 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, initializedcheck=False, cdivision=True
 """Linear-time ancestry HMMs, bounded scratch, and independent haplotype fits."""
 
+__author__ = "Jonas Meisner"
+
 import numpy as np
 cimport openmp as omp
 from cython.parallel cimport prange, threadid
@@ -71,7 +73,7 @@ cdef int _table(const f64* p, const f32* likes, f64* out,
                 Py_ssize_t C, Py_ssize_t K) noexcept nogil:
     cdef Py_ssize_t a, b, k
     cdef f64 weights[255]
-    cdef f64 m, total, value, largest, term, sub
+    cdef f64 m = 0, total = 0, value, largest, term, sub
     for a in range(C):
         if likes != NULL:
             m = -INFINITY
@@ -204,11 +206,11 @@ cdef int _prepare(const f64* E, f64* S, f64* shift, const f64* q,
 
 
 ### Scaled forward/backward: T = exp(-alpha) I + (1-exp(-alpha)) q 1'
-cdef f64 _fb_prob(const f64* E, const f64* shift, f64* scale, f64* F, f64* work,
+cdef f64 _fbProb(const f64* E, const f64* shift, f64* scale, f64* F, f64* work,
                    const f64* q, f64* G, f64* count, Py_ssize_t W,
                    Py_ssize_t K, f64 alpha, f64 weight) noexcept nogil:
     cdef Py_ssize_t w, k
-    cdef f64 e = exp(-alpha), s = -expm1(-alpha), norm, total, ll = 0, value
+    cdef f64 e = exp(-alpha), s = -expm1(-alpha), norm, total, ll = 0, prod = 1, value
     cdef f64* beta = work
     cdef f64* v = work+K
     for w in range(W):
@@ -217,9 +219,16 @@ cdef f64 _fb_prob(const f64* E, const f64* shift, f64* scale, f64* F, f64* work,
             F[w*K+k] = E[w*K+k]*(q[k] if w == 0 else e*F[(w-1)*K+k]+s*q[k])
             norm += F[w*K+k]
         if norm <= 0: return -INFINITY
-        ll += log(norm)+shift[w]
+        ll += shift[w]
+
+        # _prepare bounds norm above exp(-300), so this product cannot underflow.
+        prod *= norm
+        if prod < 1e-100:
+            ll += log(prod)
+            prod = 1
         if scale != NULL: scale[w] = norm
         for k in range(K): F[w*K+k] /= norm
+    ll += log(prod)
     if G == NULL: return ll
     for k in range(K): beta[k] = 1
     for w in range(W-1, -1, -1):
@@ -242,11 +251,11 @@ cdef f64 _fb_prob(const f64* E, const f64* shift, f64* scale, f64* F, f64* work,
 
 
 ### Logarithmic fallback and normalized simplified transitions, still O(W K)
-cdef f64 _fb_log(const f64* E, f64* shift, f64* F, f64* work, const f64* q,
+cdef f64 _fbLog(const f64* E, f64* shift, f64* F, f64* work, const f64* q,
                   f64* G, f64* count, Py_ssize_t W, Py_ssize_t K,
                   f64 alpha, f64 weight, bint simple) noexcept nogil:
     cdef Py_ssize_t w, k
-    cdef f64 ls = log(-expm1(-alpha)), norm, total, ll = 0, value
+    cdef f64 ls = log(-expm1(-alpha)), norm, total = 0, ll = 0, value
     cdef f64* beta = work
     cdef f64* v = work+K
     cdef f64* ex = work+2*K
@@ -331,10 +340,10 @@ def posterior(const f64[:, :, ::1] E, Q, alpha, bint simple=False, bint resets=F
         g = NULL if score else &G[i, 0, 0]
         for a in range(A):
             if mode or simple:
-                value = _fb_log(&E[i, 0, 0], &shift[t, 0], &F[t, 0], &tmp[t, 0], &q[i, 0],
+                value = _fbLog(&E[i, 0, 0], &shift[t, 0], &F[t, 0], &tmp[t, 0], &q[i, 0],
                                 g, count, W, K, rates[a], 1.0/A, simple)
             else:
-                value = _fb_prob(&S[t, 0], &shift[t, 0], &scale[t, 0] if not score else NULL,
+                value = _fbProb(&S[t, 0], &shift[t, 0], &scale[t, 0] if not score else NULL,
                                  &F[t, 0], &tmp[t, 0], &q[i, 0],
                                  g, count, W, K, rates[a], 1.0/A)
             ll[i, a] = value
@@ -370,10 +379,10 @@ def posteriorDecode(const f64[:, :, ::1] E, Q, alpha, bint simple=False, bint co
         for w in range(W*K): G[t, w] = 0
         for a in range(A):
             if mode or simple:
-                value = _fb_log(&E[i, 0, 0], &shift[t, 0], &F[t, 0], &tmp[t, 0], &q[i, 0],
+                value = _fbLog(&E[i, 0, 0], &shift[t, 0], &F[t, 0], &tmp[t, 0], &q[i, 0],
                                 &G[t, 0], NULL, W, K, rates[a], 1.0/A, simple)
             else:
-                value = _fb_prob(&S[t, 0], &shift[t, 0], &scale[t, 0], &F[t, 0],
+                value = _fbProb(&S[t, 0], &shift[t, 0], &scale[t, 0], &F[t, 0],
                                  &tmp[t, 0], &q[i, 0], &G[t, 0], NULL, W, K, rates[a], 1.0/A)
             ll[i, a] = value
             if not isfinite(value): bad |= 1
@@ -392,13 +401,12 @@ def posteriorDecode(const f64[:, :, ::1] E, Q, alpha, bint simple=False, bint co
 
 
 ### Small state spaces favor a tight dense loop with rolling score vectors
-cdef f64 _viterbi_small(const f64* E, const f64* q, u8* path, u8* prev,
+cdef f64 _viterbiSmall(const f64* E, const f64* q, u8* path, u8* prev,
                          f64* work, Py_ssize_t W, Py_ssize_t K,
                          f64 alpha) noexcept nogil:
     cdef f64 T[64]
     cdef f64* a = work
     cdef f64* b = work+K
-    cdef f64* swap
     cdef f64 ls = log(-expm1(-alpha)), best, value, norm
     cdef Py_ssize_t w, k, j, src
     for k in range(K):
@@ -423,7 +431,7 @@ cdef f64 _viterbi_small(const f64* E, const f64* q, u8* path, u8* prev,
         # Periodic centering avoids growth of accumulated scores. Huge blocks center immediately.
         if w % 64 == 0 or norm < -1e4 or norm > 1e4:
             for k in range(K): b[k] -= norm
-        swap, a, b = a, b, a
+        a, b = b, a
     src, best = 0, a[0]
     for k in range(1, K):
         if a[k] > best: src, best = k, a[k]
@@ -437,15 +445,15 @@ cdef f64 _viterbi_small(const f64* E, const f64* q, u8* path, u8* prev,
 cdef f64 _viterbi(const f64* E, const f64* q, u8* path, u8* prev,
                    f64* work, Py_ssize_t W, Py_ssize_t K, f64 alpha,
                    bint simple) noexcept nogil:
-    cdef Py_ssize_t w, k, first, second, src, dst
-    cdef f64 ls = log(-expm1(-alpha)), best, runner, stay, jump, norm, score = 0
+    cdef Py_ssize_t w, k, first, second = 0, src, dst
+    cdef f64 ls = log(-expm1(-alpha)), best, runner = -INFINITY, stay, jump, norm, score = 0
     cdef f64* v = work
     cdef f64* u = work+K
     cdef f64* diag = work+2*K
     cdef f64* off = work+3*K
     cdef f64* den = work+4*K
     if K <= 8 and not simple:
-        return _viterbi_small(E, q, path, prev, work, W, K, alpha)
+        return _viterbiSmall(E, q, path, prev, work, W, K, alpha)
     for k in range(K):
         off[k] = ls+log(q[k]) if q[k] > 0 else -INFINITY
         den[k] = _add(-alpha, ls+log1p(-q[k])) if simple else 0
@@ -615,6 +623,7 @@ def phaseCorrect(
         p0 = D[j, 0]
         p1 = D[j + 1, 0]
         pending = -1
+        pend0, pend1 = 0, 0
         pos = 0
         phase = False
         for w in range(1, W):
@@ -666,7 +675,7 @@ def phaseCorrect(
 
 ### Format text output in one fixed buffer, without Python objects per value
 def writeRows(int fd, const u8[:, ::1] D=None, const f64[:, ::1] P=None):
-    cdef Py_ssize_t N, W, i, w, d, ndec
+    cdef Py_ssize_t N, W, i, w, ndec, _
     cdef size_t n = 0, size = 1024*1024
     cdef int copy, value, digits, error = 0
     cdef unsigned long long rounded, place, digit, scale
@@ -719,7 +728,7 @@ def writeRows(int fd, const u8[:, ::1] D=None, const f64[:, ::1] P=None):
                                 buffer[n] = 48
                                 buffer[n+1] = 46
                                 n += 2
-                                for d in range(ndec):
+                                for _ in range(ndec):
                                     digit = rounded // place
                                     buffer[n] = 48 + digit
                                     n += 1

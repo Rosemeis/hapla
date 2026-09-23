@@ -1,4 +1,6 @@
-"""Regression checks for the five findings in the cluster/predict/struct audit."""
+"""Structure model validation, reference identity, and output replacement."""
+
+__author__ = "Jonas Meisner"
 
 import json
 import shutil
@@ -20,6 +22,7 @@ from hapla.formats import MAGIC, readMetadata
 from hapla.identity import featureKeys, writeIdentity
 
 
+### Save a small PCA model with projection loadings
 def export(ref, out, *args, success=True):
     return command(
         "struct",
@@ -38,11 +41,13 @@ def export(ref, out, *args, success=True):
     )
 
 
+### Attach cluster identity metadata to a test bundle
 def bind(pfx, reference, W, M):
     out = {s: Path(f"{pfx}{s}") for s in (".bca", ".ids", ".win", ".ref.json")}
     writeIdentity(out, reference, W, M)
 
 
+### Check structure models, variation, and reference identity
 class StructureContracts(TemporaryTests):
     def test_variation_matches_dense_dosages_and_rejects_zero_signal(self):
         for Z, c, p, D, _ in (structureFixture(), missingFixture()):

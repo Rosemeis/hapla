@@ -2,6 +2,8 @@
 # cython: cdivision=True
 """Direct products of validated cluster labels, without expanded dosage matrices."""
 
+__author__ = "Jonas Meisner"
+
 from cython.parallel cimport prange, threadid
 cimport openmp as omp
 import numpy as np
@@ -105,7 +107,7 @@ cpdef void leftProduct(const u8[:, ::1] Z, const i64[::1] c,
                        f64[:, ::1] A, const i64[::1] obs=None):
     cdef:
         Py_ssize_t w, i, l, k, r, s, W = Z.shape[0], N = Q.shape[0], L = Q.shape[1]
-        Py_ssize_t t, nt = max(1, min(W, omp.omp_get_max_threads()))
+        Py_ssize_t t = 0, nt = max(1, min(W, omp.omp_get_max_threads()))
         f64 u
         f64[:, ::1] work = np.empty((nt, L)) if obs is not None else None
     for w in prange(W, nogil=True, schedule='static', num_threads=nt):

@@ -215,8 +215,10 @@ no observed assignments receive uniform Q unless fixed by supervision.
 | `--supervised FILE` | — | One population label per sample, 0 unknown and 1..K fixed |
 | `--projection FILE` | — | Fixed P matrix, or P-file list for multiple cluster inputs |
 | `--random-init` | Off | Use random P/Q instead of SVD/ALS initialization |
+| `--source-init` | Off | Seed SVD/ALS from supported source extremes |
 | `--iter INT` | `1000` | Maximum outer fitting iterations |
-| `--tole FLOAT` | `1e-9` | Tolerance in log likelihood / (2 × samples × cluster alleles) |
+| `--tole FLOAT` | `1e-9` | Tolerance in log likelihood or objective / (2 × samples × cluster alleles) |
+| `--p-prior FLOAT` | `0` | P pseudocount mass per window and ancestry, 0 disables shrinkage |
 | `--batches INT` | `16` | Initial mini-batches, reduced during fitting |
 | `--check INT` | `5` | Iterations between convergence checks and progress reports |
 | `--chunk INT` | `4096` | Target cluster alleles per SVD calculation block |
@@ -230,8 +232,17 @@ no observed assignments receive uniform Q unless fixed by supervision.
 
 Supervision and projection are mutually exclusive. Supervised labels must fit
 0..255. Projection requires P rows to match the cluster order and fixes P while
-fitting Q. Timings cover each `--check` interval and any final partial interval.
-Warm-up is separate. The log distinguishes convergence, stalling, and the limit.
+fitting Q. The default unsupervised initializer uses SVD/ALS. `--source-init`
+seeds ALS from supported extremes in the sample SVD scores and cannot be
+combined with `--random-init`, supervision, or projection. Opt-in P shrinkage
+uses pooled cluster frequencies within each window and cannot update a fixed
+projection P. With shrinkage, convergence uses the regularized objective while
+the log also records the likelihood. Timings cover each `--check` interval and
+any final partial interval. Warm-up is separate.
+
+EM uses float64 sample tiles with an 8 MiB target for Q scratch, subject to a
+minimum of one sample per window partition. P counts reuse the existing output
+buffers. Parameter arrays and input storage still scale with the dataset.
 
 Outputs use `<out>.K<K>.s<seed>`, or `<out>.project.K<K>.s<seed>` for projection.
 They include `.Q`, `.ids`, and `.log`. Fitted frequencies use `.P` for one input
@@ -324,14 +335,18 @@ installing hapla, run:
 ```bash
 python tests/run.py --installed
 python tests/run.py --installed --threads 2
-python -m ruff check --no-cache hapla tests setup.py
-python -m ruff format --check --no-cache hapla tests setup.py
+python -m ruff check .
+python -m ruff format --check .
 ```
 
-[CI](.github/workflows/ci.yml) checks style, builds the wheel and source
-archive, and runs the installed tests with one and two native threads. Pushes
-and pull requests run on Linux. Manual runs also cover macOS and Python 3.10,
-3.12, and 3.14.
+[CI](.github/workflows/ci.yml) checks Python style and Cython warnings, validates
+the wheel and source archive, and runs the installed tests with one and two
+native threads. Pushes to `main` and pull requests use Ubuntu with Python 3.14.
+Manual runs add Ubuntu and macOS 15 wheels for Python 3.10, 3.12, and 3.14.
+
+Use short module summaries, `###` headings above functions and test classes,
+and camelCase helper names. Keep a blank line before comments unless they start
+an indented block. Tests use `unittest`, fixed seeds, and small shared fixtures.
 
 ## Citation
 

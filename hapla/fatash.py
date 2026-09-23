@@ -1,5 +1,7 @@
 """Bounded local ancestry inference with an exact linear-time haploid HMM."""
 
+__author__ = "Jonas Meisner"
+
 from contextlib import ExitStack
 from math import isfinite
 from pathlib import Path

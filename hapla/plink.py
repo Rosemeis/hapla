@@ -1,5 +1,7 @@
 """Bounded PLINK BED input. BIM A2 is REF and A1 is ALT."""
 
+__author__ = "Jonas Meisner"
+
 import numpy as np
 
 from hapla import shared_cy

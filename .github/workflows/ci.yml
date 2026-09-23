@@ -2,6 +2,7 @@ name: build-and-test
 
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -20,8 +21,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Keep routine CI small. Manual runs cover the supported platforms and Python range.
-        os: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["ubuntu-latest", "macos-latest"]' || '["ubuntu-latest"]') }}
+        # Reserve the full compatibility matrix for manual runs
+        os: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["ubuntu-latest", "macos-15"]' || '["ubuntu-latest"]') }}
         python: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["3.10", "3.12", "3.14"]' || '["3.14"]') }}
     env:
       HAPLA_NATIVE: "0"
@@ -56,22 +57,38 @@ jobs:
           echo "HTSLIB_PREFIX=$(brew --prefix htslib)" >> "$GITHUB_ENV"
           echo "LIBOMP_PREFIX=$(brew --prefix libomp)" >> "$GITHUB_ENV"
       - name: Install build tools
-        run: python -m pip install --upgrade build ruff twine
-      - name: Check Python style
+        run: python -m pip install build
+      - name: Check source
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.14'
         run: |
-          ruff check hapla tests setup.py
-          ruff format --check hapla tests setup.py
+          python -m pip install cython ruff twine
+          ruff format --check .
+          ruff check .
+          for src in hapla/*.pyx
+          do
+            out="${RUNNER_TEMP}/$(basename "${src%.pyx}").c"
+            python -m cython -3 -Werror -Wextra "$src" -o "$out"
+          done
       - name: Build and install distribution
         run: |
-          python -m build
+          if [ "${{ matrix.os }}" = ubuntu-latest ] && [ "${{ matrix.python }}" = 3.14 ]
+          then
+            python -m build
+          else
+            python -m build --wheel
+          fi
+          python -m pip install dist/*.whl
+      - name: Check distribution
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.14'
+        run: |
           python tests/validate_distribution.py dist/*
           python -m twine check dist/*
-          python -m pip install dist/*.whl
-      - name: Run installed regression suite with one and two native threads
+      - name: Run regression suite
         working-directory: ${{ runner.temp }}
-        run: |
-          python "${GITHUB_WORKSPACE}/tests/run.py" --installed
-          python "${GITHUB_WORKSPACE}/tests/run.py" --installed --threads 2
+        run: python "${GITHUB_WORKSPACE}/tests/run.py" --installed
+      - name: Check two native threads
+        working-directory: ${{ runner.temp }}
+        run: python "${GITHUB_WORKSPACE}/tests/run.py" --installed --threads 2
       - name: Check command entry point
         working-directory: ${{ runner.temp }}
         run: hapla --version

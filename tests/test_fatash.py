@@ -1,5 +1,7 @@
 """Independent HMM enumeration, dense recursions, refinement, and streaming contracts."""
 
+__author__ = "Jonas Meisner"
+
 import itertools
 import unittest
 from argparse import Namespace
@@ -16,7 +18,7 @@ from hapla.fatash import refine
 from hapla.formats import readMetadata
 
 
-### Enumerate joint state paths and latent refresh events for short chains
+### Construct the dense haploid transition matrix
 def transition(q, alpha, simple=False):
     e, s = np.exp(-alpha), -np.expm1(-alpha)
     T = e * np.eye(len(q)) + s * q[:, None]
@@ -29,7 +31,8 @@ def transition(q, alpha, simple=False):
     return T
 
 
-def enumerate_hmm(E, q, alpha, simple=False):
+### Enumerate state paths and latent refresh events for short chains
+def enumerateHMM(E, q, alpha, simple=False):
     W, K = E.shape
     states = np.array(list(itertools.product(range(K), repeat=W)))
     T = transition(q, alpha, simple)
@@ -51,7 +54,7 @@ def enumerate_hmm(E, q, alpha, simple=False):
 
 
 ### Dense log-space reference independent of the structured transition algebra
-def dense_hmm(E, q, alpha):
+def denseHMM(E, q, alpha):
     K, W = len(q), len(E)
     ls = np.log(-np.expm1(-alpha))
     with np.errstate(divide="ignore"):
@@ -68,6 +71,7 @@ def dense_hmm(E, q, alpha):
     return np.exp(F + B - ll), ll
 
 
+### Compare HMM inference with enumerated and dense references
 class HMMCorrectness(unittest.TestCase):
     def test_viterbi_dense_reference_across_kernel_boundary(self):
         rng = np.random.default_rng(918)
@@ -103,7 +107,7 @@ class HMMCorrectness(unittest.TestCase):
         self.assertEqual(empty.size + counts.size, 0)
         np.testing.assert_array_equal(score, L)
         for i in range(2):
-            exact, ll = dense_hmm(E[i], Q[i], 0.1)
+            exact, ll = denseHMM(E[i], Q[i], 0.1)
             np.testing.assert_allclose(G[i], exact, atol=2e-14)
             self.assertAlmostEqual(L[i, 0], ll, places=12)
         self.assertTrue(np.all(cy.viterbi(E, Q, 0.1) < 255))
@@ -115,7 +119,7 @@ class HMMCorrectness(unittest.TestCase):
         ):
             q = rng.dirichlet(np.ones(K))
             E = np.log(rng.uniform(0.005, 1, (W, K)))
-            exact, count, ll, states, scores = enumerate_hmm(E, q, alpha, simple)
+            exact, count, ll, states, scores = enumerateHMM(E, q, alpha, simple)
             G, C, L = cy.posterior(E[None], q[None], alpha, simple, resets=not simple)
             np.testing.assert_allclose(G[0], exact, atol=2e-13)
             np.testing.assert_allclose(L, ll, atol=2e-13)
@@ -165,9 +169,9 @@ class HMMCorrectness(unittest.TestCase):
         for E, q, alpha in cases:
             Q = np.array([q])
             G, C, L = cy.posterior(E[None], Q, alpha, resets=True)
-            _, count, _, _, _ = enumerate_hmm(E, Q[0], alpha)
+            _, count, _, _, _ = enumerateHMM(E, Q[0], alpha)
             np.testing.assert_allclose(C[0], count, atol=2e-10)
-            exact, ll = dense_hmm(E, Q[0], alpha)
+            exact, ll = denseHMM(E, Q[0], alpha)
             np.testing.assert_allclose(G[0], exact, atol=2e-10)
             np.testing.assert_allclose(L, ll, atol=2e-10)
             D, P, score = cy.posteriorDecode(E[None], Q, alpha, confidence=True)
@@ -183,6 +187,30 @@ class HMMCorrectness(unittest.TestCase):
             cy.posterior(np.full((1, 2, 2), -np.inf), np.array([[0.5, 0.5]]), 0.1)
         with self.assertRaisesRegex(ValueError, "supported"):
             cy.viterbi(np.full((1, 2, 2), -np.inf), np.array([[0.5, 0.5]]), 0.1)
+
+    def test_scaled_likelihood_accumulation_on_long_forced_paths(self):
+        W = 1201
+        alpha = np.array([1e-125, 0.1])
+        for K in (5, 6):
+            q = np.arange(1, K + 1, dtype=float)
+            q /= q.sum()
+            path = np.arange(W) % K
+            shift = -np.arange(W) / 20
+            E = np.full((1, W, K), -np.inf)
+            E[0, np.arange(W), path] = shift
+            G, C, L = cy.posterior(E, q[None], alpha, resets=True)
+            exact = np.eye(K)[path]
+            ll = shift.sum() + np.log(q[path]).sum()
+            ll += (W - 1) * np.log(-np.expm1(-alpha))
+            np.testing.assert_allclose(G[0], exact, atol=2e-12)
+            np.testing.assert_allclose(C[0], exact.sum(axis=0), atol=2e-10)
+            np.testing.assert_allclose(L[0], ll, rtol=2e-14, atol=2e-9)
+            D, P, score = cy.posteriorDecode(E, q[None], alpha, confidence=True)
+            np.testing.assert_array_equal(D[0], path)
+            np.testing.assert_allclose(P, 1, atol=2e-12)
+            np.testing.assert_array_equal(score, L)
+            _, _, score = cy.posterior(E, q[None], alpha, score=True)
+            np.testing.assert_array_equal(score, L)
 
     def test_soft_emissions_use_each_candidate_and_stable_likelihoods(self):
         P, c = np.array([0.9, 0.2, 0.1, 0.8]), np.array([0, 2], np.int64)
@@ -253,7 +281,7 @@ class HMMCorrectness(unittest.TestCase):
                         ]
                     )
                     for a in alpha:
-                        G, C, L, _, _ = enumerate_hmm(E, Q[h // 2], a)
+                        G, C, L, _, _ = enumerateHMM(E, Q[h // 2], a)
                         ll += L / len(alpha)
                         cq[h // 2] += C / len(alpha)
                         for w in range(beg, end):
@@ -389,6 +417,7 @@ class HMMCorrectness(unittest.TestCase):
         np.testing.assert_array_equal(P, [[0, 1, 7, 8, 4], [5, 6, 2, 3, 9]])
 
 
+### Check local ancestry fitting, streaming, and saved output
 class FatashPipeline(TemporaryTests):
     def test_saved_q_ids_must_match_cluster_order(self):
         ref, _, _, _, _ = self.fixture()

@@ -1,4 +1,6 @@
-"""Run unittest with native thread limits set before numerical imports."""
+"""Run regression tests with native thread limits set before numerical imports."""
+
+__author__ = "Jonas Meisner"
 
 import argparse
 import os
@@ -10,7 +12,7 @@ from pathlib import Path
 ### Run source or installed tests without relying on the working directory
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--threads", type=int, default=1)
+    parser.add_argument("--threads", type=int, default=1, help="Number of native threads (1)")
     parser.add_argument("--installed", action="store_true", help="Require an installed package")
     args = parser.parse_args()
     if args.threads < 1:

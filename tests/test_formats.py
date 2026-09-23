@@ -1,5 +1,7 @@
 """Shared metadata, output ownership, and native reader lifecycle."""
 
+__author__ = "Jonas Meisner"
+
 from contextlib import ExitStack
 from pathlib import Path
 
@@ -11,6 +13,7 @@ from hapla.formats import readMetadata, readPaths
 from hapla.runtime import commitOutputs, stageOutputs
 
 
+### Check ordered metadata and shared input validation
 class SharedInputTests(TemporaryTests):
     def fixture(self, name, ids, counts):
         pfx = self.root / name
@@ -136,6 +139,7 @@ class SharedInputTests(TemporaryTests):
             self.assertFalse((self.root / f"admix0.K2.s1{sfx}").exists())
 
 
+### Check reader cleanup and output ownership
 class OwnershipTests(TemporaryTests):
     def test_native_reader_close_is_idempotent_and_state_is_readonly(self):
         pth = self.root / "input.vcf"

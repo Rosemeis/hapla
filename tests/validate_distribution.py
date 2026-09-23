@@ -1,5 +1,7 @@
 """Check that wheels and source archives contain only package and development files."""
 
+__author__ = "Jonas Meisner"
+
 import ast
 import sys
 import tarfile
@@ -74,9 +76,13 @@ def validate(path):
     print(f"Validated {path.name}")
 
 
-### Accept the same dist/* arguments locally and in CI
-if __name__ == "__main__":
+### Validate each wheel or source archive supplied on the command line
+def main():
     if len(sys.argv) < 2:
         raise SystemExit("Provide a wheel or source archive")
     for arg in sys.argv[1:]:
         validate(Path(arg))
+
+
+if __name__ == "__main__":
+    main()

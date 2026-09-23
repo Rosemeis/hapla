@@ -1,5 +1,7 @@
 """Independent dense references for matrix-free PCA, projection, and GRM."""
 
+__author__ = "Jonas Meisner"
+
 import unittest
 from pathlib import Path
 
@@ -11,6 +13,7 @@ from hapla import struct_cy as cy
 from hapla.identity import featureKeys, writeModel
 
 
+### Compare label products with dense dosage calculations
 class DirectProducts(unittest.TestCase):
     def test_missing_products_grm_pca_and_reference_mean_projection(self):
         Z, c, p, D, obs = missingFixture()
@@ -150,6 +153,7 @@ class DirectProducts(unittest.TestCase):
         np.testing.assert_allclose(G, expected[np.tril_indices(300)], atol=4e-7)
 
 
+### Check PCA, projection, and GRM output
 class StructurePipeline(TemporaryTests):
     def test_shared_reader_with_and_without_frequencies_across_files(self):
         Z, c, p, _, obs = missingFixture()

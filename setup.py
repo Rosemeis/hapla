@@ -1,5 +1,7 @@
 """Build portable CPU kernels and the native HTSlib genotype reader."""
 
+__author__ = "Jonas Meisner"
+
 import os
 import shlex
 import subprocess

@@ -1,5 +1,7 @@
 """Independent dense residual projections, missingness, and transactional CLI output."""
 
+__author__ = "Jonas Meisner"
+
 import io
 import unittest
 from pathlib import Path
@@ -11,6 +13,7 @@ from helpers import TemporaryTests, command, writeClusters
 from hapla.eval import correlation, covariance
 
 
+### Build cluster labels and ancestry proportions with optional missingness
 def fixture(missing=False, N=27):
     rng = np.random.default_rng(171)
     k = np.array([2, 7, 1, 255, 4, 3])
@@ -27,6 +30,7 @@ def fixture(missing=False, N=27):
     return Z, c, obs, Q
 
 
+### Compute residual covariances through explicit dosage projections
 def dense(Z, c, Q):
     N = len(Q)
     C, E = np.zeros((N, N)), np.zeros((N, N))
@@ -50,6 +54,7 @@ def dense(Z, c, Q):
     return C, E
 
 
+### Compare native covariance kernels with dense projections
 class CovarianceTests(unittest.TestCase):
     def test_dense_complete_missing_and_rank_deficient_projections(self):
         for missing in (False, True):
@@ -95,6 +100,7 @@ class CovarianceTests(unittest.TestCase):
                 np.testing.assert_allclose(A, B, atol=2e-12)
 
 
+### Check residual output, sample order, and failed writes
 class EvaluationPipeline(TemporaryTests):
     def test_saved_q_ids_must_match_cluster_order(self):
         Z, c, _, Q = fixture(False)

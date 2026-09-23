@@ -1,5 +1,7 @@
 """Admixture updates and initialization from centered cluster labels."""
 
+__author__ = "Jonas Meisner"
+
 import numpy as np
 
 from hapla import admix_cy
@@ -7,10 +9,22 @@ from hapla import admix_cy
 ##### Admixture updates
 
 
+### Target 8 MiB of Q scratch, with at least one sample per partition
+def emWorkspace(N, K, k):
+    B = min(64, len(k))
+    tile = min(N, max(1, 8 * 1024**2 // (8 * B * K)))
+    return np.empty((B, int(k.max()) * K)), np.empty((B, tile, K))
+
+
 ### One EM update, sharing scratch across full, batch, and projection modes
-def emStep(P, Q, Pn, Qn, ctx, rows=None, qo=None):
+def emStep(P, Q, Pn, Qn, ctx, rows=None, qo=None, pool=None, prior=0.0, scratch=None):
     Z, k, c, T, pt, qt, wo, y = ctx
-    admix_cy.em(Z, P, Pn, Q, T, k, c, pt, qt, rows, wo)
+    dst = scratch if Pn is P and qt.shape[1] < len(Q) and scratch is not None else Pn
+    if dst is not Pn and rows is not None:
+        dst[:] = Pn
+    admix_cy.em(Z, P, dst, Q, T, k, c, pt, qt, rows, wo, pool, prior)
+    if dst is not Pn:
+        Pn[:] = dst
     if qo is None:
         admix_cy.accelQ(Q, Qn, T, len(Z) if rows is None else len(rows))
     else:
@@ -20,9 +34,9 @@ def emStep(P, Q, Pn, Qn, ctx, rows=None, qo=None):
 
 
 ### Two EM updates followed by quasi-Newton extrapolation
-def emQuasi(P, Q, P1, P2, Q1, Q2, ctx, rows=None, qo=None):
-    emStep(P, Q, P1, Q1, ctx, rows, qo)
-    emStep(P if P1 is None else P1, Q1, P2, Q2, ctx, rows, qo)
+def emQuasi(P, Q, P1, P2, Q1, Q2, ctx, rows=None, qo=None, pool=None, prior=0.0, scratch=None):
+    emStep(P, Q, P1, Q1, ctx, rows, qo, pool, prior, scratch)
+    emStep(P if P1 is None else P1, Q1, P2, Q2, ctx, rows, qo, pool, prior, scratch)
     if P1 is not None:
         if rows is None:
             admix_cy.jumpP(P, P1, P2, ctx[1], ctx[2], Q.shape[1])
@@ -37,12 +51,13 @@ def emQuasi(P, Q, P1, P2, Q1, Q2, ctx, rows=None, qo=None):
 
 
 ### Centered label products for SVD/ALS initialization, without dosage expansion
-def centerSVD(Z, p_vec, c_vec, W, K, chunk, power, rng, obs=None):
+def centerSVD(Z, p_vec, c_vec, W, K, chunk, power, rng, obs=None, extra=0):
     from hapla import struct, struct_cy
 
-    N, D, M = Z.shape[1] // 2, K - 1, int(c_vec[W])
+    N, base, M = Z.shape[1] // 2, K - 1, int(c_vec[W])
+    D = min(base + extra, N - 1, M)
     L = min(max(D + 10, 20), N - 1, M)
-    if D > L:
+    if base > L:
         raise ValueError("K exceeds the centered SVD dimensions. Use --random-init")
     data = [
         (Z[:W], c_vec[: W + 1].astype(np.int64), None if obs is None else obs[:W].astype(np.int64))
@@ -64,8 +79,10 @@ def centerSVD(Z, p_vec, c_vec, W, K, chunk, power, rng, obs=None):
     for z, c, s, o in struct.blocks(data, chunk):
         struct_cy.leftProduct(z, c, p[s], a[s], Q, sums, A[s], o)
     U, S, R = np.linalg.svd(A, full_matrices=False)
-    if S[D - 1] <= np.finfo(float).eps * max(M, N) * S[0]:
+    rank = np.count_nonzero(S > np.finfo(float).eps * max(M, N) * S[0])
+    if rank < base:
         raise ValueError("Insufficient variation for SVD initialization. Use --random-init")
+    D = min(D, rank)
     return (
         np.ascontiguousarray(U[:, :D], dtype=np.float32),
         S[:D].astype(np.float32),
@@ -88,17 +105,91 @@ def _alsStep(Y, V, p_vec, k_vec, c_vec, Q, P=None):
     return P, Q
 
 
-### Alternating least square (ALS) for initializing Q and P
-def factorALS(U, S, V, p_vec, k_vec, c_vec, iter, tole, rng):
-    M, D = U.shape
-    Y = np.ascontiguousarray(U * S)
-    P = rng.random(size=(M, D + 1), dtype=np.float32)
-    admix_cy.projectP(P, k_vec, c_vec)
-    H = np.dot(P, np.linalg.pinv(np.dot(P.T, P)))
-    Q = 0.5 * np.dot(V, np.dot(Y.T, H))
-    H *= p_vec[:, None]
-    Q += H.sum(axis=0)
+### Select supported extremes in sample scores and solve for ancestry coordinates
+def _sourceQ(V, S, K):
+    X = np.ascontiguousarray(V * S, dtype=float)
+    N, D = X.shape
+    h = min(8, max(1, N // (3 * K)))
+    norm = np.einsum("ij,ij->i", X, X)
+    mean = X.mean(axis=0)
+    R = X - mean
+    A = np.empty((K, D))
+    raw = np.empty_like(A)
+    B = np.empty((D, K - 1))
+    used = np.zeros(N, dtype=bool)
+    taken = np.zeros(N, dtype=bool)
+    cache = {}
+    rank = 0
+
+    # Favor neighborhood centers over isolated extreme samples
+    for j in range(K):
+        score = np.einsum("ij,ij->i", R, R)
+        score[used] = -np.inf
+        n = min(48, max(16, 3 * K), N - j)
+        cand = np.argpartition(score, -n)[-n:]
+        best = -1.0
+        for i in cand:
+            if i not in cache:
+                dist = norm + norm[i] - 2 * (X @ X[i])
+                near = np.argpartition(dist, h - 1)[:h]
+
+                # Copy the small neighborhood so the full partition array can be freed
+                cache[i] = X[near].mean(axis=0), near.copy()
+            center, near = cache[i]
+            v = center - (mean if j == 0 else A[0])
+            for b in range(rank):
+                v -= (v @ B[:, b]) * B[:, b]
+            value = (v @ v) * (1 - np.count_nonzero(taken[near]) / h)
+            if value > best:
+                best, idx, point, group = value, i, center, near
+        A[j] = point
+        raw[j] = X[idx]
+        used[idx] = True
+        taken[group] = True
+        if j == 0:
+            R = X - point
+        elif j < K - 1:
+            v = point - A[0]
+            for b in range(rank):
+                v -= (v @ B[:, b]) * B[:, b]
+            length = np.linalg.norm(v)
+            if length > 1e-6 * max(np.linalg.norm(point), 1.0):
+                v /= length
+                B[:, rank] = v
+                rank += 1
+                R -= (R @ v)[:, None] * v
+
+    H = A[1:] - A[:1]
+    s = np.linalg.svd(H, compute_uv=False)
+    if s[-1] <= 1e-4 * s[0]:
+        A = raw
+        H = A[1:] - A[:1]
+        s = np.linalg.svd(H, compute_uv=False)
+        if s[-1] <= 1e-4 * s[0]:
+            raise ValueError("Source anchors are poorly conditioned. Omit --source-init")
+    H = np.linalg.pinv(H, rcond=1e-4)
+    Q = np.empty((N, K), dtype=np.float32)
+    Q[:, 1:] = (X - A[0]) @ H
+    Q[:, 0] = 1 - Q[:, 1:].sum(axis=1)
     admix_cy.projectQ(Q)
+    return Q
+
+
+### Alternating least square (ALS) for initializing Q and P
+def factorALS(U, S, V, p_vec, k_vec, c_vec, iter, tole, rng, K, source=False):
+    M = U.shape[0]
+    Y = np.ascontiguousarray(U * S)
+    if source:
+        P = np.empty((M, K), dtype=np.float32)
+        Q = _sourceQ(V, S, K)
+    else:
+        P = rng.random(size=(M, K), dtype=np.float32)
+        admix_cy.projectP(P, k_vec, c_vec)
+        H = np.dot(P, np.linalg.pinv(np.dot(P.T, P)))
+        Q = 0.5 * np.dot(V, np.dot(Y.T, H))
+        H *= p_vec[:, None]
+        Q += H.sum(axis=0)
+        admix_cy.projectQ(Q)
     Q0 = np.copy(Q)
 
     # Perform ALS iterations
@@ -137,10 +228,12 @@ def centerSub(Z, S, V, p_vec, c_vec, W_sub, chunk, obs=None):
 
 
 ### Least square (ALS) for subsampled P and Q followed by standard iteration
-def factorSub(U_sub, U_rem, S, V, p_vec, k_vec, c_vec, W_sub, iter, tole, rng):
+def factorSub(U_sub, U_rem, S, V, p_vec, k_vec, c_vec, W_sub, iter, tole, rng, K, source=False):
     # Fit the same ALS updates on the selected windows
     M = U_sub.shape[0]
-    _, Q = factorALS(U_sub, S, V, p_vec[:M], k_vec[:W_sub], c_vec[:W_sub], iter, tole, rng)
+    _, Q = factorALS(
+        U_sub, S, V, p_vec[:M], k_vec[:W_sub], c_vec[:W_sub], iter, tole, rng, K, source
+    )
 
     # Perform extra full ALS iteration
     Y = np.ascontiguousarray(np.concatenate((U_sub, U_rem), axis=0) * S)

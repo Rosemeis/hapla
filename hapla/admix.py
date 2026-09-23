@@ -25,6 +25,12 @@ def main(args):
     # Check input
     if args.supervised is not None and args.projection is not None:
         raise ValueError("Choose either --supervised or --projection")
+    if args.source_init and (
+        args.random_init or args.supervised is not None or args.projection is not None
+    ):
+        raise ValueError("--source-init requires unsupervised SVD/ALS initialization")
+    if args.projection is not None and args.p_prior:
+        raise ValueError("--p-prior cannot update fixed projection frequencies")
     if (args.filelist is None) == (args.clusters is None):
         raise ValueError("Provide exactly one of --clusters or --filelist")
     if not args.prefix or any(x in args.prefix for x in ("/", "\\")):
@@ -54,6 +60,8 @@ def main(args):
         raise ValueError("Please select a valid number of iterations in ALS!")
     if not (isfinite(args.als_tole) and args.als_tole >= 0.0):
         raise ValueError("Please select a valid tolerance in ALS!")
+    if not (isfinite(args.p_prior) and args.p_prior >= 0.0):
+        raise ValueError("Please select a finite, nonnegative P prior mass!")
     if not (args.subsampling > 1):
         raise ValueError("Please select a valid subsampling factor!")
     printHeader("admix", args.threads, f"K: {args.K}, Seed: {args.seed}")
@@ -120,7 +128,12 @@ def main(args):
 
     # Histogram validation also supplies observed-only means and window counts
     c_tmp = np.insert(np.cumsum(k_vec, dtype=np.uint32), 0, 0)
-    p_vec = None if args.random_init or args.supervised or args.projection else np.empty(M)
+    prior = args.p_prior
+    p_vec = (
+        np.empty(M)
+        if prior or (not args.random_init and args.supervised is None and args.projection is None)
+        else None
+    )
     obs = np.empty(W, dtype=np.int64)
     struct_cy.frequencies(Z, c_tmp.astype(np.int64), p_vec, obs)
     n_obs = int(obs.sum())
@@ -227,12 +240,18 @@ def main(args):
             Q = rng.random(size=(N, args.K)).clip(min=1e-5, max=1 - (1e-5))
             Q /= np.sum(Q, axis=1, keepdims=True)
         else:  # SVD/ALS initialization
-            print("Computing SVD/ALS estimates.", flush=True)
+            print(
+                "Computing source estimates."
+                if args.source_init
+                else "Computing SVD/ALS estimates.",
+                flush=True,
+            )
             ts = time()
             W_s = f_vec[ceil(F / args.subsampling)] if F > 1 else W
+            extra = 4 if args.source_init else 0
             try:
                 U, S, V = functions.centerSVD(
-                    Z, p_vec, c_tmp, W_s, args.K, args.chunk, args.power, rng, w_obs
+                    Z, p_vec, c_tmp, W_s, args.K, args.chunk, args.power, rng, w_obs, extra
                 )
             except ValueError:
                 if W_s == W:
@@ -240,7 +259,7 @@ def main(args):
                 print("SVD subset lacks rank. Using all windows.", flush=True)
                 W_s = W
                 U, S, V = functions.centerSVD(
-                    Z, p_vec, c_tmp, W_s, args.K, args.chunk, args.power, rng, w_obs
+                    Z, p_vec, c_tmp, W_s, args.K, args.chunk, args.power, rng, w_obs, extra
                 )
             if W_s < W:
                 U_r = functions.centerSub(Z, S, V, p_vec, c_tmp, W_s, args.chunk, w_obs)
@@ -256,6 +275,8 @@ def main(args):
                     args.als_iter,
                     args.als_tole,
                     rng,
+                    args.K,
+                    args.source_init,
                 )
                 del U_r
             else:
@@ -269,9 +290,14 @@ def main(args):
                     args.als_iter,
                     args.als_tole,
                     rng,
+                    args.K,
+                    args.source_init,
                 )
             del U
-            printTiming("SVD/ALS complete.", time() - ts)
+            printTiming(
+                "Source initialization complete." if args.source_init else "SVD/ALS complete.",
+                time() - ts,
+            )
             del S, V
         y = None
 
@@ -285,7 +311,9 @@ def main(args):
         Q[q_obs == 0] = 1.0 / args.K
     if y is not None:
         admix_cy.superQ(Q, y)
-    del p_vec, c_tmp
+    del c_tmp
+    if not prior:
+        p_vec = None
 
     # Reuse fixed-partition scratch for every full and mini-batch update
     stats = dict(
@@ -300,30 +328,42 @@ def main(args):
         read_seconds=t_read,
         initialization_seconds=time() - t_init,
     )
+    if prior:
+        stats["p_prior"] = prior
     Q1, Q2, T = np.empty_like(Q), np.empty_like(Q), np.empty_like(Q)
     P1 = None if args.projection else np.empty_like(P)
     P2 = None if args.projection else np.empty_like(P)
-    B = min(64, W)
-    pt = np.empty((B, int(np.max(k_vec)) * args.K))
-    qt = np.empty((B, N, args.K))
+    pt, qt = functions.emWorkspace(N, args.K, k_vec)
     ctx = (Z, k_vec, c_vec, T, pt, qt, w_obs, y)
+    em_kw = dict(pool=p_vec, prior=prior, scratch=P2)
     like = np.empty(W)
-    L_pre = admix_cy.likelihood(Z, P, Q, c_vec, like, w_obs)
+
+    def score():
+        ll = admix_cy.likelihood(Z, P, Q, c_vec, like, w_obs)
+        obj = ll
+        if prior:
+            obj += admix_cy.priorScore(P, p_vec, k_vec, c_vec, args.K, prior) / L_nrm
+        return obj, ll
+
+    L_pre, ll_pre = score()
     if not np.isfinite(L_pre):
         raise ValueError("The initial model assigns zero probability to an observed cluster")
-    stats["initial_loglike"] = L_pre * L_nrm
-    print(f"Initial log-like: {L_pre * L_nrm:,.1f}", flush=True)
+    stats["initial_loglike"] = ll_pre * L_nrm
+    if prior:
+        stats["initial_objective"] = L_pre * L_nrm
+    metric = "Objective" if prior else "Log-like"
+    print(f"Initial {metric.lower()}: {L_pre * L_nrm:,.1f}", flush=True)
     ts = time()
-    functions.emStep(P, Q, P if P1 is not None else None, Q, ctx, qo=q_obs)
-    functions.emQuasi(P, Q, P1, P2, Q1, Q2, ctx, qo=q_obs)
-    functions.emStep(P, Q, P if P1 is not None else None, Q, ctx, qo=q_obs)
+    functions.emStep(P, Q, P if P1 is not None else None, Q, ctx, qo=q_obs, **em_kw)
+    functions.emQuasi(P, Q, P1, P2, Q1, Q2, ctx, qo=q_obs, **em_kw)
+    functions.emStep(P, Q, P if P1 is not None else None, Q, ctx, qo=q_obs, **em_kw)
     printTiming("Warm-up complete.", time() - ts)
     stats["priming_seconds"] = time() - ts
 
     # Keep the batch schedule and checkpoint full-data convergence checks
     batches = min(args.batches, W)
     s_win = np.arange(W, dtype=np.uint32)
-    L_pre = admix_cy.likelihood(Z, P, Q, c_vec, like, w_obs)
+    L_pre, ll_pre = score()
     L_bat = L_pre
     P_save = Q_save = None
     if batches == 1:
@@ -341,33 +381,34 @@ def main(args):
             for b in range(batches):
                 rows = s_win[b * step : W if b == batches - 1 else (b + 1) * step]
                 qo = None if q_obs is None else admix_cy.observedCounts(Z, rows)
-                functions.emQuasi(P, Q, P1, P2, Q1, Q2, ctx, rows, qo)
-            functions.emQuasi(P, Q, P1, P2, Q1, Q2, ctx, qo=q_obs)
+                functions.emQuasi(P, Q, P1, P2, Q1, Q2, ctx, rows, qo, **em_kw)
+            functions.emQuasi(P, Q, P1, P2, Q1, Q2, ctx, qo=q_obs, **em_kw)
         else:
             if P1 is None:
-                functions.emStep(P, Q, None, Q, ctx, qo=q_obs)
-                functions.emQuasi(P, Q, P1, P2, Q1, Q2, ctx, qo=q_obs)
+                functions.emStep(P, Q, None, Q, ctx, qo=q_obs, **em_kw)
+                functions.emQuasi(P, Q, P1, P2, Q1, Q2, ctx, qo=q_obs, **em_kw)
             else:
-                functions.emQuasi(P, Q, P1, P2, Q1, Q2, ctx, qo=q_obs)
-                functions.emStep(P, Q, P, Q, ctx, qo=q_obs)
+                functions.emQuasi(P, Q, P1, P2, Q1, Q2, ctx, qo=q_obs, **em_kw)
+                functions.emStep(P, Q, P, Q, ctx, qo=q_obs, **em_kw)
 
         # Always score the actual final parameters, including a partial check interval
         if it % args.check and it != args.iter:
             continue
-        L_cur = admix_cy.likelihood(Z, P, Q, c_vec, like, w_obs)
+        L_cur, ll_cur = score()
         if not np.isfinite(L_cur):
-            raise ValueError("Non-finite log-likelihood during ancestry estimation")
+            raise ValueError("Non-finite ancestry objective during estimation")
         if batches > 1:
             if L_cur < L_bat + args.tole:
                 batches //= 2
                 print(f"Mini-batches: {batches}", flush=True)
                 L_bat = float("-inf")
-                functions.emQuasi(P, Q, P1, P2, Q1, Q2, ctx, qo=q_obs)
-                L_cur = admix_cy.likelihood(Z, P, Q, c_vec, like, w_obs)
+                functions.emQuasi(P, Q, P1, P2, Q1, Q2, ctx, qo=q_obs, **em_kw)
+                L_cur, ll_cur = score()
                 if batches == 1:
                     P_save = None if P1 is None else P.copy()
                     Q_save = Q.copy()
                     L_pre = L_cur
+                    ll_pre = ll_cur
             else:
                 L_bat = L_cur
         else:
@@ -376,22 +417,22 @@ def main(args):
                 if P_save is not None:
                     P[:] = P_save
                 Q[:] = Q_save
-                functions.emStep(P, Q, P if P1 is not None else None, Q, ctx, qo=q_obs)
-                L_cur = admix_cy.likelihood(Z, P, Q, c_vec, like, w_obs)
+                functions.emStep(P, Q, P if P1 is not None else None, Q, ctx, qo=q_obs, **em_kw)
+                L_cur, ll_cur = score()
                 n_retry += 1
                 if L_cur < L_pre:
                     if P_save is not None:
                         P[:] = P_save
                     Q[:] = Q_save
-                    L_cur, stalled = L_pre, True
+                    L_cur, ll_cur, stalled = L_pre, ll_pre, True
             conv = not stalled and 0 <= L_cur - L_pre <= args.tole
             if conv:
                 # Confirm the stopping decision with an ordinary, constrained EM step
                 if P1 is not None:
                     P1[:] = P
                 Q1[:] = Q
-                functions.emStep(P, Q, P if P1 is not None else None, Q, ctx, qo=q_obs)
-                check = admix_cy.likelihood(Z, P, Q, c_vec, like, w_obs)
+                functions.emStep(P, Q, P if P1 is not None else None, Q, ctx, qo=q_obs, **em_kw)
+                check, check_ll = score()
                 if check < L_cur:
                     if P1 is not None:
                         P[:] = P1
@@ -401,15 +442,20 @@ def main(args):
                 else:
                     conv = check - L_cur <= args.tole
                     L_cur = check
+                    ll_cur = check_ll
             L_pre = L_cur
+            ll_pre = ll_cur
             if P_save is not None:
                 P_save[:] = P
             Q_save[:] = Q
         if not np.isfinite(L_cur):
-            raise ValueError("Non-finite log-likelihood during ancestry estimation")
-        history.append(dict(iteration=it, batches=batches, loglike=L_cur * L_nrm))
+            raise ValueError("Non-finite ancestry objective during estimation")
+        row = dict(iteration=it, batches=batches, loglike=ll_cur * L_nrm)
+        if prior:
+            row["objective"] = L_cur * L_nrm
+        history.append(row)
         now = time()
-        printTiming(f"({it:,})  Log-like: {L_cur * L_nrm:,.1f}", now - lap)
+        printTiming(f"({it:,})  {metric}: {L_cur * L_nrm:,.1f}", now - lap)
         lap = now
         if conv or stalled:
             break
@@ -420,9 +466,11 @@ def main(args):
         recoveries=n_retry,
         final_batches=batches,
         em_seconds=time() - ts,
-        final_loglike=L_cur * L_nrm,
+        final_loglike=ll_cur * L_nrm,
         history=history,
     )
+    if prior:
+        stats["final_objective"] = L_cur * L_nrm
     print(
         "Converged."
         if conv

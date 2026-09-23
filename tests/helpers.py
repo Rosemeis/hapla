@@ -1,5 +1,7 @@
 """Shared small fixtures, temporary files, and CLI calls for unittest."""
 
+__author__ = "Jonas Meisner"
+
 import ctypes as ct
 import os
 import subprocess

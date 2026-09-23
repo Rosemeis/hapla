@@ -1,5 +1,7 @@
 """Parallel scheduling must respect memory limits without starving available workers."""
 
+__author__ = "Jonas Meisner"
+
 import json
 import os
 import subprocess
@@ -17,6 +19,7 @@ import hapla
 from hapla.runtime import batches, batchSize, openReader, runBatches
 
 
+### Check reader diagnostics and command output
 class OutputTests(TemporaryTests):
     def test_header_notes_preserve_other_diagnostics_and_restore_stderr(self):
         warning = "[W::bcf_hdr_check_sanity] PP should be declared as "
@@ -68,6 +71,7 @@ class OutputTests(TemporaryTests):
         self.assertEqual(*payloads)
 
 
+### Check thread budgets and bounded scheduling
 class SchedulingTests(unittest.TestCase):
     def test_thread_budget_overrides_inherited_runtime_settings(self):
         code = """

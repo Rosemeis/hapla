@@ -1,7 +1,11 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, initializedcheck=False, cdivision=True
+"""Categorical ancestry updates, constraints, and likelihoods."""
+
+__author__ = "Jonas Meisner"
+
 from cython.parallel import prange
 import numpy as np
-from libc.math cimport fmax, fmaxf, fmin, fminf, log, sqrtf
+from libc.math cimport INFINITY, fabs, fmax, fmaxf, fmin, fminf, isfinite, log, sqrtf
 from libc.stdint cimport uint8_t, uint32_t
 
 ctypedef uint8_t u8
@@ -17,14 +21,19 @@ cdef f32 FLT_MAX = 1.0 - (1e-5)
 
 
 ### Bound the quasi-Newton step
-cdef inline f64 _clamp2(f64 a) noexcept nogil: return fmax(ACC_MIN, fmin(a, ACC_MAX))
-cdef inline f32 _clamp3(f32 a) noexcept nogil: return fmaxf(FLT_MIN, fminf(a, FLT_MAX))
+cdef inline f64 _clamp2(f64 a) noexcept nogil:
+    return fmax(ACC_MIN, fmin(a, ACC_MAX))
+
+
+### Keep ALS probabilities within the supported bounds
+cdef inline f32 _clamp3(f32 a) noexcept nogil:
+    return fmaxf(FLT_MIN, fminf(a, FLT_MAX))
 
 
 ### Exact count M-step on the simplex with a fixed probability floor
 cdef inline void _simplex(f64* x, Py_ssize_t n, Py_ssize_t stride) noexcept nogil:
     cdef Py_ssize_t j, active = 0, removed
-    cdef f64 total = 0.0, scale, value
+    cdef f64 total = 0.0, scale = 0.0, value
     if n == 0:
         return
     for j in range(n):
@@ -132,7 +141,7 @@ cdef void _batchNorm(const f64* a, const f64* b, const f64* c,
                      Py_ssize_t beg, Py_ssize_t end, Py_ssize_t K,
                      f64* x, f64* y) noexcept nogil:
     cdef Py_ssize_t j, w
-    cdef f64 u, v, s = 0.0, t = 0.0
+    cdef f64 u = 0.0, v = 0.0, s = 0.0, t = 0.0
     for j in range(beg, end):
         w = rows[j]
         _norm(a, b, c, off[w], off[w] + counts[w]*K, &u, &v)
@@ -286,14 +295,16 @@ ctypedef fused width:
 
 ### Fit one window with reusable counts and no heap allocation
 cdef inline void _emWindow(width mode, const u8* z, bint missing, const f64* p, f64* out,
-                           const f64* q, f64* pt, f64* qt,
-                           Py_ssize_t N, Py_ssize_t C, Py_ssize_t K) noexcept nogil:
+                           const f64* q, const f64* pool, f64 mass, f64* pt, f64* qt,
+                           Py_ssize_t N, Py_ssize_t C, Py_ssize_t K,
+                           bint first, bint last) noexcept nogil:
     cdef Py_ssize_t i, k, c
+    cdef f64 base
     if width is u8:
         K = 5
     elif width is u32:
         K = 6
-    if out != NULL:
+    if out != NULL and first:
         for c in range(C*K):
             pt[c] = 0.0
     if not missing:
@@ -304,9 +315,15 @@ cdef inline void _emWindow(width mode, const u8* z, bint missing, const f64* p, 
         for i in range(N):
             _pair(p, &q[i*K], pt if out != NULL else NULL, &qt[i*K],
                   z[2*i]*K, z[2*i+1]*K, K, z[2*i] != 255, z[2*i+1] != 255)
-    if out != NULL:
-        for c in range(C*K):
-            out[c] = p[c] * pt[c]
+    if out != NULL and last:
+        if mass > 0.0:
+            for c in range(C):
+                base = mass * pool[c]
+                for k in range(K):
+                    out[c*K+k] = p[c*K+k] * pt[c*K+k] + base
+        else:
+            for c in range(C*K):
+                out[c] = p[c] * pt[c]
         for k in range(K):
             _simplex(&out[k], C, K)
 
@@ -316,44 +333,70 @@ cpdef void em(const u8[:, ::1] Z, const f64[::1] P, f64[::1] P_new,
               const f64[:, ::1] Q, f64[:, ::1] T,
               const u32[::1] k_vec, const u32[::1] c_vec,
               f64[:, ::1] pt, f64[:, :, ::1] qt,
-              const u32[::1] rows=None, const u32[::1] obs=None) noexcept nogil:
+              const u32[::1] rows=None, const u32[::1] obs=None,
+              const f64[::1] pool=None, f64 mass=0.0) except * nogil:
     cdef:
         Py_ssize_t W = Z.shape[0] if rows is None else rows.shape[0]
         Py_ssize_t N = Q.shape[0], K = Q.shape[1], B = min(W, qt.shape[0])
-        Py_ssize_t b, t, w, i, k, l
+        Py_ssize_t tile = qt.shape[1], j, beg, end, b, t, w, i, k, l
         bint missing
         f64* out
-    for b in prange(B, schedule='dynamic', chunksize=1):
-        for i in range(N):
-            for k in range(K):
-                qt[b, i, k] = 0.0
-        for t in range(b*W//B, (b+1)*W//B):
-            w = t if rows is None else rows[t]
-            l = c_vec[w]
-            if k_vec[w] == 0 or (obs is not None and obs[w] == 0):
-                if P_new is not None:
-                    for k in range(k_vec[w]*K):
-                        P_new[l+k] = P[l+k]
-                continue
-            missing = obs is not None and obs[w] != 2*N
-            out = NULL if P_new is None else &P_new[l]
-            if K == 5:
-                _emWindow[u8](0, &Z[w, 0], missing, &P[l], out, &Q[0, 0], &pt[b, 0],
-                              &qt[b, 0, 0], N, k_vec[w], 5)
-            elif K == 6:
-                _emWindow[u32](0, &Z[w, 0], missing, &P[l], out, &Q[0, 0], &pt[b, 0],
-                               &qt[b, 0, 0], N, k_vec[w], 6)
-            else:
-                _emWindow[f64](0, &Z[w, 0], missing, &P[l], out, &Q[0, 0], &pt[b, 0],
-                               &qt[b, 0, 0], N, k_vec[w], K)
-    for t in prange((N+31)//32, schedule='static'):
-        for i in range(t*32, min(N, (t+1)*32)):
-            for k in range(K):
-                T[i, k] = 0.0
-        for b in range(B):
-            for i in range(t*32, min(N, (t+1)*32)):
+        f64* work
+        const f64* base
+    if tile < 1 or qt.shape[2] != K or (W and B < 1):
+        with gil:
+            raise ValueError("Invalid EM workspace dimensions")
+    if not isfinite(mass) or mass < 0.0 or (P_new is not None and mass > 0.0 and
+                                           (pool is None or pool.shape[0]*K != P.shape[0])):
+        with gil:
+            raise ValueError("Invalid P prior dimensions or mass")
+
+    # Direct native callers may update P in place without a spare output buffer
+    if tile < N and P_new is not None and P.shape[0] and &P[0] == &P_new[0]:
+        with gil:
+            P = np.array(P, copy=True)
+
+    # Each sample retains the same window partitions and final reduction order
+    for j in range((N+tile-1)//tile):
+        beg = j*tile
+        end = min(N, beg + tile)
+        for b in prange(B, schedule='dynamic', chunksize=1):
+            for i in range(end - beg):
                 for k in range(K):
-                    T[i, k] += qt[b, i, k]
+                    qt[b, i, k] = 0.0
+            for t in range(b*W//B, (b+1)*W//B):
+                w = t if rows is None else rows[t]
+                l = c_vec[w]
+                if k_vec[w] == 0 or (obs is not None and obs[w] == 0):
+                    if P_new is not None:
+                        for k in range(k_vec[w]*K):
+                            P_new[l+k] = P[l+k]
+                    continue
+                missing = obs is not None and obs[w] != 2*N
+                out = NULL if P_new is None else &P_new[l]
+                base = NULL
+                if out != NULL and mass > 0.0:
+                    base = &pool[l//K]
+
+                # Keep P counts in the output until the last sample tile
+                work = out if tile < N else &pt[b, 0]
+                if K == 5:
+                    _emWindow[u8](0, &Z[w, 2*beg], missing, &P[l], out, &Q[beg, 0], base, mass,
+                                  work, &qt[b, 0, 0], end-beg, k_vec[w], 5, beg == 0, end == N)
+                elif K == 6:
+                    _emWindow[u32](0, &Z[w, 2*beg], missing, &P[l], out, &Q[beg, 0], base, mass,
+                                   work, &qt[b, 0, 0], end-beg, k_vec[w], 6, beg == 0, end == N)
+                else:
+                    _emWindow[f64](0, &Z[w, 2*beg], missing, &P[l], out, &Q[beg, 0], base, mass,
+                                   work, &qt[b, 0, 0], end-beg, k_vec[w], K, beg == 0, end == N)
+        for t in prange((end-beg+31)//32, schedule='static'):
+            for i in range(t*32, min(end-beg, (t+1)*32)):
+                for k in range(K):
+                    T[beg+i, k] = 0.0
+            for b in range(B):
+                for i in range(t*32, min(end-beg, (t+1)*32)):
+                    for k in range(K):
+                        T[beg+i, k] += qt[b, i, k]
 
 
 ### Count observed haplotypes in sample tiles without a window-by-sample mask
@@ -552,6 +595,37 @@ cpdef f64 likelihood(const u8[:, ::1] Z, const f64[::1] P,
     for w in range(Z.shape[0]):
         total += work[w]
     return total * (<f64>K / (<f64>P.shape[0] * (2*N)))
+
+
+### Score the pooled-frequency P prior relative to its mode
+cpdef f64 priorScore(const f64[::1] P, const f64[::1] pool,
+                     const u32[::1] k_vec, const u32[::1] c_vec,
+                     Py_ssize_t K, f64 mass):
+    cdef Py_ssize_t W = k_vec.shape[0], w, c, k, off, beg
+    cdef f64 x, total, value = 0.0
+    if (not isfinite(mass) or mass < 0.0 or K < 1 or c_vec.shape[0] != W+1 or
+            c_vec[0] != 0 or P.shape[0] != c_vec[W] or pool.shape[0]*K != P.shape[0]):
+        raise ValueError("Invalid P prior dimensions or mass")
+    if mass == 0.0:
+        return 0.0
+    for w in range(W):
+        off, beg, total = c_vec[w], c_vec[w]//K, 0.0
+        if (c_vec[w+1] > P.shape[0] or c_vec[w+1] < off or
+                c_vec[w+1] - off != k_vec[w]*K):
+            raise ValueError("Invalid P prior dimensions or mass")
+        for c in range(k_vec[w]):
+            x = pool[beg+c]
+            if not isfinite(x) or x < 0.0:
+                raise ValueError("Invalid pooled cluster frequencies")
+            total += x
+            if x > 0.0:
+                for k in range(K):
+                    if P[off+c*K+k] <= 0.0:
+                        return -INFINITY
+                    value += x * log(P[off+c*K+k] / x)
+        if k_vec[w] and total > 0.0 and fabs(total - 1.0) > 1e-8:
+            raise ValueError("Invalid pooled cluster frequencies")
+    return mass * value
 
 
 ### Projection function for P (f32)

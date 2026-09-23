@@ -2,6 +2,8 @@
 # cython: cdivision=True
 """Direct label projections, residual variances, and bounded correlation output."""
 
+__author__ = "Jonas Meisner"
+
 import numpy as np
 cimport openmp as omp
 from cython.parallel cimport prange
@@ -71,7 +73,7 @@ cpdef void correlation(f64[:, ::1] C, const f64[::1] d) noexcept nogil:
 
 ### Round bounded correlations exactly with integer arithmetic for decimal halfway cases
 cdef int _fixed(f64 val, char* buf) noexcept nogil:
-    cdef u64 bits, mant, rem, half
+    cdef u64 bits = 0, mant, rem, half
     cdef int shift, q = 0, n = 0
     if not -2 <= val <= 2:
         return snprintf(buf, 32, "%.4f", val)

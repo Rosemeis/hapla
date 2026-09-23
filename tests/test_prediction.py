@@ -1,4 +1,6 @@
-"""Native prediction: phase detection, exact alignment, bounded I/O, and the 1.0 break."""
+"""Native phase detection, reference alignment, and cluster prediction."""
+
+__author__ = "Jonas Meisner"
 
 import unittest
 from pathlib import Path
@@ -11,14 +13,15 @@ from hapla import packed_cy
 from hapla.formats import MAGIC
 
 
+### Read predicted cluster labels from a binary assignment file
 def labels(prefix, samples=3):
     return np.frombuffer(Path(f"{prefix}.bca").read_bytes()[len(MAGIC) :], np.uint8).reshape(
         -1, 2 * samples
     )
 
 
-def unphased_reference(G, R):
-    """Direct scalar version of the retained unphased pair heuristic."""
+### Compute the unphased pair heuristic with scalar distances
+def unphasedReference(G, R):
     dosage = G[:, 0::2] + G[:, 1::2]
     result = np.full(G.shape[1], 255, np.uint8)
     for sample in range(dosage.shape[1]):
@@ -38,6 +41,7 @@ def unphased_reference(G, R):
     return result
 
 
+### Compare packed predictions with scalar references
 class PackedPredictionTests(unittest.TestCase):
     def test_short_window_lookup_matches_reference_with_duplicates_and_missingness(self):
         rng = np.random.default_rng(904)
@@ -66,7 +70,7 @@ class PackedPredictionTests(unittest.TestCase):
             R[-1] = R[0]
             meta = (0, "1", 1, B, B)
             actual = predictBatch([(meta, G, np.ones(N, bool), R)])[0][2]
-            np.testing.assert_array_equal(actual, unphased_reference(G, R))
+            np.testing.assert_array_equal(actual, unphasedReference(G, R))
 
     def test_exact_distances_missingness_and_word_boundaries(self):
         rng = np.random.default_rng(620)
@@ -97,13 +101,14 @@ class PackedPredictionTests(unittest.TestCase):
             meta = (0, "1", 1, B, B)
             actual = predictBatch([(meta, G, phase, R)])[0][2]
             expected = packed_cy.predict_haplotypes(G, R)
-            expected.reshape(-1, 2)[phase] = unphased_reference(G, R).reshape(-1, 2)[phase]
+            expected.reshape(-1, 2)[phase] = unphasedReference(G, R).reshape(-1, 2)[phase]
             np.testing.assert_array_equal(actual, expected)
             self.assertEqual(actual[2], 255)
             self.assertNotEqual(actual[3], 255)
             np.testing.assert_array_equal(actual[6:8], [255, 255])
 
 
+### Check native phase detection, reference alignment, and output
 class NativePredictionTests(TemporaryTests):
     def reference(self, rows=None, **extra):
         rows = rows or [("1", i * 10, ("0|0", "0|1", "1|1")) for i in range(1, 20)]

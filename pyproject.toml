@@ -54,7 +54,7 @@ version = { attr = "hapla.__version__" }
 include = ["hapla*"]
 
 [tool.setuptools.package-data]
-hapla = ["*.pyx", "*.pxd"]
+hapla = ["*.pyx"]
 
 [tool.setuptools.exclude-package-data]
 hapla = ["*.c"]

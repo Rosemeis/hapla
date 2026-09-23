@@ -1,5 +1,7 @@
 """Native reader, window boundaries, versioned files, and streaming integration."""
 
+__author__ = "Jonas Meisner"
+
 import gzip
 import importlib.util
 import os
@@ -19,6 +21,7 @@ from hapla.struct import readData, scale
 from hapla.windows import createBuffer, fillBuffer, fixedWindows, physicalWindows, predefinedWindows
 
 
+### Check native genotype decoding and reader validation
 class ReaderTests(TemporaryTests):
     def test_phased_fast_path_matches_scalar_with_missing_and_odd_sample_count(self):
         samples = tuple(f"sample{i}" for i in range(33))
@@ -137,6 +140,7 @@ class ReaderTests(TemporaryTests):
             self.read(path)
 
 
+### Check buffered windows and chromosome boundaries
 class WindowTests(TemporaryTests):
     def test_small_read_blocks_support_larger_fixed_and_variable_windows(self):
         path = self.root / "blocks.vcf"
@@ -203,6 +207,7 @@ class WindowTests(TemporaryTests):
             self.windows(100, fixedWindows, 41)
 
 
+### Check cluster files and streaming command output
 class FormatAndPipelineTests(TemporaryTests):
     def test_thread_budget_includes_htslib_coordinator(self):
         for total in range(1, 33):

@@ -1,5 +1,7 @@
 """Independent categorical-EM references and ancestry command regressions."""
 
+__author__ = "Jonas Meisner"
+
 import sys
 from argparse import Namespace
 from contextlib import redirect_stdout
@@ -14,8 +16,8 @@ from hapla import admix_cy as cy
 from hapla import functions
 
 
+### Solve the constrained M-step by independent bisection
 def simplex(A):
-    """Independent Lagrange-multiplier solve, using bisection rather than active sets."""
     A = np.maximum(A, 0.0)
     out = np.empty_like(A)
     C = len(A)
@@ -35,6 +37,7 @@ def simplex(A):
     return out
 
 
+### Build deterministic categorical mixtures with optional missingness
 def fixture(K=5, missing=False):
     rng = np.random.default_rng(891)
     k = np.array([1, 2, 7, 255, 4, 3], dtype=np.uint32)
@@ -57,6 +60,7 @@ def fixture(K=5, missing=False):
     return P, Q, (Z, k, c, T, pt, qt, wo, None)
 
 
+### Compute dense EM updates and the observed-data likelihood
 def reference(P, Q, ctx, rows=None):
     Z, k, c, _, _, _, _, _ = ctx
     rows = range(len(Z)) if rows is None else rows
@@ -86,7 +90,113 @@ def reference(P, Q, ctx, rows=None):
     return out.ravel(), q, qo.astype(np.uint32), ll / (2 * len(Q) * len(A))
 
 
+### Check ancestry updates, initialization, and command output
 class AdmixtureTests(TemporaryTests):
+    def test_em_workspace_is_bounded_for_large_cohorts(self):
+        k = np.full(129, 255, dtype=np.uint32)
+        for N, K in ((500_000, 10), (1_000_000, 20)):
+            pt, qt = functions.emWorkspace(N, K, k)
+            self.assertEqual(qt.dtype, np.float64)
+            self.assertEqual(qt.shape[0], 64)
+            self.assertEqual(qt.shape[2], K)
+            self.assertLess(qt.shape[1], N)
+            self.assertLessEqual(qt.nbytes, 8 * 1024**2)
+            self.assertEqual(pt.shape, (64, 255 * K))
+
+    def test_sample_tiles_preserve_em_results_and_reduction_order(self):
+        rng = np.random.default_rng(952)
+        N, W = 79, 67
+        k = np.resize(np.array([1, 2, 0, 7, 4, 3, 5], np.uint32), W)
+        for K in (3, 5, 6):
+            P = np.concatenate([rng.dirichlet(np.ones(C), size=K).T.ravel() for C in k if C])
+            Q = rng.dirichlet(np.ones(K), size=N)
+            c = np.r_[0, np.cumsum(k * K)].astype(np.uint32)
+            for missing in (False, True):
+                Z = np.array(
+                    [rng.integers(C, size=2 * N) if C else np.full(2 * N, 255) for C in k], np.uint8
+                )
+                if missing:
+                    Z[:, :2] = 255
+                    Z[5] = 255
+                    Z[::4, 17] = 255
+                obs = (Z != 255).sum(axis=1, dtype=np.uint32)
+                pool = np.concatenate(
+                    [
+                        np.bincount(z[z != 255], minlength=C) / n if n else np.zeros(C)
+                        for z, C, n in zip(Z, k, obs)
+                    ]
+                )
+                for rows in (None, np.array([66, 0, 5, 2, 1, 32, 17], np.uint32)):
+                    for mass in (0.0, 0.75):
+                        for mode in ("update", "inplace", "projection"):
+                            fits = []
+                            for tile in (N, 1, 32, N - 1):
+                                with self.subTest(
+                                    K=K, missing=missing, mass=mass, mode=mode, tile=tile
+                                ):
+                                    p = P.copy()
+                                    out = P.copy()
+                                    if mode == "inplace":
+                                        out = p
+                                    elif mode == "projection":
+                                        out = None
+                                    T = np.full_like(Q, np.nan)
+                                    pt = np.full((64, int(k.max()) * K), np.nan)
+                                    qt = np.full((64, tile, K), np.nan)
+                                    cy.em(
+                                        Z,
+                                        p,
+                                        out,
+                                        Q,
+                                        T,
+                                        k,
+                                        c,
+                                        pt,
+                                        qt,
+                                        rows,
+                                        obs if missing else None,
+                                        pool,
+                                        mass,
+                                    )
+                                    fit = (p if out is None else out, T)
+                                    if fits:
+                                        for actual, expected in zip(fit, fits[0]):
+                                            np.testing.assert_array_equal(actual, expected)
+                                    fits.append(fit)
+
+    def test_tiled_quasi_newton_reuses_spare_p_and_preserves_checkpoint(self):
+        fits = []
+        for tile in (19, 7):
+            P, Q, ctx = fixture(5, missing=True)
+            ctx = (*ctx[:5], ctx[5][:, :tile].copy(), *ctx[6:])
+            P1, P2 = np.empty_like(P), np.empty_like(P)
+            Q1, Q2 = np.empty_like(Q), np.empty_like(Q)
+            qo = cy.observedCounts(ctx[0])
+            functions.emQuasi(P, Q, P1, P2, Q1, Q2, ctx, qo=qo, scratch=P2)
+            P1[:] = P
+            saved = P1.copy()
+            functions.emStep(P, Q, P, Q, ctx, qo=qo, scratch=P2)
+            np.testing.assert_array_equal(P1, saved)
+            fits.append((P, Q))
+        for actual, expected in zip(fits[1], fits[0]):
+            np.testing.assert_array_equal(actual, expected)
+
+    def test_tiled_inplace_batch_preserves_unselected_windows(self):
+        fits = []
+        rows = np.array([5, 2, 0], np.uint32)
+        for tile in (19, 7):
+            P, Q, ctx = fixture(5, missing=True)
+            ctx = (*ctx[:5], ctx[5][:, :tile].copy(), *ctx[6:])
+            saved = P.copy()
+            qo = cy.observedCounts(ctx[0], rows)
+            functions.emStep(P, Q, P, Q, ctx, rows, qo, scratch=np.full_like(P, np.nan))
+            for w in (1, 3, 4):
+                a, b = ctx[2][w : w + 2]
+                np.testing.assert_array_equal(P[a:b], saved[a:b])
+            fits.append((P, Q))
+        for actual, expected in zip(fits[1], fits[0]):
+            np.testing.assert_array_equal(actual, expected)
+
     def test_observed_counts_cover_sample_tiles_and_window_subsets(self):
         rng = np.random.default_rng(406)
         Z = rng.integers(0, 255, (17, 2 * 513), dtype=np.uint8)
@@ -116,7 +226,7 @@ class AdmixtureTests(TemporaryTests):
                 self.assertGreaterEqual(Q.min(), 1e-5)
                 old = now
 
-        # Audit counterexample: a minor ancestry must retain its supported allele.
+        # A minor ancestry must retain its supported allele
         N, K = 1000, 5
         Z, k, c = (
             np.zeros((1, 2 * N), np.uint8),
@@ -173,6 +283,166 @@ class AdmixtureTests(TemporaryTests):
         empty = writeClusters(self.root, "empty", np.full((2, 6), 255, np.uint8), np.zeros(3, int))
         res = command("admix", "--clusters", empty, "--K", 5, "--out", out, success=False)
         self.assertIn("No observed", res.stderr)
+
+    def test_p_prior_changes_fit_and_reports_regularized_objective(self):
+        _, _, ctx = fixture(5, missing=True)
+        ref = writeClusters(self.root, "prior", ctx[0], ctx[2] // 5)
+        fits = []
+        for mass in (0, 2):
+            out = self.root / f"prior{mass}"
+            opts = ("--p-prior", mass) if mass else ()
+            command(
+                "admix",
+                "--clusters",
+                ref,
+                "--K",
+                5,
+                "--random-init",
+                "--batches",
+                1,
+                "--iter",
+                2,
+                *opts,
+                "--out",
+                out,
+            )
+            pfx = f"{out}.K5.s42"
+            fits.append(np.loadtxt(f"{pfx}.P"))
+            log = readLog(pfx)
+            if mass:
+                self.assertLess(float(log["Final objective"]), float(log["Final log-like"]))
+                self.assertEqual(float(log["P prior"]), mass)
+            else:
+                self.assertNotIn("Final objective", log)
+                self.assertNotIn("P prior", log)
+        self.assertGreater(np.max(np.abs(fits[0] - fits[1])), 1e-6)
+
+    def test_source_initializer_is_opt_in(self):
+        _, _, ctx = fixture(5)
+        ref = writeClusters(self.root, "source", ctx[0], ctx[2] // 5)
+        for K, source in ((5, False), (5, True), (6, True)):
+            out = self.root / f"source{K}_{source}"
+            opts = ("--source-init",) if source else ()
+            res = command(
+                "admix",
+                "--clusters",
+                ref,
+                "--K",
+                K,
+                "--power",
+                2,
+                "--als-iter",
+                2,
+                "--iter",
+                1,
+                *opts,
+                "--out",
+                out,
+            )
+            text = "Computing source estimates." if source else "Computing SVD/ALS estimates."
+            self.assertIn(text, res.stdout)
+            self.assertTrue(np.isfinite(np.loadtxt(f"{out}.K{K}.s42.Q")).all())
+        for opts in (("--random-init",), ("--supervised", "sources"), ("--projection", "model.P")):
+            res = command(
+                "admix", "--clusters", ref, "--K", 5, "--source-init", *opts, success=False
+            )
+            self.assertIn("--source-init requires", res.stderr)
+
+    def test_source_and_prior_across_chromosomes_with_missingness(self):
+        rng = np.random.default_rng(617)
+        K, C, W, N, mass = 6, 4, 48, 48, 0.5
+        Z = rng.integers(0, C, (W, 2 * N), dtype=np.uint8)
+        Z[:, :2] = 255
+        Z[5] = 255
+        Z[::4, 7] = 255
+        refs = [
+            writeClusters(self.root, f"chr{j}", z, np.arange(len(z) + 1) * C)
+            for j, z in enumerate(np.split(Z, 2), 1)
+        ]
+        fits = []
+        for nt in (1, 4):
+            out = self.root / f"joint{nt}"
+            command(
+                "admix",
+                "--clusters",
+                *refs,
+                "--K",
+                K,
+                "--source-init",
+                "--p-prior",
+                mass,
+                "--threads",
+                nt,
+                "--power",
+                2,
+                "--als-iter",
+                4,
+                "--iter",
+                4,
+                "--check",
+                1,
+                "--batches",
+                3,
+                "--out",
+                out,
+            )
+            pfx = f"{out}.K{K}.s42"
+            Q = np.loadtxt(f"{pfx}.Q")
+            P = np.concatenate([np.loadtxt(f"{pfx}.chr{j}.P") for j in (1, 2)])
+            P = P.reshape(W, C, K)
+            np.testing.assert_allclose(Q[0], 1 / K, atol=1e-10)
+            np.testing.assert_allclose(Q.sum(axis=1), 1, atol=1e-9)
+            np.testing.assert_allclose(P.sum(axis=1), 1, atol=1e-9)
+            ll, penalty = 0.0, 0.0
+            for z, p in zip(Z, P):
+                h = np.flatnonzero(z != 255)
+                if len(h):
+                    ll += np.log((p[z[h]] * Q[h // 2]).sum(axis=1)).sum()
+                    f = np.bincount(z[h], minlength=C) / len(h)
+                    seen = f > 0
+                    penalty += mass * np.sum(f[seen, None] * np.log(p[seen] / f[seen, None]))
+            log = readLog(pfx)
+            self.assertAlmostEqual(float(log["Final log-like"]), ll, places=5)
+            self.assertAlmostEqual(float(log["Final objective"]), ll + penalty, places=5)
+            fits.append((P, Q))
+        for a, b in zip(*fits):
+            np.testing.assert_array_equal(a, b)
+
+    def test_prior_accepts_likelihood_loss_when_objective_improves(self):
+        from hapla.main import main
+
+        _, _, ctx = fixture(5)
+        ref = writeClusters(self.root, "map", ctx[0], ctx[2] // 5)
+        out = self.root / "fit"
+        scale = 2 * (ctx[0].shape[1] // 2) * int(ctx[1].sum())
+        argv = [
+            "hapla",
+            "admix",
+            "--clusters",
+            str(ref),
+            "--K",
+            "5",
+            "--random-init",
+            "--p-prior",
+            "1",
+            "--iter",
+            "1",
+            "--batches",
+            "1",
+            "--out",
+            str(out),
+        ]
+        with (
+            patch.object(sys, "argv", argv),
+            patch.object(cy, "likelihood", side_effect=[-100.0, -90.0, -91.0]),
+            patch.object(cy, "priorScore", side_effect=[-20.0 * scale, -10.0 * scale, -scale]),
+            redirect_stdout(StringIO()),
+        ):
+            main()
+        log = readLog(f"{out}.K5.s42")
+        self.assertNotIn("Recoveries", log)
+        self.assertEqual(float(log["Final log-like"]), -91.0 * scale)
+        self.assertEqual(float(log["Final objective"]), -92.0 * scale)
 
     def test_projection_normalizes_accepted_reference_probabilities(self):
         ref = writeClusters(self.root, "single", np.zeros((1, 200), np.uint8), np.array([0, 1]))
@@ -413,8 +683,10 @@ class AdmixtureTests(TemporaryTests):
                 chunk=8,
                 als_iter=10,
                 als_tole=1e-4,
+                p_prior=0.0,
                 subsampling=4,
                 random_init=True,
+                source_init=False,
                 supervised=None,
                 projection=None,
                 keep=None,

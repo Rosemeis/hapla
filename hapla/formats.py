@@ -1,5 +1,7 @@
 """Hapla 1.x binary boundaries. Analyses from earlier versions must be rerun."""
 
+__author__ = "Jonas Meisner"
+
 from pathlib import Path
 
 import numpy as np

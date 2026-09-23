@@ -1,5 +1,7 @@
 """Predict reference clusters with bounded native input and streamed output."""
 
+__author__ = "Jonas Meisner"
+
 from contextlib import ExitStack
 from time import perf_counter
 
@@ -102,7 +104,8 @@ def main(args):
         raise ValueError("PLINK BED input is unphased")
     if args.bfile is not None and args.io_threads not in (None, 0):
         raise ValueError("--io-threads requires BCF/VCF input")
-    # Balance decompression with the cheaper nearest-median worker.
+
+    # Balance decompression with the cheaper nearest-median worker
     io = 0 if args.bfile is not None else args.io_threads
     if io is None:
         io = min(3, max(0, (args.threads - 2) // 2))

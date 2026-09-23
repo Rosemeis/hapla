@@ -1,5 +1,7 @@
 """Thread budgets, bounded scheduling, output publication, and run summaries."""
 
+__author__ = "Jonas Meisner"
+
 import os
 import shlex
 import sys
@@ -193,7 +195,8 @@ def logRows(data, pad="  "):
             cols = [k for k in val[0] if any(row[k] is not None for row in val)]
             if "batches" in cols and all(r["batches"] == val[0]["batches"] for r in val):
                 cols.remove("batches")
-            if "objective" in cols and all(r["objective"] == r["log_likelihood"] for r in val):
+            ll = "log_likelihood" if "log_likelihood" in cols else "loglike"
+            if "objective" in cols and all(r["objective"] == r[ll] for r in val):
                 cols.remove("objective")
             labels = {
                 "iteration": "Iteration",

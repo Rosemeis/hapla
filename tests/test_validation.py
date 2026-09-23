@@ -1,5 +1,7 @@
 """Cross-command metadata boundaries and input/output validation."""
 
+__author__ = "Jonas Meisner"
+
 from contextlib import ExitStack
 from pathlib import Path
 
@@ -10,6 +12,7 @@ from hapla.formats import readMetadata
 from hapla.runtime import stageOutputs
 
 
+### Check input validation and output conflicts across commands
 class CodebaseContracts(TemporaryTests):
     def test_window_counts_and_dimensions_are_exact_integers(self):
         Z = np.tile([0, 1, 1, 0], (2, 1)).astype(np.uint8)

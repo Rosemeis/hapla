@@ -1,5 +1,5 @@
 include README.md LICENSE environment-cpu.yml
-recursive-include hapla *.pyx *.pxd
+recursive-include hapla *.pyx
 recursive-include tests *.py
 exclude hapla/*.c
 prune analysis

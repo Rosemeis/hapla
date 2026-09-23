@@ -205,7 +205,14 @@ def main():
         type=float,
         default=1e-9,
         metavar="FLOAT",
-        help="Tolerance in log likelihood / (2 * samples * cluster alleles) (1e-9)",
+        help="Tolerance in log likelihood or objective / (2 * samples * cluster alleles) (1e-9)",
+    )
+    adm.add_argument(
+        "--p-prior",
+        type=float,
+        default=0.0,
+        metavar="FLOAT",
+        help="P pseudocount mass per window and ancestry, 0 disables shrinkage (0)",
     )
     adm.add_argument(
         "--batches", type=int, default=16, metavar="INT", help="Number of initial mini-batches (16)"
@@ -249,6 +256,9 @@ def main():
     )
     adm.add_argument(
         "--random-init", action="store_true", help="Random initialization of parameters"
+    )
+    adm.add_argument(
+        "--source-init", action="store_true", help="Seed SVD/ALS from supported source extremes"
     )
     adm.add_argument(
         "--prefix",

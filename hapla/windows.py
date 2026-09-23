@@ -1,5 +1,7 @@
 """Bounded variant buffers and chromosome-aware windows."""
 
+__author__ = "Jonas Meisner"
+
 from time import perf_counter
 
 import numpy as np
