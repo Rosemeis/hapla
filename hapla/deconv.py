@@ -4,7 +4,6 @@ __author__ = "Thomas Bøggild"
 
 import os
 import tempfile
-from contextlib import ExitStack
 from hashlib import sha256
 from pathlib import Path
 from time import perf_counter
@@ -143,26 +142,38 @@ def writeVcf(out, bcf, rows, path, selected, ids, include_original):
             for name in src.contigs:
                 dst.write(f"##contig=<ID={name}>\n")
             dst.write('##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n')
-            dst.write("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t" + "\t".join(names) + "\n")
+            dst.write(
+                "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t" + "\t".join(names) + "\n"
+            )
             G = np.empty((4096, 2 * N), np.uint8)
             pos = np.empty(4096, np.int64)
             contigs = np.empty(4096, np.int32)
             missing = np.empty(4096, np.uint8)
             w = seen = 0
-            while (n := src.read_into(G, pos, contigs, missing)):
+            while n := src.read_into(G, pos, contigs, missing):
                 site_rows = src.sites.decode().splitlines()
                 if len(site_rows) != n:
                     raise RuntimeError("Genotype reader did not retain complete variant identities")
                 for r, site in enumerate(site_rows):
                     if w >= W:
-                        raise ValueError(f"Genotype input has more variants than cluster windows: {bcf}")
+                        raise ValueError(
+                            f"Genotype input has more variants than cluster windows: {bcf}"
+                        )
                     chrom, bp, ref, alt = site.split("\t")
-                    values = [genotype(G[r, 2 * i], G[r, 2 * i + 1]) for i in range(N)] if include_original else []
+                    values = (
+                        [genotype(G[r, 2 * i], G[r, 2 * i + 1]) for i in range(N)]
+                        if include_original
+                        else []
+                    )
                     for i, k in selected:
                         a = G[r, 2 * i] if path[2 * i, w] == k else 255
                         b = G[r, 2 * i + 1] if path[2 * i + 1, w] == k else 255
                         values.append(genotype(a, b))
-                    dst.write(f"{chrom}\t{bp}\t.\t{ref}\t{alt}\t.\tPASS\t.\tGT\t" + "\t".join(values) + "\n")
+                    dst.write(
+                        f"{chrom}\t{bp}\t.\t{ref}\t{alt}\t.\tPASS\t.\tGT\t"
+                        + "\t".join(values)
+                        + "\n"
+                    )
                     seen += 1
                     if seen == rows[w][4]:
                         seen, w = 0, w + 1
@@ -184,7 +195,9 @@ def main(args):
     filtered = []
     weight = np.zeros((N, args.K), np.int64)
     total = 0
-    with tempfile.TemporaryDirectory(prefix=".hapla-deconv-", dir=Path(args.out).absolute().parent) as tmp:
+    with tempfile.TemporaryDirectory(
+        prefix=".hapla-deconv-", dir=Path(args.out).absolute().parent
+    ) as tmp:
         tmp = Path(tmp)
         for j, (prefix, path_file) in enumerate(zip(prefixes, lai, strict=True)):
             rows = readWindows(prefix)
@@ -201,7 +214,12 @@ def main(args):
             filtered.append(saved)
             rows_all.append(rows)
             labels.append(mapLabels(prefix, W, N))
-        selected = [(i, k) for i in range(N) for k in range(args.K) if weight[i, k] / total >= args.min_fraction]
+        selected = [
+            (i, k)
+            for i in range(N)
+            for k in range(args.K)
+            if weight[i, k] / total >= args.min_fraction
+        ]
         if not selected:
             raise ValueError("No ancestry copies satisfy --min-fraction")
         print(f"Original samples: {N:,}\nAncestry copies retained: {len(selected):,}", flush=True)
@@ -234,7 +252,15 @@ def main(args):
             with vcfs.open("w") as handle:
                 for j, tag in enumerate(tags):
                     target = tmp / f"result.{tag}.vcf"
-                    writeVcf(target, bcf[j], rows_all[j], np.load(filtered[j]), selected, ids, args.include_original)
+                    writeVcf(
+                        target,
+                        bcf[j],
+                        rows_all[j],
+                        np.load(filtered[j]),
+                        selected,
+                        ids,
+                        args.include_original,
+                    )
                     handle.write(f"{base}.{tag}.vcf\n")
                     out[f".{tag}.vcf"] = target
             out[".vcfs"] = vcfs

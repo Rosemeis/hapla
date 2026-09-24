@@ -4,7 +4,6 @@ import unittest
 from pathlib import Path
 
 import numpy as np
-
 from helpers import TemporaryTests, command, writeClusters, writeVcf
 
 from hapla.formats import mapLabels
@@ -22,7 +21,9 @@ class DeconvolutionTests(TemporaryTests):
         self.path = self.root / "path"
         np.savetxt(
             self.path,
-            np.array([[0, 0, 1, 1], [0, 0, 1, 1], [0, 1, 0, 1], [0, 1, 0, 1], [1, 1, 1, 1], [1, 1, 1, 1]]),
+            np.array(
+                [[0, 0, 1, 1], [0, 0, 1, 1], [0, 1, 0, 1], [0, 1, 0, 1], [1, 1, 1, 1], [1, 1, 1, 1]]
+            ),
             fmt="%d",
         )
         self.paths = self.root / "paths"

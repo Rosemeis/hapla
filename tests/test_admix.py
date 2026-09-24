@@ -2,8 +2,8 @@
 
 __author__ = "Jonas Meisner"
 
-import sys
 import itertools
+import sys
 from argparse import Namespace
 from contextlib import redirect_stdout
 from io import StringIO
@@ -26,9 +26,7 @@ def test_weighted_q_update_matches_scalar_reference():
     P = rng.random(c[-1])
     for w in range(W):
         for ancestry in range(K):
-            P[c[w] + ancestry : c[w + 1] : K] /= P[
-                c[w] + ancestry : c[w + 1] : K
-            ].sum()
+            P[c[w] + ancestry : c[w + 1] : K] /= P[c[w] + ancestry : c[w + 1] : K].sum()
     Q = rng.dirichlet(np.ones(K), N)
     weights = np.array([1.0, 0.25, 2.0])
     observed = np.full(N, 2 * weights.sum())

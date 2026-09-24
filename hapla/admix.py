@@ -140,8 +140,7 @@ def main(args):
         for w, row in enumerate(rows):
             intervals.setdefault(row[0].removeprefix("chr"), []).append((row[1], row[2], w))
         intervals = {
-            chrom: tuple(np.asarray(x) for x in zip(*values))
-            for chrom, values in intervals.items()
+            chrom: tuple(np.asarray(x) for x in zip(*values)) for chrom, values in intervals.items()
         }
         with Reader(snp_vcf, max(0, args.threads - 1), phased=True) as src:
             index = {sample: i for i, sample in enumerate(src.samples)}
@@ -183,8 +182,7 @@ def main(args):
         W = Z.shape[0]
         args.batches = 1
         print(
-            f"Added {len(parent):,} SNPs ({snp_weights.sum():,.1f} window equivalents).",
-            flush=True,
+            f"Added {len(parent):,} SNPs ({snp_weights.sum():,.1f} window equivalents).", flush=True
         )
 
     M = int(np.sum(k_vec, dtype=np.uint64))
@@ -218,9 +216,7 @@ def main(args):
     if weights is None:
         L_nrm = 2.0 * float(M) * float(N)
     else:
-        q_obs = np.sum(
-            (Z.reshape(W, N, 2) != 255) * weights[:, None, None], axis=(0, 2)
-        )
+        q_obs = np.sum((Z.reshape(W, N, 2) != 255) * weights[:, None, None], axis=(0, 2))
         L_nrm = 2.0 * float(N) * float(np.dot(weights, k_vec))
     c_vec = c_tmp * args.K
 
@@ -439,13 +435,16 @@ def main(args):
             step = W // batches
             for b in range(batches):
                 rows = s_win[b * step : W if b == batches - 1 else (b + 1) * step]
-                qo = None if q_obs is None else (
-                    admix_cy.observedCounts(Z, rows)
-                    if weights is None
-                    else np.sum(
-                        (Z[rows].reshape(len(rows), N, 2) != 255)
-                        * weights[rows, None, None],
-                        axis=(0, 2),
+                qo = (
+                    None
+                    if q_obs is None
+                    else (
+                        admix_cy.observedCounts(Z, rows)
+                        if weights is None
+                        else np.sum(
+                            (Z[rows].reshape(len(rows), N, 2) != 255) * weights[rows, None, None],
+                            axis=(0, 2),
+                        )
                     )
                 )
                 functions.emQuasi(P, Q, P1, P2, Q1, Q2, ctx, rows, qo, **em_kw)
@@ -574,7 +573,9 @@ def main(args):
                     "".join(f"{Path(f_out).absolute()}.{args.prefix}{f + 1}.P\n" for f in range(F))
                 )
             else:
-                np.savetxt(out[".P"], P[: M_clusters * args.K].reshape(M_clusters, args.K), fmt="%.10g")
+                np.savetxt(
+                    out[".P"], P[: M_clusters * args.K].reshape(M_clusters, args.K), fmt="%.10g"
+                )
         stats.update(output_seconds=time() - ts, elapsed_seconds=time() - start)
         writeLog(out, "admix", args, stats, f_out)
         commitOutputs(f_out, out, stale=stale)
