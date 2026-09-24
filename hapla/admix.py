@@ -154,7 +154,7 @@ def main(args):
                 pos = np.empty(65536, dtype=np.int64)
                 chrom = np.empty(65536, dtype=np.int32)
                 missing = np.empty(65536, dtype=np.uint8)
-                got = src.read_into(raw, pos, chrom, missing)
+                got = src.readInto(raw, pos, chrom, missing)
                 if not got:
                     break
                 keep_rows, keep_parent = [], []

@@ -150,7 +150,7 @@ def writeVcf(out, bcf, rows, path, selected, ids, include_original):
             contigs = np.empty(4096, np.int32)
             missing = np.empty(4096, np.uint8)
             w = seen = 0
-            while n := src.read_into(G, pos, contigs, missing):
+            while n := src.readInto(G, pos, contigs, missing):
                 site_rows = src.sites.decode().splitlines()
                 if len(site_rows) != n:
                     raise RuntimeError("Genotype reader did not retain complete variant identities")
