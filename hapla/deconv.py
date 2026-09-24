@@ -1,6 +1,6 @@
 """Expand local-ancestry paths into ancestry-specific cluster or SNP copies."""
 
-__author__ = "Jonas Meisner"
+__author__ = "Thomas Bøggild"
 
 import os
 import tempfile
