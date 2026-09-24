@@ -180,7 +180,7 @@ def writeWindow(files, meta, z, K, w):
     if ".bed" in files:
         from hapla import packed_cy
 
-        files[".bed"].write(packed_cy.plink_window(z, K))
+        files[".bed"].write(packed_cy.plinkWindow(z, K))
         for k in range(K):
             label = f"{chrom}_W{w}_K{k + 1}_B{B}"
             files[".bim"].write(f"{chrom}\t{label}\t0\t{beg}\tK\t0\n")

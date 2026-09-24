@@ -154,7 +154,7 @@ class OwnershipTests(TemporaryTests):
         src.close()
         src.close()
         with self.assertRaisesRegex(ValueError, "closed"):
-            src.read_into(
+            src.readInto(
                 np.empty((1, 6), np.uint8),
                 np.empty(1, np.int64),
                 np.empty(1, np.int32),

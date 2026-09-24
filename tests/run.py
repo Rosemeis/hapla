@@ -4,6 +4,7 @@ __author__ = "Jonas Meisner"
 
 import argparse
 import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -18,11 +19,14 @@ def main():
     if args.threads < 1:
         parser.error("Threads must be positive")
 
+    tests = Path(__file__).resolve().parent
+    if not args.installed:
+        sys.path.insert(0, str(tests.parent))
+
     import hapla
     from hapla.runtime import configureThreads
 
     configureThreads(args.threads)
-    tests = Path(__file__).resolve().parent
     package = Path(hapla.__file__).resolve()
     if args.installed and package.is_relative_to(tests.parent / "hapla"):
         parser.error("Install the built wheel and run without the checkout on PYTHONPATH")

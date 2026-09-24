@@ -77,7 +77,7 @@ def predictBatch(batch):
         z = (
             np.full(G.shape[1], 255, np.uint8)
             if not len(R) or (phase is not None and n_unph == len(phase))
-            else packed_cy.predict_haplotypes(G, R)
+            else packed_cy.predictHaplotypes(G, R)
         )
         if len(R) and n_unph:
             miss = np.any(G == 255, axis=0).reshape(-1, 2).any(axis=1)
@@ -134,7 +134,7 @@ def main(args):
             src, stats["diagnostics"] = openReader(
                 stack, args.vcf, nio, phased=args.phase_mode == "phased"
             )
-            read, ids, chroms = src.read_into, src.samples, src.contigs
+            read, ids, chroms = src.readInto, src.samples, src.contigs
         else:
             rows = []
             read, ids, chroms = openPlink(stack, args.bfile, rows)

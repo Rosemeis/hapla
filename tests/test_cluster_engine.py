@@ -5,7 +5,7 @@ __author__ = "Jonas Meisner"
 import unittest
 
 import numpy as np
-from hapla.packed_cy import fit_window, likelihoods, plink_window, predict_haplotypes
+from hapla.packed_cy import fitWindow, likelihoods, plinkWindow, predictHaplotypes
 
 
 ### Fit weighted medians using a full distance matrix
@@ -95,7 +95,7 @@ def reference(G, alpha=0.1, min_freq=0.005, min_mac=None, K_max=255):
 class PackedClusteringTests(unittest.TestCase):
     def checkReference(self, G, **options):
         expected = reference(G, **options)
-        result = fit_window(G, **options)
+        result = fitWindow(G, **options)
         for value, key in zip(expected, ("labels", "medians", "counts")):
             np.testing.assert_array_equal(value, result[key])
         self.assertEqual(int(result["sizes"].sum()), np.count_nonzero(np.all(G != 255, axis=0)))
@@ -114,16 +114,16 @@ class PackedClusteringTests(unittest.TestCase):
 
     def test_complete_fast_path_is_identical(self):
         G = np.random.default_rng(33).integers(0, 2, (65, 100), dtype=np.uint8)
-        full = fit_window(G, missing=True)
-        fast = fit_window(G, missing=False)
+        full = fitWindow(G, missing=True)
+        fast = fitWindow(G, missing=False)
         for key in ("labels", "medians", "sizes", "counts"):
             np.testing.assert_array_equal(full[key], fast[key])
         self.assertEqual(full["stats"], fast["stats"])
 
     def checkFlip(self, G, flip, **options):
-        A = fit_window(G, **options)
+        A = fitWindow(G, **options)
         X = np.where(G == 255, 255, G ^ flip[:, None]).astype(np.uint8)
-        B = fit_window(X, **options)
+        B = fitWindow(X, **options)
         for key in ("labels", "sizes"):
             np.testing.assert_array_equal(A[key], B[key])
         self.assertEqual(A["stats"], B["stats"])
@@ -135,8 +135,8 @@ class PackedClusteringTests(unittest.TestCase):
             likelihoods(A["medians"], A["counts"], A["sizes"]),
             likelihoods(B["medians"], B["counts"], B["sizes"]),
         )
-        np.testing.assert_array_equal(predict_haplotypes(G, A["medians"]), A["labels"])
-        np.testing.assert_array_equal(predict_haplotypes(X, B["medians"]), B["labels"])
+        np.testing.assert_array_equal(predictHaplotypes(G, A["medians"]), A["labels"])
+        np.testing.assert_array_equal(predictHaplotypes(X, B["medians"]), B["labels"])
 
     def test_allele_flips_with_weighted_ties_missingness_and_word_boundaries(self):
         rng = np.random.default_rng(716)
@@ -162,8 +162,8 @@ class PackedClusteringTests(unittest.TestCase):
         rng = np.random.default_rng(819)
         G = rng.integers(0, 2, (65, 41), dtype=np.uint8)
         order = rng.permutation(G.shape[1])
-        A = fit_window(G, K_max=7, min_mac=3)
-        B = fit_window(G[:, order].copy(), K_max=7, min_mac=3)
+        A = fitWindow(G, K_max=7, min_mac=3)
+        B = fitWindow(G[:, order].copy(), K_max=7, min_mac=3)
         np.testing.assert_array_equal(A["labels"][order], B["labels"])
         for key in ("medians", "counts", "sizes"):
             np.testing.assert_array_equal(A[key], B[key])
@@ -174,7 +174,7 @@ class PackedClusteringTests(unittest.TestCase):
         G = np.concatenate(
             (np.repeat(patterns, 2, axis=0).T, np.full((8, 2), 255, np.uint8)), axis=1
         )
-        result = fit_window(G, min_mac=1)
+        result = fitWindow(G, min_mac=1)
         self.assertEqual(result["stats"]["K"], 255)
         np.testing.assert_array_equal(np.unique(result["labels"][:-2]), np.arange(255))
         np.testing.assert_array_equal(result["labels"][-2:], [255, 255])
@@ -183,7 +183,7 @@ class PackedClusteringTests(unittest.TestCase):
 
     def test_cluster_cap_never_labels_observed_haplotypes_missing(self):
         G = ((np.arange(256)[:, None] >> np.arange(8)) & 1).astype(np.uint8).T.copy()
-        result = fit_window(G, min_mac=1)
+        result = fitWindow(G, min_mac=1)
         self.assertTrue(result["stats"]["capped"])
         self.assertEqual(result["stats"]["K"], 255)
         self.assertTrue(np.all(result["labels"] < 255))
@@ -194,7 +194,7 @@ class PackedClusteringTests(unittest.TestCase):
         result = self.checkReference(G, min_freq=0.3)
         self.assertEqual(result["stats"]["K"], 2)
         self.assertEqual(result["labels"][3], 255)
-        empty = fit_window(np.full((8, 6), 255, np.uint8))
+        empty = fitWindow(np.full((8, 6), 255, np.uint8))
         self.assertEqual(empty["stats"]["K"], 0)
         self.assertTrue(np.all(empty["labels"] == 255))
         self.assertEqual(
@@ -204,7 +204,7 @@ class PackedClusteringTests(unittest.TestCase):
     def test_single_cluster_and_strict_minimum(self):
         result = self.checkReference(np.array([[0] * 99 + [1]] * 8, np.uint8), min_mac=10)
         self.assertEqual(result["stats"]["K"], 1)
-        same = fit_window(np.zeros((16, 4), np.uint8), K_max=1)
+        same = fitWindow(np.zeros((16, 4), np.uint8), K_max=1)
         self.assertEqual(same["stats"]["K"], 1)
 
     def test_limits_and_input_validation(self):
@@ -217,24 +217,24 @@ class PackedClusteringTests(unittest.TestCase):
             {"n_iter": 0},
         ):
             with self.assertRaises(ValueError):
-                fit_window(G, **options)
+                fitWindow(G, **options)
         with self.assertRaisesRegex(RuntimeError, "Growth did not converge"):
-            fit_window(G, n_iter=1)
+            fitWindow(G, n_iter=1)
         with self.assertRaises(ValueError):
-            fit_window(np.full((2, 4), 2, np.uint8))
+            fitWindow(np.full((2, 4), 2, np.uint8))
         with self.assertRaises(ValueError):
-            fit_window(np.full((2, 4), 255, np.uint8), missing=False)
+            fitWindow(np.full((2, 4), 255, np.uint8), missing=False)
 
     def test_scores_from_counts_and_missing_plink(self):
         G = np.random.default_rng(87).integers(0, 2, (8, 40), dtype=np.uint8)
-        r = fit_window(G, min_mac=2)
+        r = fitWindow(G, min_mac=2)
         p = np.clip(r["counts"] / r["sizes"][:, None], 1e-5, 1 - 1e-5)
         expected = r["medians"] @ np.log(p).T + (1 - r["medians"]) @ np.log1p(-p).T
         np.testing.assert_allclose(
             likelihoods(r["medians"], r["counts"], r["sizes"]), expected, rtol=1e-6, atol=1e-5
         )
         labels = np.array([0, 0, 0, 1, 1, 1, 255, 0], np.uint8)
-        np.testing.assert_array_equal(plink_window(labels, 2), [[120], [75]])
+        np.testing.assert_array_equal(plinkWindow(labels, 2), [[120], [75]])
 
 
 if __name__ == "__main__":

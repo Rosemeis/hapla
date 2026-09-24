@@ -56,7 +56,7 @@ class PackedPredictionTests(unittest.TestCase):
             D = np.stack([np.count_nonzero(G != r[:, None], axis=0) for r in R])
             expected = (K - 1 - np.argmin(D[::-1], axis=0)).astype(np.uint8)
             expected[np.any(G == 255, axis=0)] = 255
-            np.testing.assert_array_equal(packed_cy.predict_haplotypes(G, R), expected)
+            np.testing.assert_array_equal(packed_cy.predictHaplotypes(G, R), expected)
 
     def test_unphased_packed_pairs_and_ties_match_scalar_reference(self):
         from hapla.predict import predictBatch
@@ -84,9 +84,9 @@ class PackedPredictionTests(unittest.TestCase):
                     D = np.stack([np.sum(G != r[:, None], axis=0) for r in R])
                     expected = (K - 1 - np.argmin(D[::-1], axis=0)).astype(np.uint8)
                     expected[4] = 255
-                np.testing.assert_array_equal(packed_cy.predict_haplotypes(G, R), expected)
+                np.testing.assert_array_equal(packed_cy.predictHaplotypes(G, R), expected)
         with self.assertRaisesRegex(ValueError, "binary"):
-            packed_cy.predict_haplotypes(np.zeros((1, 2), np.uint8), np.full((1, 1), 2, np.uint8))
+            packed_cy.predictHaplotypes(np.zeros((1, 2), np.uint8), np.full((1, 1), 2, np.uint8))
 
     def test_mixed_phase_batch_against_independent_pair_reference(self):
         from hapla.predict import predictBatch
@@ -100,7 +100,7 @@ class PackedPredictionTests(unittest.TestCase):
             phase = np.array([0, 0, 1, 1, 0, 1], bool)
             meta = (0, "1", 1, B, B)
             actual = predictBatch([(meta, G, phase, R)])[0][2]
-            expected = packed_cy.predict_haplotypes(G, R)
+            expected = packed_cy.predictHaplotypes(G, R)
             expected.reshape(-1, 2)[phase] = unphasedReference(G, R).reshape(-1, 2)[phase]
             np.testing.assert_array_equal(actual, expected)
             self.assertEqual(actual[2], 255)
@@ -144,14 +144,14 @@ class NativePredictionTests(TemporaryTests):
                     np.empty(3, np.uint8),
                 )
                 phase = np.empty((3, 3), np.uint8)
-                self.assertEqual(reader.read_into(G, pos, rid, absent, phase), 3)
+                self.assertEqual(reader.readInto(G, pos, rid, absent, phase), 3)
                 np.testing.assert_array_equal(phase, [[0, 0, 0], [1, 0, 1], [0, 0, 0]])
                 self.assertEqual(
                     reader.sites, b"".join(f"1\t{i}\tA\tG\n".encode() for i in (1, 2, 3))
                 )
         with Reader(path) as reader:
             with self.assertRaisesRegex(ValueError, "Unphased"):
-                reader.read_into(G, pos, rid, absent)
+                reader.readInto(G, pos, rid, absent)
 
     def test_unindexed_parallel_mixed_phasing_and_missingness(self):
         _, reference, rows = self.reference()

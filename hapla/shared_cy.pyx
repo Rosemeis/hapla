@@ -1,9 +1,10 @@
 # cython: language_level=3, boundscheck=False, wraparound=False, initializedcheck=False, cdivision=True
-"""PLINK decoding and packed cluster-pair distances for unphased prediction."""
+"""Shared numerical updates, PLINK decoding, and unphased cluster distances."""
 
 __author__ = "Jonas Meisner"
 
 import numpy as np
+from libc.math cimport sqrt
 cimport openmp as omp
 from cython.parallel cimport prange, threadid
 from libc.stdint cimport uint8_t, uint32_t, uint64_t
@@ -19,6 +20,20 @@ cdef extern from *:
     }
     """
     unsigned hapla_popcount(unsigned long long) noexcept nogil
+
+
+### Damp a fixed-point proposal and measure its accepted parameter change
+def damp(const double[::1] old, double[::1] new):
+    cdef Py_ssize_t j, n = old.shape[0]
+    cdef double d, total = 0
+    if new.shape[0] != n:
+        raise ValueError("Parameter dimensions differ")
+    with nogil:
+        for j in range(n):
+            d = 0.5 * (new[j] - old[j])
+            new[j] = old[j] + d
+            total += d*d
+    return sqrt(total/n) if n else 0.0
 
 
 ### Read unphased 2-bit genotype array for haplotype cluster prediction

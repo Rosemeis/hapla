@@ -399,6 +399,136 @@ cpdef void em(const u8[:, ::1] Z, const f64[::1] P, f64[::1] P_new,
                         T[beg+i, k] += qt[b, i, k]
 
 
+### Accumulate unfloored expected counts before excluding each individual's pair
+cdef void _looCounts(const u8* z, const f64* p, const f64* q, f64* out,
+                     Py_ssize_t N, Py_ssize_t C, Py_ssize_t K) noexcept nogil:
+    cdef Py_ssize_t h, k, r
+    cdef f64 inv
+    for r in range(C*K): out[r] = 0
+    for h in range(2*N):
+        if z[h] != 255:
+            r = z[h]*K
+            inv = _computeH(&p[r], &q[(h//2)*K], K)
+            for k in range(K): out[r+k] += p[r+k]*q[(h//2)*K+k]*inv
+
+
+### Use leave-pair-out frequencies for Q, including an observed-only pooled prior
+cdef void _looWindow(const u8* z, const f64* p, const f64* counts, const f64* q,
+                     const f64* pool, f64* tmp, f64* qt, f64* work, f64 mass, Py_ssize_t obs,
+                     Py_ssize_t beg, Py_ssize_t end, Py_ssize_t C, Py_ssize_t K) noexcept nogil:
+    cdef Py_ssize_t i, k, c, r, s, n
+    cdef f64 a, b, value, x, y, den, v1, v2, scale
+    cdef f64* total = work
+    cdef f64* low1 = work+K
+    cdef f64* low2 = work+2*K
+    cdef f64* f = work+3*K
+    cdef f64* g = work+4*K
+    cdef bint first, second, fast
+    a, b = <f64>obs/max(1, obs-1), <f64>obs/max(1, obs-2)
+    for k in range(K):
+        total[k], low1[k], low2[k] = 0, INFINITY, INFINITY
+        for c in range(C):
+            value = counts[c*K+k]
+            x = mass*pool[c]
+            total[k] += value
+            low1[k] = min(low1[k], value + a*x)
+            low2[k] = min(low2[k], value + b*x)
+    for i in range(beg, end):
+        r, s = z[2*i], z[2*i+1]
+        n = (r != 255) + (s != 255)
+        if not n: continue
+        first = r != 255 and pool[r]*obs - 1 - (s == r) >= 0.5
+        second = s != 255 and pool[s]*obs - 1 - (r == s) >= 0.5
+        if n == obs or not (first or second):
+            for k in range(K): qt[(i-beg)*K+k] += n
+            continue
+        a = _computeH(&p[r*K], &q[i*K], K) if r != 255 else 0
+        b = a if r == s else (_computeH(&p[s*K], &q[i*K], K) if s != 255 else 0)
+        scale = mass/(obs-n)
+        fast = True
+        # Only the two observed rows are needed when no probability floor binds
+        for k in range(K):
+            x = p[r*K+k]*q[i*K+k]*a if r != 255 else 0
+            y = p[s*K+k]*q[i*K+k]*b if s != 255 else 0
+            den = total[k] - x - y + mass
+            if den <= 0 or (low1[k] if n == 1 else low2[k]) < PRO_MIN*den:
+                fast = False
+                break
+            v1 = (counts[r*K+k] + scale*(pool[r]*obs - 1 - (s == r)) - x - (y if s == r else 0)
+                  if r != 255 else den)
+            v2 = (counts[s*K+k] + scale*(pool[s]*obs - 1 - (r == s)) - y - (x if r == s else 0)
+                  if s != 255 else den)
+            if min(v1, v2) < PRO_MIN*den:
+                fast = False
+                break
+            f[k], g[k] = v1/den, v2/den
+        if not fast:
+            for c in range(C):
+                value = scale * max(0.0, pool[c]*obs - (r == c) - (s == c))
+                for k in range(K): tmp[c*K+k] = counts[c*K+k] + value
+            if r != 255:
+                for k in range(K): tmp[r*K+k] -= p[r*K+k]*q[i*K+k]*a
+            if s != 255:
+                for k in range(K): tmp[s*K+k] -= p[s*K+k]*q[i*K+k]*b
+            for k in range(K): _simplex(&tmp[k], C, K)
+            for k in range(K):
+                f[k] = tmp[r*K+k] if r != 255 else 1
+                g[k] = tmp[s*K+k] if s != 255 else 1
+        a = _computeH(f, &q[i*K], K) if first else 0
+        b = _computeH(g, &q[i*K], K) if second else 0
+        for k in range(K):
+            if r != 255: qt[(i-beg)*K+k] += f[k]*a if first else 1
+            if s != 255: qt[(i-beg)*K+k] += g[k]*b if second else 1
+
+
+### Leave-one-individual-out Q update with the same bounded deterministic reduction
+def loo(const u8[:, ::1] Z, const f64[::1] P, f64[::1] P_new,
+        const f64[:, ::1] Q, f64[:, ::1] T, const u32[::1] k_vec,
+        const u32[::1] c_vec, f64[:, ::1] pt, f64[:, :, ::1] qt,
+        const f64[::1] pool, const u32[::1] obs=None, f64 mass=0):
+    cdef Py_ssize_t W = Z.shape[0], N = Q.shape[0], K = Q.shape[1]
+    cdef Py_ssize_t B = min(W, qt.shape[0]), tile = qt.shape[1]
+    cdef Py_ssize_t w, h, k, b, j, beg, end, i, l, n
+    if (not W or not N or not K or Z.shape[1] != 2*N or k_vec.shape[0] != W or
+            c_vec.shape[0] != W+1 or c_vec[W] != P.shape[0] or
+            P_new.shape[0] != P.shape[0] or pool.shape[0]*K != P.shape[0] or
+            T.shape[0] != N or T.shape[1] != K or B < 1 or tile < 1 or
+            qt.shape[2] != K or pt.shape[0] < B or
+            pt.shape[1] < np.max(k_vec)*K or (obs is not None and obs.shape[0] != W) or
+            not isfinite(mass) or mass < 0):
+        raise ValueError("Invalid LOO dimensions or prior mass")
+    if P.shape[0] and &P[0] == &P_new[0]:
+        raise ValueError("LOO requires separate input and output P buffers")
+    cdef f64[:, ::1] work = np.empty((B, 5*K))
+    for w in prange(W, nogil=True, schedule='static'):
+        l = c_vec[w]
+        if k_vec[w]:
+            _looCounts(&Z[w, 0], &P[l], &Q[0, 0], &P_new[l], N, k_vec[w], K)
+    for j in range((N+tile-1)//tile):
+        beg, end = j*tile, min(N, (j+1)*tile)
+        for b in prange(B, nogil=True, schedule='dynamic', chunksize=1):
+            for i in range(end-beg):
+                for k in range(K): qt[b, i, k] = 0
+            for w in range(b*W//B, (b+1)*W//B):
+                n = 2*N if obs is None else obs[w]
+                if not n or not k_vec[w]: continue
+                l = c_vec[w]
+                _looWindow(&Z[w, 0], &P[l], &P_new[l], &Q[0, 0], &pool[l//K],
+                           &pt[b, 0], &qt[b, 0, 0], &work[b, 0], mass, n, beg, end, k_vec[w], K)
+        for i in prange(end-beg, nogil=True, schedule='static'):
+            for k in range(K):
+                T[beg+i, k] = 0
+                for b in range(B): T[beg+i, k] += qt[b, i, k]
+    for w in prange(W, nogil=True, schedule='static'):
+        l = c_vec[w]
+        if obs is not None and not obs[w]:
+            for h in range(k_vec[w]*K): P_new[l+h] = P[l+h]
+        elif k_vec[w]:
+            for h in range(k_vec[w]):
+                for k in range(K): P_new[l+h*K+k] += mass*pool[l//K+h]
+            for k in range(K): _simplex(&P_new[l+k], k_vec[w], K)
+
+
 ### Count observed haplotypes in sample tiles without a window-by-sample mask
 def observedCounts(const u8[:, ::1] Z, const u32[::1] rows=None):
     cdef Py_ssize_t N = Z.shape[1]//2, W = Z.shape[0] if rows is None else rows.shape[0]

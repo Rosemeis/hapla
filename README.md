@@ -216,11 +216,12 @@ no observed assignments receive uniform Q unless fixed by supervision.
 | `--projection FILE` | — | Fixed P matrix, or P-file list for multiple cluster inputs |
 | `--random-init` | Off | Use random P/Q instead of SVD/ALS initialization |
 | `--source-init` | Off | Seed SVD/ALS from supported source extremes |
+| `--loo` | Off | Leave both haplotypes out of P when updating their individual's Q |
 | `--iter INT` | `1000` | Maximum outer fitting iterations |
-| `--tole FLOAT` | `1e-9` | Tolerance in log likelihood or objective / (2 × samples × cluster alleles) |
+| `--tole FLOAT` | `1e-9` | Normalized likelihood/objective tolerance, or parameter RMSE with `--loo` |
 | `--p-prior FLOAT` | `0` | P pseudocount mass per window and ancestry, 0 disables shrinkage |
 | `--batches INT` | `16` | Initial mini-batches, reduced during fitting |
-| `--check INT` | `5` | Iterations between convergence checks and progress reports |
+| `--check INT` | `5` | Iterations between progress reports and non-LOO convergence checks |
 | `--chunk INT` | `4096` | Target cluster alleles per SVD calculation block |
 | `--power INT` | `11` | SVD power iterations |
 | `--seed INT` | `42` | Random seed |
@@ -239,6 +240,20 @@ uses pooled cluster frequencies within each window and cannot update a fixed
 projection P. With shrinkage, convergence uses the regularized objective while
 the log also records the likelihood. Timings cover each `--check` interval and
 any final partial interval. Warm-up is separate.
+
+`--loo` subtracts each individual's current expected cluster counts before
+updating its Q. The pooled P prior also excludes that individual's observed
+haplotypes. Private clusters and windows without other observations provide
+no ancestry information. Shared P still uses all individuals. Projection
+cannot be combined with `--loo`.
+
+LOO uses full-data updates with half-step damping, without mini-batches,
+quasi-Newton acceleration, or warm-up. Convergence uses the larger P/Q RMSE
+per update. The likelihood and regularized objective are diagnostic and may
+decrease. This is a current-count correction, not a separate model refit for
+each excluded individual. Initialization still uses the full cohort.
+Without LOO, `--tole` applies to log likelihood or objective divided by
+2 × samples × cluster alleles.
 
 EM uses float64 sample tiles with an 8 MiB target for Q scratch, subject to a
 minimum of one sample per window partition. P counts reuse the existing output
@@ -264,8 +279,9 @@ Chains reset at chromosome boundaries.
 | `-e`, `--pfilelist FILE` | — | File containing ordered P-file paths |
 | `--baum-welch` | Off | Fit P/Q without regularization |
 | `--fixed-model` | Off | Decode supplied P/Q without fitting |
-| `--iter INT` | `10` | Maximum completed Baum–Welch updates |
-| `--tole FLOAT` | `1e-5` | Objective improvement tolerance per observed assignment |
+| `--loo` | Off | Leave both haplotypes out of P for Q refinement only |
+| `--iter INT` | `10` | Maximum refinement updates |
+| `--tole FLOAT` | `1e-5` | Objective improvement per observation, or parameter RMSE with `--loo` |
 | `--p-prior FLOAT` | `10` | P pseudocount mass per window and ancestry |
 | `--q-prior FLOAT` | `10` | Q pseudocount mass per individual |
 | `--alpha FLOAT` | — | Single transition rate per HMM block |
@@ -296,7 +312,25 @@ Individuals with no included observations retain input Q. Parameters without
 counts retain their input values. Zero input probabilities are not smoothed
 into positive support. Prior masses are tuning parameters.
 
-Convergence is checked after each update using mean-alpha log likelihood minus
+Both commands use the same P pseudocount rule. `admix` targets pooled cluster
+frequencies to stabilize estimation. `fatash` targets the supplied
+ancestry-specific P to keep local refinement near the initial model.
+
+`--loo` removes each individual's posterior cluster counts from the P used
+for its Q update. Shared P and final local ancestry decoding still use the
+full cohort. The supplied P/Q prior targets stay fixed, including any
+influence from the individual in the original admix fit. Unsupported
+leave-out emissions are neutral. LOO uses half-step damping and stops on
+the largest RMSE across Q and chromosome P arrays. Its likelihood and
+objective are diagnostic and may decrease. It requires refinement and
+cannot be combined with `--fixed-model`.
+
+LOO is a current-count correction, not a full leave-one-out model refit.
+It adds one posterior pass when a whole chromosome cohort fits in one batch,
+or two when posteriors must be recomputed in bounded batches. Individual P
+matrices are never stored.
+
+Without LOO, convergence is checked after each update using mean-alpha log likelihood minus
 P/Q prior penalties. A material decrease restores the last accepted model.
 Progress reports cover five updates and any final partial block. The initial
 score is unnumbered. Fitting uses posterior expectations even with `--viterbi`.
@@ -339,14 +373,19 @@ python -m ruff check .
 python -m ruff format --check .
 ```
 
+For source tests, build the native kernels with `python setup.py build_ext --inplace`
+and run `python tests/run.py`. The default tests the checkout. `--installed`
+tests the installed package and rejects a checkout on the import path.
+
 [CI](.github/workflows/ci.yml) checks Python style and Cython warnings, validates
 the wheel and source archive, and runs the installed tests with one and two
 native threads. Pushes to `main` and pull requests use Ubuntu with Python 3.14.
 Manual runs add Ubuntu and macOS 15 wheels for Python 3.10, 3.12, and 3.14.
 
-Use short module summaries, `###` headings above functions and test classes,
-and camelCase helper names. Keep a blank line before comments unless they start
-an indented block. Tests use `unittest`, fixed seeds, and small shared fixtures.
+Use short module summaries and camelCase helper names. Use `#####` for sections,
+`###` above functions and test classes, and `#` inside functions. Keep two blank
+lines between top-level definitions and a blank line before comments unless
+they start an indented block. Tests use `unittest`, fixed seeds, and small shared fixtures.
 
 ## Citation
 

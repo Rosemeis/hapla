@@ -31,6 +31,8 @@ def main(args):
         raise ValueError("--source-init requires unsupervised SVD/ALS initialization")
     if args.projection is not None and args.p_prior:
         raise ValueError("--p-prior cannot update fixed projection frequencies")
+    if args.loo and args.projection is not None:
+        raise ValueError("--loo requires fitted P, not fixed projection frequencies")
     if (args.filelist is None) == (args.clusters is None):
         raise ValueError("Provide exactly one of --clusters or --filelist")
     if not args.prefix or any(x in args.prefix for x in ("/", "\\")):
@@ -131,7 +133,9 @@ def main(args):
     prior = args.p_prior
     p_vec = (
         np.empty(M)
-        if prior or (not args.random_init and args.supervised is None and args.projection is None)
+        if args.loo
+        or prior
+        or (not args.random_init and args.supervised is None and args.projection is None)
         else None
     )
     obs = np.empty(W, dtype=np.int64)
@@ -312,7 +316,7 @@ def main(args):
     if y is not None:
         admix_cy.superQ(Q, y)
     del c_tmp
-    if not prior:
+    if not prior and not args.loo:
         p_vec = None
 
     # Reuse fixed-partition scratch for every full and mini-batch update
@@ -330,9 +334,14 @@ def main(args):
     )
     if prior:
         stats["p_prior"] = prior
-    Q1, Q2, T = np.empty_like(Q), np.empty_like(Q), np.empty_like(Q)
+    if args.loo:
+        from hapla.shared_cy import damp
+
+        stats.update(loo=True, convergence="parameter RMSE")
+    Q1, T = np.empty_like(Q), np.empty_like(Q)
+    Q2 = None if args.loo else np.empty_like(Q)
     P1 = None if args.projection else np.empty_like(P)
-    P2 = None if args.projection else np.empty_like(P)
+    P2 = None if args.projection or args.loo else np.empty_like(P)
     pt, qt = functions.emWorkspace(N, args.K, k_vec)
     ctx = (Z, k_vec, c_vec, T, pt, qt, w_obs, y)
     em_kw = dict(pool=p_vec, prior=prior, scratch=P2)
@@ -353,29 +362,36 @@ def main(args):
         stats["initial_objective"] = L_pre * L_nrm
     metric = "Objective" if prior else "Log-like"
     print(f"Initial {metric.lower()}: {L_pre * L_nrm:,.1f}", flush=True)
-    ts = time()
-    functions.emStep(P, Q, P if P1 is not None else None, Q, ctx, qo=q_obs, **em_kw)
-    functions.emQuasi(P, Q, P1, P2, Q1, Q2, ctx, qo=q_obs, **em_kw)
-    functions.emStep(P, Q, P if P1 is not None else None, Q, ctx, qo=q_obs, **em_kw)
-    printTiming("Warm-up complete.", time() - ts)
-    stats["priming_seconds"] = time() - ts
+    if not args.loo:
+        ts = time()
+        functions.emStep(P, Q, P if P1 is not None else None, Q, ctx, qo=q_obs, **em_kw)
+        functions.emQuasi(P, Q, P1, P2, Q1, Q2, ctx, qo=q_obs, **em_kw)
+        functions.emStep(P, Q, P if P1 is not None else None, Q, ctx, qo=q_obs, **em_kw)
+        printTiming("Warm-up complete.", time() - ts)
+        stats["priming_seconds"] = time() - ts
+        L_pre, ll_pre = score()
 
     # Keep the batch schedule and checkpoint full-data convergence checks
-    batches = min(args.batches, W)
-    s_win = np.arange(W, dtype=np.uint32)
-    L_pre, ll_pre = score()
+    batches = 1 if args.loo else min(args.batches, W)
+    s_win = np.arange(W, dtype=np.uint32) if batches > 1 else None
     L_bat = L_pre
     P_save = Q_save = None
-    if batches == 1:
+    if batches == 1 and not args.loo:
         P_save = None if P1 is None else P.copy()
         Q_save = Q.copy()
     conv, stalled, n_retry = False, False, 0
     history = []
     ts = time()
     lap = ts
-    print("\nAncestry estimation:", flush=True)
+    print("\nLOO Q refinement:" if args.loo else "\nAncestry estimation:", flush=True)
     for it in range(1, args.iter + 1):
-        if batches > 1:
+        if args.loo:
+            functions.looStep(P, Q, P1, Q1, ctx, p_vec, prior, q_obs)
+            change = max(damp(P, P1), damp(Q.ravel(), Q1.ravel()))
+            P, P1 = P1, P
+            Q, Q1 = Q1, Q
+            conv = change <= args.tole
+        elif batches > 1:
             rng.shuffle(s_win)
             step = W // batches
             for b in range(batches):
@@ -392,12 +408,12 @@ def main(args):
                 functions.emStep(P, Q, P, Q, ctx, qo=q_obs, **em_kw)
 
         # Always score the actual final parameters, including a partial check interval
-        if it % args.check and it != args.iter:
+        if it % args.check and it != args.iter and not conv:
             continue
         L_cur, ll_cur = score()
         if not np.isfinite(L_cur):
             raise ValueError("Non-finite ancestry objective during estimation")
-        if batches > 1:
+        if not args.loo and batches > 1:
             if L_cur < L_bat + args.tole:
                 batches //= 2
                 print(f"Mini-batches: {batches}", flush=True)
@@ -411,7 +427,7 @@ def main(args):
                     ll_pre = ll_cur
             else:
                 L_bat = L_cur
-        else:
+        elif not args.loo:
             if L_cur < L_pre:
                 # Reject a decreasing accelerated block and try one ordinary EM step
                 if P_save is not None:
@@ -451,6 +467,8 @@ def main(args):
         if not np.isfinite(L_cur):
             raise ValueError("Non-finite ancestry objective during estimation")
         row = dict(iteration=it, batches=batches, loglike=ll_cur * L_nrm)
+        if args.loo:
+            row["rmse"] = change
         if prior:
             row["objective"] = L_cur * L_nrm
         history.append(row)

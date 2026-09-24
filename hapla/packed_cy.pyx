@@ -168,9 +168,9 @@ cdef bint medians(u64[:, ::1] R, const u64[:, ::1] C, const u64[::1] n,
 
 
 ### Deduplicate observed haplotypes, grow medians, and prune to convergence
-def fit_window(const u8[:, ::1] G, double alpha=0.1, double min_freq=0.005,
-               min_mac=None, int K_max=255, int n_iter=1000,
-               bint missing=True):
+def fitWindow(const u8[:, ::1] G, double alpha=0.1, double min_freq=0.005,
+              min_mac=None, int K_max=255, int n_iter=1000,
+              bint missing=True):
     # Complete windows skip missingness checks inside the clustering kernel
     cdef Py_ssize_t B = G.shape[0], H = G.shape[1], Q = (B + 63) >> 6
     cdef Py_ssize_t i, j, q, h, first, prev = -1, U = 0, H_obs, cand
@@ -423,7 +423,7 @@ def likelihoods(const u8[:, ::1] R, const u64[:, ::1] C, const u64[::1] n):
 
 
 ### Encode diploid cluster dosages as SNP-major PLINK rows
-def plink_window(const u8[::1] labels, int K):
+def plinkWindow(const u8[::1] labels, int K):
     """Encode one window in SNP-major BED order. Either missing haplotype => ./.."""
     cdef Py_ssize_t H = labels.shape[0], N = H >> 1, i, k
     cdef u8 a, b, dosage, code
@@ -505,7 +505,7 @@ cdef bint repeatedSample(const u64[:, ::1] X, const u8[::1] valid) noexcept nogi
 
 
 ### Assign complete haplotypes to their nearest packed reference median
-def predict_haplotypes(const u8[:, ::1] G, const u8[:, ::1] medians):
+def predictHaplotypes(const u8[:, ::1] G, const u8[:, ::1] medians):
     """Exact packed nearest-median assignment. Any missing allele excludes its haplotype."""
     cdef Py_ssize_t B = G.shape[0], H = G.shape[1], K = medians.shape[0]
     cdef Py_ssize_t Q = (B + 63) >> 6, j, h, k

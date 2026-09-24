@@ -47,6 +47,18 @@ def emQuasi(P, Q, P1, P2, Q1, Q2, ctx, rows=None, qo=None, pool=None, prior=0.0,
         admix_cy.superQ(Q, ctx[-1])
 
 
+### One full-data Q correction, leaving the shared P update unchanged
+def looStep(P, Q, Pn, Qn, ctx, pool, prior, qo):
+    Z, k, c, T, pt, qt, wo, y = ctx
+    admix_cy.loo(Z, P, Pn, Q, T, k, c, pt, qt, pool, wo, prior)
+    if qo is None:
+        admix_cy.accelQ(Q, Qn, T, len(Z))
+    else:
+        admix_cy.accelQMiss(Q, Qn, T, qo)
+    if y is not None:
+        admix_cy.superQ(Qn, y)
+
+
 ##### Initialization
 
 

@@ -168,7 +168,7 @@ cdef class Reader:
 
     def close(self):
         if self.busy:
-            raise RuntimeError("Cannot close a reader while read_into is running")
+            raise RuntimeError("Cannot close a reader while readInto is running")
         self._release()
 
     # Release native pointers once, including partially initialized readers
@@ -200,9 +200,9 @@ cdef class Reader:
         self.close()
 
     # Fill variant-major arrays, using direct INT8 or reusable INT32 GT decoding
-    def read_into(self, uint8_t[:, ::1] output, int64_t[::1] pos,
-                  int32_t[::1] contigs, uint8_t[::1] missing,
-                  uint8_t[:, ::1] unph=None):
+    def readInto(self, uint8_t[:, ::1] output, int64_t[::1] pos,
+                 int32_t[::1] contigs, uint8_t[::1] missing,
+                 uint8_t[:, ::1] unph=None):
         cdef Py_ssize_t row = 0, i, size = output.shape[0]
         cdef int status = 0, a = 0, b = 0, error = 0
         cdef bcf_fmt_t* fmt

@@ -291,7 +291,7 @@ class HMMCorrectness(unittest.TestCase):
             P.append(p.ravel())
             cp.append(count)
         for bw, tp, tq in ((True, 17, 29), (False, 0, 0), (False, 3, 7)):
-            args = Namespace(baum_welch=bw, p_prior=tp, q_prior=tq, iter=1, tole=0)
+            args = Namespace(baum_welch=bw, p_prior=tp, q_prior=tq, iter=1, tole=0, loo=False)
             pp, qq, info = refine(data, P, Q, alpha, args)
             tp, tq = (0, 0) if bw else (tp, tq)
             expected = (cq + tq * Q) / (cq.sum(axis=1, keepdims=True) + tq)
@@ -324,7 +324,7 @@ class HMMCorrectness(unittest.TestCase):
         data = [(Z, c, use, [(0, 1)], 2)]
         P = [np.array([0.8, 0.2, 0.2, 0.8])]
         Q = np.array([[0.9, 0.1]])
-        args = Namespace(baum_welch=False, p_prior=10, q_prior=10, iter=50, tole=1e-6)
+        args = Namespace(baum_welch=False, p_prior=10, q_prior=10, iter=50, tole=1e-6, loo=False)
         pp, qq, info = refine(data, P, Q, [0.1], args)
         self.assertEqual(info["stop"], "converged")
         self.assertLess(info["iterations"], 50)
@@ -360,7 +360,7 @@ class HMMCorrectness(unittest.TestCase):
             return posterior(*args, **kwargs)
 
         for bw in (False, True):
-            args = Namespace(baum_welch=bw, p_prior=10, q_prior=10, iter=12, tole=0)
+            args = Namespace(baum_welch=bw, p_prior=10, q_prior=10, iter=12, tole=0, loo=False)
             text = StringIO()
             clock[0] = 0
             with (
@@ -403,7 +403,7 @@ class HMMCorrectness(unittest.TestCase):
         Z = rng.integers(0, 2, (W, 2 * N), dtype=np.uint8)
         P = [np.concatenate([rng.dirichlet([0.4, 0.4], K).T for _ in range(W)]).ravel()]
         Q = rng.dirichlet([0.4] * K, N)
-        args = Namespace(baum_welch=False, p_prior=1, q_prior=10, iter=50, tole=1e-8)
+        args = Namespace(baum_welch=False, p_prior=1, q_prior=10, iter=50, tole=1e-8, loo=False)
         _, _, info = refine([(Z, c, np.ones(W, np.uint8), [(0, W)], 4)], P, Q, [0.1], args)
         self.assertEqual(info["stop"], "converged")
         self.assertTrue(np.any(np.diff([v["log_likelihood"] for v in info["history"]]) < -1e-5))

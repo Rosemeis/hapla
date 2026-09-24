@@ -580,6 +580,82 @@ def accumulate(const u8[:, ::1] Z, const f64[:, :, ::1] G,
                     for k in range(K): counts[(c[w]+z)*K+k] += G[i, w-beg, k]
 
 
+### Sum unfloored ancestry counts once for each window
+def looTotals(const f64[::1] counts, const i64[::1] c, Py_ssize_t K):
+    cdef Py_ssize_t W = c.shape[0]-1, w, k, a
+    if W < 1 or K < 1 or c[0] != 0 or c[W]*K != counts.shape[0]:
+        raise ValueError("Invalid LOO count dimensions")
+    cdef f64[:, ::1] total = np.zeros((W, K))
+    for w in prange(W, nogil=True, schedule='static'):
+        for a in range(c[w], c[w+1]):
+            for k in range(K): total[w, k] += counts[a*K+k]
+    return np.asarray(total)
+
+
+### Remove both haplotypes from the emissions used to update this individual's Q
+cdef void _looPair(const u8* z, const f64* g, f64* E, const f64* q,
+                   const f64* base, const f64* counts, const f64* total,
+                   const i64* c, const u8* use, Py_ssize_t W, Py_ssize_t beg,
+                   Py_ssize_t end, Py_ssize_t K, f64 mass) noexcept nogil:
+    cdef Py_ssize_t w, k, h, r, s, a, n, off, row, B = end-beg
+    cdef f64 rest, pool, own, den, value
+    cdef bint support
+    for w in range(beg, end):
+        if not use[w]: continue
+        r, s = z[w], z[W+w]
+        n = (r != 255) + (s != 255)
+        if not n: continue
+        off = (w-beg)*K
+        rest = -n
+        for k in range(K): rest += total[w*K+k]
+        for h in range(2):
+            a = r if h == 0 else s
+            if a == 255: continue
+            pool = -(r == a) - (s == a)
+            for k in range(K): pool += counts[(c[w]+a)*K+k]
+            # Pooled support is a haplotype count, so discard subtraction roundoff
+            if rest < 0.5:
+                pool = 1.0/(c[w+1]-c[w])
+            else:
+                pool = pool/rest if pool >= 0.5 else 0
+            row = h*B*K + off
+            support = False
+            for k in range(K):
+                own = (g[off+k] if r != 255 else 0) + (g[B*K+off+k] if s != 255 else 0)
+                den = max(0.0, total[w*K+k]-own) if rest >= 0.5 else 0
+                own = (g[off+k] if r == a else 0) + (g[B*K+off+k] if s == a else 0)
+                value = max(0.0, counts[(c[w]+a)*K+k]-own) if rest >= 0.5 else 0
+                value = (value + mass*base[(c[w]+a)*K+k])/(den+mass) if den+mass > 0 else pool
+                if mass == 0 and pool == 0: value = 0
+                value = min(1.0, value)
+                E[row+k] = log(value) if value > 0 else -INFINITY
+                support |= value > 0 and q[h*K+k] > 0
+            # Unsupported private clusters are neutral, like missing emissions
+            if not support:
+                for k in range(K): E[row+k] = 0
+
+
+### Replace an existing emission batch without storing individual P matrices
+def looEmissions(const u8[:, ::1] Z, const f64[:, :, ::1] G, f64[:, :, ::1] E,
+                 const f64[:, ::1] Q, const f64[::1] base, const f64[::1] counts,
+                 const f64[:, ::1] total, const i64[::1] c, const u8[::1] use,
+                 Py_ssize_t beg, Py_ssize_t end, f64 mass):
+    cdef Py_ssize_t N = Z.shape[0], W = Z.shape[1], K = Q.shape[1], i
+    if (N < 2 or N % 2 or not 0 <= beg < end <= W or not 1 <= K <= 255 or
+            Q.shape[0] != N or G.shape[0] != N or E.shape[0] != N or
+            G.shape[1] != end-beg or E.shape[1] != end-beg or
+            G.shape[2] != K or E.shape[2] != K or c.shape[0] != W+1 or
+            use.shape[0] != W or total.shape[0] != W or total.shape[1] != K or
+            base.shape[0] != c[W]*K or counts.shape[0] != base.shape[0] or
+            not isfinite(mass) or mass < 0):
+        raise ValueError("Invalid LOO emission dimensions or prior mass")
+    for i in prange(N//2, nogil=True, schedule='static'):
+        _looPair(&Z[2*i, 0], &G[2*i, 0, 0], &E[2*i, 0, 0], &Q[2*i, 0],
+                 &base[0] if base.shape[0] else NULL,
+                 &counts[0] if counts.shape[0] else NULL, &total[0, 0],
+                 &c[0], &use[0], W, beg, end, K, mass)
+
+
 ### Normalize emission counts with optional prior mass
 def refineP(const f64[::1] base, const f64[::1] counts,
             const i64[::1] c, Py_ssize_t K, f64 mass):

@@ -205,7 +205,7 @@ def main():
         type=float,
         default=1e-9,
         metavar="FLOAT",
-        help="Tolerance in log likelihood or objective / (2 * samples * cluster alleles) (1e-9)",
+        help="Normalized likelihood/objective tolerance, or parameter RMSE with --loo (1e-9)",
     )
     adm.add_argument(
         "--p-prior",
@@ -259,6 +259,9 @@ def main():
     )
     adm.add_argument(
         "--source-init", action="store_true", help="Seed SVD/ALS from supported source extremes"
+    )
+    adm.add_argument(
+        "--loo", action="store_true", help="Exclude each individual's P counts when updating Q"
     )
     adm.add_argument(
         "--prefix",
@@ -349,12 +352,15 @@ def main():
     fit.add_argument(
         "--fixed-model", action="store_true", help="Decode supplied P/Q without fitting"
     )
+    lai.add_argument(
+        "--loo", action="store_true", help="Exclude each individual's P counts when updating Q"
+    )
     lai.add_argument("--iter", type=int, default=10, help="Maximum HMM fitting iterations (10)")
     lai.add_argument(
         "--tole",
         type=float,
         default=1e-5,
-        help="Objective tolerance per observed assignment (1e-5)",
+        help="Objective tolerance per observation, or parameter RMSE with --loo (1e-5)",
     )
     lai.add_argument(
         "--p-prior", type=float, default=10, help="P pseudocount mass per window and ancestry (10)"

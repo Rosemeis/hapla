@@ -180,6 +180,7 @@ def logRows(data, pad="  "):
         "pca": "PCA",
         "grm": "GRM",
         "loglike": "log-like",
+        "loo": "LOO",
     }
     for key, val in data.items():
         if key in skip or val is None or (isinstance(val, list) and not val):
@@ -205,6 +206,7 @@ def logRows(data, pad="  "):
                 "objective": "Objective",
                 "improvement": "Gain/obs",
                 "batches": "Batches",
+                "rmse": "RMSE",
             }
             rows = [[labels[k] for k in cols]] + [
                 ["-" if r[k] is None else logValue(r[k]) for k in cols] for r in val

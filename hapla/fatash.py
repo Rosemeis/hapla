@@ -35,6 +35,8 @@ def checkArgs(args):
         raise ValueError("Use increasing alpha exponents and 1..100000 alpha values")
     if args.viterbi and args.save_posteriors:
         raise ValueError("--save-posteriors requires posterior decoding")
+    if args.loo and args.fixed_model:
+        raise ValueError("--loo requires P/Q refinement, not --fixed-model")
     if args.iter < 1 or not all(
         isfinite(v) and v >= 0 for v in (args.tole, args.p_prior, args.q_prior)
     ):
@@ -176,11 +178,36 @@ def haplotypes(Z, size):
         yield beg, end, np.ascontiguousarray(Z[:, beg:end].T)
 
 
+### Recompute bounded posterior batches to remove each individual's P counts
+def looQ(Z, c, use, regions, size, table, base, counts, Q, alpha, mass):
+    import numpy as np
+
+    from hapla import fatash_cy as cy
+
+    K = Q.shape[1]
+    total = cy.looTotals(counts, c, K)
+    out = np.zeros_like(Q)
+    for i, j, z in haplotypes(Z, size):
+        q = np.repeat(Q[i // 2 : j // 2], 2, axis=0)
+        for beg, end in regions:
+            E = cy.emissions(z, table, c, use, K, beg, end)
+            G, C, L = cy.posterior(E, q, alpha)
+            cy.looEmissions(z, G, E, q, base, counts, total, c, use, beg, end, mass)
+            del G, C, L
+            G, C, L = cy.posterior(E, q, alpha, resets=True)
+            out[i // 2 : j // 2] += C.reshape(-1, 2, K).sum(axis=1)
+            del E, G, C, L
+    return out
+
+
 ### Fit window frequencies and one individual Q across all chromosome chains
 def refine(data, P, Q, alpha, args):
     import numpy as np
 
     from hapla import fatash_cy as cy
+
+    if args.loo:
+        from hapla.shared_cy import damp
 
     tick = perf_counter()
     K = Q.shape[1]
@@ -190,12 +217,12 @@ def refine(data, P, Q, alpha, args):
     for Z, _, use, _, _ in data:
         obs += cy.observations(Z, use)
     n = int(obs.sum())
-    history, prev = [], None
+    history, prev, change = [], None, None
     lap = tick
     label = "Log-like" if args.baum_welch else "Objective"
     stop = "no_observations" if n == 0 else "iteration_limit"
     for it in range(args.iter + 1 if n else 0):
-        finish = it == args.iter
+        finish = it == args.iter or (args.loo and change is not None and change <= args.tole)
         nextP = []
         countQ = None if finish else np.zeros_like(Q)
         ll, prior = 0.0, cy.penalty(baseQ.ravel(), Q.ravel(), tq)
@@ -203,21 +230,34 @@ def refine(data, P, Q, alpha, args):
             prior += cy.penalty(base, p, tp)
             table = cy.emissionTable(p, c, K)
             countP = None if finish else np.zeros_like(p)
+            one = args.loo and size >= Z.shape[1] and len(regions) == 1
             for i, j, z in haplotypes(Z, size):
                 q = np.repeat(Q[i // 2 : j // 2], 2, axis=0)
                 for beg, end in regions:
                     E = cy.emissions(z, table, c, use, K, beg, end)
-                    G, C, L = cy.posterior(E, q, alpha, resets=not finish, score=finish)
+                    G, C, L = cy.posterior(
+                        E, q, alpha, resets=not finish and not args.loo, score=finish
+                    )
                     ll += float(L.mean(axis=1).sum())
                     if not finish:
                         cy.accumulate(z, G, use, c, beg, end, countP)
-                        countQ[i // 2 : j // 2] += C.reshape(-1, 2, K).sum(axis=1)
+                        if one:
+                            total = cy.looTotals(countP, c, K)
+                            cy.looEmissions(z, G, E, q, base, countP, total, c, use, beg, end, tp)
+                            del G, C, L, total
+                            G, C, L = cy.posterior(E, q, alpha, resets=True)
+                        if not args.loo or one:
+                            countQ[i // 2 : j // 2] += C.reshape(-1, 2, K).sum(axis=1)
                     del E, G, C, L
             if not finish:
+                if args.loo and not one:
+                    countQ += looQ(Z, c, use, regions, size, table, base, countP, Q, alpha, tp)
                 nextP.append(cy.refineP(base, countP, c, K, tp))
         obj = ll + prior
         gain = obj - history[-1]["objective"] if history else None
-        if not isfinite(obj) or (gain is not None and gain < -1e-10 * max(1.0, abs(obj))):
+        if not isfinite(obj) or (
+            not args.loo and gain is not None and gain < -1e-10 * max(1.0, abs(obj))
+        ):
             if prev is None:
                 raise ValueError("Initial HMM objective is not finite")
             P, Q = prev
@@ -228,9 +268,11 @@ def refine(data, P, Q, alpha, args):
                 iteration=it,
                 log_likelihood=ll,
                 objective=obj,
-                improvement=None if gain is None else gain / n,
+                improvement=None if gain is None or args.loo else gain / n,
             )
         )
+        if args.loo:
+            history[-1]["rmse"] = change
         if it == 0:
             print(f"Initial {label.lower()}: {obj:,.1f}", flush=True)
             lap = perf_counter()
@@ -238,7 +280,9 @@ def refine(data, P, Q, alpha, args):
             now = perf_counter()
             printTiming(f"({it:,})  {label}: {obj:,.1f}", now - lap)
             lap = now
-        if gain is not None and gain / n <= args.tole:
+        if (args.loo and change is not None and change <= args.tole) or (
+            not args.loo and gain is not None and gain / n <= args.tole
+        ):
             stop = "converged"
             break
         if finish:
@@ -250,6 +294,10 @@ def refine(data, P, Q, alpha, args):
         Q = baseQ.copy()
         np.divide(countQ, total, out=Q, where=total > 0)
         Q[obs == 0] = baseQ[obs == 0]
+        if args.loo:
+            change = max(
+                damp(prev[1].ravel(), Q.ravel()), *(damp(a, b) for a, b in zip(prev[0], P))
+            )
 
     # Report a final partial block using only accepted updates, including after rollback.
     it = max(0, len(history) - 1)
@@ -266,6 +314,8 @@ def refine(data, P, Q, alpha, args):
         history=history,
         seconds=perf_counter() - tick,
     )
+    if args.loo:
+        info.update(loo=True, convergence="parameter RMSE")
     status = {
         "converged": "Converged.",
         "iteration_limit": "Iteration limit reached.",
@@ -407,6 +457,8 @@ def main(args):
             print("\nFixed model.", flush=True)
         else:
             mode = "Baum-Welch" if args.baum_welch else "Regularized Baum-Welch"
+            if args.loo:
+                mode = "LOO refinement" if args.baum_welch else "Regularized LOO refinement"
             print(f"\n{mode}:", flush=True)
             P, Q, stats["fit"] = refine(data, P, Q, alpha, args)
         np.savetxt(out[".Q"], Q, fmt="%.10g")

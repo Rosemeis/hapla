@@ -151,10 +151,13 @@ def main(args):
     if args.keep is not None:
         idx = sampleIndices(ids, args.keep, ordered=True)
         h = np.ravel(np.column_stack((2 * idx, 2 * idx + 1)))
+        step = max(1, 1024**2 // len(h))
         subset = []
         for Z, c, obs in data:
             Z = np.take(Z, h, axis=1)
-            obs = None if obs is None else (Z != 255).sum(axis=1)
+            if obs is not None:
+                for w in range(0, len(Z), step):
+                    obs[w : w + step] = (Z[w : w + step] != 255).sum(axis=1)
             subset.append((Z, c, obs if obs is not None and np.any(obs != len(h)) else None))
         data = subset
         ids = ids[idx]

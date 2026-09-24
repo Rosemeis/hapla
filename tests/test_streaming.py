@@ -53,7 +53,7 @@ class ReaderTests(TemporaryTests):
                 )
                 phase = None if phased else np.empty((9, 33), np.uint8)
                 with Reader(path, phased=phased) as reader:
-                    self.assertEqual(reader.read_into(G, pos, rid, absent, phase), 9)
+                    self.assertEqual(reader.readInto(G, pos, rid, absent, phase), 9)
                 np.testing.assert_array_equal(G, expected)
                 np.testing.assert_array_equal(absent, np.any(expected == 255, axis=1))
                 if phase is not None:
@@ -67,7 +67,7 @@ class ReaderTests(TemporaryTests):
             rid = np.empty(capacity, np.int32)
             missing = np.empty(capacity, np.uint8)
             while True:
-                n = reader.read_into(G, pos, rid, missing)
+                n = reader.readInto(G, pos, rid, missing)
                 if not n:
                     break
                 self.assertTrue(np.array_equal(missing[:n], np.any(G[:n] == 255, axis=1)))
@@ -152,7 +152,7 @@ class WindowTests(TemporaryTests):
         ):
             with Reader(path) as reader:
                 buffer = createBuffer(
-                    reader.read_into, reader.samples, reader.contigs, 19 * 16, b_read=19 * 2
+                    reader.readInto, reader.samples, reader.contigs, 19 * 16, b_read=19 * 2
                 )
                 self.assertEqual(fillBuffer(buffer, 1), 2)
                 self.assertEqual(reader.variants, 2)
@@ -177,7 +177,7 @@ class WindowTests(TemporaryTests):
             ],
         )
         with Reader(path) as reader:
-            buffer = createBuffer(reader.read_into, reader.samples, reader.contigs, (6 + 13) * 40)
+            buffer = createBuffer(reader.readInto, reader.samples, reader.contigs, (6 + 13) * 40)
             return [(meta[0], meta[1], len(G)) for meta, G, _, _ in method(buffer, *args, **kwargs)]
 
     def test_fixed_tails_overlap_and_small_inputs(self):

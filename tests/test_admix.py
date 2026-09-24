@@ -28,7 +28,7 @@ def simplex(A):
             continue
         lo, hi = x.max(), x.sum() / (1 - C * 1e-5)
         for _ in range(80):
-            mid = (lo + hi) / 2
+            mid = lo + (hi - lo) / 2
             if np.maximum(1e-5, x / mid).sum() > 1:
                 lo = mid
             else:
@@ -687,6 +687,7 @@ class AdmixtureTests(TemporaryTests):
                 subsampling=4,
                 random_init=True,
                 source_init=False,
+                loo=False,
                 supervised=None,
                 projection=None,
                 keep=None,

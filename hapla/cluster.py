@@ -61,7 +61,7 @@ def fitBatch(batch, opt, medians, missing):
         try:
             if miss and missing == "error":
                 raise ValueError("Missing GT encountered with --missing error")
-            res = packed_cy.fit_window(G, missing=miss, **opt)
+            res = packed_cy.fitWindow(G, missing=miss, **opt)
         except (ValueError, RuntimeError) as err:
             _, chrom, beg, end, _ = meta
             raise type(err)(f"{chrom}:{beg}-{end}: {err}") from err
@@ -129,7 +129,7 @@ def main(args):
             outputSuffixes(args.medians, args.plink),
             inputs=(args.vcf, args.windows),
         )
-        buf = createBuffer(src.read_into, src.samples, src.contigs, mem // 4)
+        buf = createBuffer(src.readInto, src.samples, src.contigs, mem // 4)
 
         # Select window boundaries and leave room for all workers
         if args.size is not None:
