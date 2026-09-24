@@ -213,7 +213,7 @@ cdef inline void _pair(const f64* p, const f64* q, f64* pt, f64* qt,
                 qt[k] += weight * p[s+k] * b
         else:
             for k in range(K):
-                qt[k] += p[s+k] * b
+                qt[k] += weight * p[s+k] * b
 
 
 ### Compile constant-width loops for K=5 and K=6, plus a generic fallback

@@ -93,6 +93,7 @@ def main(args):
         raise ValueError("No observed cluster alleles for ancestry estimation")
     if M * args.K > np.iinfo(np.uint32).max:
         raise ValueError("Too many cluster parameters for the native index range")
+    M_clusters = M
 
     # Select samples from keep file
     if args.keep is not None:
@@ -128,6 +129,7 @@ def main(args):
 
     # Give every cluster window one unit of total SNP weight.
     weights = None
+    snp_count = 0
     if snp_vcf is not None:
         if F != 1:
             raise ValueError("Weighted SNP input currently requires one cluster prefix")
@@ -172,6 +174,7 @@ def main(args):
         if not parent:
             raise ValueError("No SNPs overlap the cluster windows")
         parent = np.asarray(parent, dtype=np.int64)
+        snp_count = len(parent)
         counts = np.bincount(parent, minlength=W)
         snp_weights = 1.0 / counts[parent]
         Z = np.vstack((Z, np.vstack(chunks)))
@@ -222,7 +225,7 @@ def main(args):
     c_vec = c_tmp * args.K
 
     # Print information
-    print(f"Data size: {N:,} samples, {W:,} windows, {M:,} clusters", flush=True)
+    print(f"Data size: {N:,} samples, {W:,} windows, {M_clusters:,} clusters", flush=True)
     printMissing(n_miss, W * 2 * N)
     print("\nInitialization:", flush=True)
 
@@ -352,7 +355,7 @@ def main(args):
     stats = dict(
         samples=N,
         windows=W,
-        clusters=int(M),
+        clusters=int(M_clusters),
         K=args.K,
         threads=args.threads,
         missing_assignments=int(n_miss),
@@ -365,6 +368,8 @@ def main(args):
         stats["p_prior"] = prior
     if args.loo:
         stats.update(loo=True, convergence="parameter RMSE")
+    if snp_count:
+        stats["snp_markers"] = snp_count
     Q1, T = np.empty_like(Q), np.empty_like(Q)
     Q2 = None if args.loo else np.empty_like(Q)
     P1 = None if args.projection else np.empty_like(P)
@@ -569,7 +574,7 @@ def main(args):
                     "".join(f"{Path(f_out).absolute()}.{args.prefix}{f + 1}.P\n" for f in range(F))
                 )
             else:
-                np.savetxt(out[".P"], P.reshape(M, args.K), fmt="%.10g")
+                np.savetxt(out[".P"], P[: M_clusters * args.K].reshape(M_clusters, args.K), fmt="%.10g")
         stats.update(output_seconds=time() - ts, elapsed_seconds=time() - start)
         writeLog(out, "admix", args, stats, f_out)
         commitOutputs(f_out, out, stale=stale)
