@@ -6,8 +6,10 @@ __author__ = "Jonas Meisner"
 
 import os
 
-from libc.stdint cimport uint8_t, uint32_t, int8_t, int32_t, int64_t
-from libc.stdlib cimport free
+import numpy as np
+
+from libc.stdint cimport uint8_t, uint32_t, int8_t, int16_t, int32_t, int64_t
+from libc.stdlib cimport free, malloc
 
 cdef extern from "htslib/kstring.h" nogil:
     ctypedef struct kstring_t:
@@ -47,36 +49,181 @@ cdef extern from "htslib/vcf.h" nogil:
         int errcode
         bcf_dec_t d
     bcf_hdr_t* bcf_hdr_read(htsFile*)
+    bcf_hdr_t* bcf_hdr_dup(const bcf_hdr_t*)
+    bcf_hdr_t* bcf_hdr_subset(const bcf_hdr_t*, int, char* const*, int*)
     void bcf_hdr_destroy(bcf_hdr_t*)
+    int bcf_hdr_add_sample(bcf_hdr_t*, const char*)
+    int bcf_hdr_append(bcf_hdr_t*, const char*)
+    int bcf_hdr_sync(bcf_hdr_t*)
+    void bcf_hdr_remove(bcf_hdr_t*, int, const char*)
+    int bcf_hdr_write(htsFile*, bcf_hdr_t*)
     int bcf_hdr_nsamples(const bcf_hdr_t*)
     const char* bcf_hdr_id2name(const bcf_hdr_t*, int)
     int bcf_hdr_id2int(const bcf_hdr_t*, int, const char*)
     bcf1_t* bcf_init()
     void bcf_destroy(bcf1_t*)
     int bcf_read(htsFile*, bcf_hdr_t*, bcf1_t*)
+    int bcf_write(htsFile*, bcf_hdr_t*, bcf1_t*)
     int bcf_unpack(bcf1_t*, int)
     bcf_fmt_t* bcf_get_fmt(const bcf_hdr_t*, bcf1_t*, const char*)
     int bcf_get_genotypes(const bcf_hdr_t*, bcf1_t*, int32_t**, int*)
+    int bcf_update_format(const bcf_hdr_t*, bcf1_t*, const char*, const void*, int, int)
+    int bcf_update_genotypes(const bcf_hdr_t*, bcf1_t*, int32_t*, int)
     int BCF_BT_INT8
     int BCF_DT_CTG
     int BCF_DT_ID
+    int BCF_HL_FMT
+    int BCF_HT_STR
     int BCF_UN_STR
 
 
-### Decode phased INT8 GT and diagnose invalid rows with scalar code
+### Detect phase ambiguity in one pass and diagnose invalid rows with scalar code
 cdef bint decode8(const int8_t* raw, uint8_t* output, int samples,
-                   uint8_t* missing) noexcept nogil:
-    cdef int i, a, b
+                   uint8_t* missing, uint8_t* phase, bint strict) noexcept nogil:
+    cdef int i, a, b, unph
     cdef unsigned int invalid = 0, absent = 0
     for i in range(samples):
         a, b = raw[2*i], raw[2*i+1]
         invalid |= (a < 0) | (b < 0) | (a > 5) | (b > 5)
-        invalid |= ((a >> 1) != (b >> 1)) & ((b & 1) == 0)
+        unph = ((a >> 1) != (b >> 1)) & ((b & 1) == 0)
+        invalid |= unph & strict
+        phase[i] = unph
         absent |= (a < 2) | (b < 2)
+
+        # HTSlib missing 0/1 maps directly to unsigned byte 255.
         output[2*i] = <uint8_t>((a >> 1) - 1)
         output[2*i+1] = <uint8_t>((b >> 1) - 1)
     missing[0] = absent != 0
     return invalid == 0
+
+
+### Stream masked ancestry copies directly to compressed BCF without VCF text
+def writeDeconvBcf(path, out, const int16_t[:, ::1] ancestry,
+                   const int32_t[:, ::1] selected, widths, copy_ids,
+                   bint include_original=False, int threads=0):
+    cdef object width_obj = np.ascontiguousarray(widths, dtype=np.int64)
+    cdef const int64_t[::1] width = width_obj
+    cdef bytes src_name = os.fsencode(path), dst_name = os.fsencode(out), sample
+    cdef htsFile *src = NULL, *dst = NULL
+    cdef bcf_hdr_t *src_hdr = NULL, *dst_hdr = NULL
+    cdef bcf1_t *record = NULL
+    cdef int32_t *src_gt = NULL, *dst_gt = NULL
+    cdef int cap = 0, status = 0, error = 0
+    cdef Py_ssize_t N, W, S, out_n, i, j, w = 0, seen = 0, records = 0
+    cdef int32_t a, b, k
+
+    if threads < 0:
+        raise ValueError("HTSlib threads must be nonnegative")
+    if ancestry.shape[0] % 2 or selected.shape[1] != 2:
+        raise ValueError("Invalid ancestry paths or selected-copy indices")
+    N, W, S = ancestry.shape[0] // 2, ancestry.shape[1], selected.shape[0]
+    if not N or len(width) != W or len(copy_ids) != S:
+        raise ValueError("Deconvolution inputs have incompatible dimensions")
+    if any(value < 1 for value in width):
+        raise ValueError("Window sizes must be positive")
+    if np.any(np.asarray(selected)[:, 0] < 0) or np.any(np.asarray(selected)[:, 0] >= N) or np.any(np.asarray(selected)[:, 1] < 0):
+        raise ValueError("Invalid selected-copy indices")
+    out_n = (N if include_original else 0) + S
+    src = hts_open(src_name, b"r")
+    if src == NULL:
+        raise OSError(f"Cannot open genotype file: {path}")
+    try:
+        if threads and hts_set_threads(src, threads) != 0:
+            raise OSError("HTSlib could not initialize decompression threads")
+        src_hdr = bcf_hdr_read(src)
+        if src_hdr == NULL or bcf_hdr_nsamples(src_hdr) != N:
+            raise ValueError("Genotype samples do not match ancestry paths")
+        dst_hdr = bcf_hdr_dup(src_hdr) if include_original else bcf_hdr_subset(src_hdr, 0, NULL, NULL)
+        if dst_hdr == NULL:
+            raise MemoryError("Cannot allocate output BCF header")
+        bcf_hdr_remove(dst_hdr, BCF_HL_FMT, NULL)
+        if bcf_hdr_append(dst_hdr, b"##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Phased genotypes\">") != 0:
+            raise MemoryError("Cannot define output GT format")
+        for name in copy_ids:
+            sample = os.fsencode(name)
+            if bcf_hdr_add_sample(dst_hdr, sample) != 0:
+                raise ValueError(f"Cannot add output sample: {name}")
+        if bcf_hdr_sync(dst_hdr) != 0:
+            raise ValueError("Cannot finalize output BCF header")
+        if bcf_hdr_nsamples(dst_hdr) != out_n:
+            raise ValueError("Output BCF sample count is invalid")
+        dst = hts_open(dst_name, b"wb")
+        if dst == NULL:
+            raise OSError(f"Cannot create BCF output: {out}")
+        if threads and hts_set_threads(dst, threads) != 0:
+            raise OSError("HTSlib could not initialize compression threads")
+        if bcf_hdr_write(dst, dst_hdr) != 0:
+            raise OSError("Cannot write BCF header")
+        record = bcf_init()
+        dst_gt = <int32_t*>malloc(2 * out_n * sizeof(int32_t))
+        if record == NULL or dst_gt == NULL:
+            raise MemoryError("Cannot allocate BCF deconvolution buffers")
+        with nogil:
+            while True:
+                status = bcf_read(src, src_hdr, record)
+                if status == -1:
+                    break
+                if status < -1 or record.errcode:
+                    error = 1
+                    break
+                status = bcf_get_genotypes(src_hdr, record, &src_gt, &cap)
+                if status != 2 * N:
+                    error = 2
+                    break
+                if w >= W:
+                    error = 3
+                    break
+                # The input uses GT and PP. Drop PP before changing sample count.
+                # Updating an absent tag is harmless, so plain GT inputs work too.
+                if bcf_update_format(src_hdr, record, b"PP", NULL, 0, BCF_HT_STR) < 0:
+                    error = 4
+                    break
+                if include_original:
+                    for i in range(2 * N):
+                        dst_gt[i] = src_gt[i]
+                for j in range(S):
+                    i, k = selected[j, 0], selected[j, 1]
+                    a, b = src_gt[2 * i], src_gt[2 * i + 1]
+                    dst_gt[2 * ((N if include_original else 0) + j)] = a if ancestry[2 * i, w] == k else 0
+                    # BCF encodes a phased missing second allele as 1 (.|.), not 0 (./.).
+                    dst_gt[2 * ((N if include_original else 0) + j) + 1] = b if ancestry[2 * i + 1, w] == k else 1
+                if bcf_update_genotypes(dst_hdr, record, dst_gt, 2 * out_n) != 0:
+                    error = 5
+                    break
+                if bcf_write(dst, dst_hdr, record) != 0:
+                    error = 6
+                    break
+                records += 1
+                seen += 1
+                if seen == width[w]:
+                    seen = 0
+                    w += 1
+        if error or w != W or seen:
+            reason = {
+                1: "Malformed or truncated BCF record",
+                2: "Only diploid GT is supported",
+                3: "Genotype input has more variants than cluster windows",
+                4: "Cannot remove unsupported sample FORMAT fields",
+                5: "Cannot update output genotypes",
+                6: "Cannot write BCF record",
+            }.get(error, "Genotype input has fewer variants than cluster windows")
+            raise ValueError(f"{reason}: {path}")
+        return records
+    finally:
+        if src_gt != NULL:
+            free(src_gt)
+        if dst_gt != NULL:
+            free(dst_gt)
+        if record != NULL:
+            bcf_destroy(record)
+        if dst != NULL:
+            hts_close(dst)
+        if dst_hdr != NULL:
+            bcf_hdr_destroy(dst_hdr)
+        if src_hdr != NULL:
+            bcf_hdr_destroy(src_hdr)
+        if src != NULL:
+            hts_close(src)
 
 
 ### Own HTSlib pointers and fill a reusable block with the GIL released

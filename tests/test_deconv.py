@@ -1,5 +1,6 @@
 """Cluster and SNP ancestry-copy output contracts."""
 
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -72,7 +73,13 @@ class DeconvolutionTests(TemporaryTests):
             self.root / "fit",
         )
 
-    def test_support_and_short_tract_filters_apply_before_vcf_output(self):
+    def test_support_and_short_tract_filters_apply_before_bcf_output(self):
+        writeVcf(
+            self.vcf,
+            [("1", i + 1, ("0|1:0.1,0.9", "1|0:0.1,0.9", "0|0:0.1,0.9")) for i in range(self.W)],
+            fields="GT:PP",
+            samples=("s0", "s1", "s2"),
+        )
         support = self.root / "support"
         prob = np.ones((2 * self.N, self.W))
         prob[0, 2] = 0.9
@@ -81,7 +88,7 @@ class DeconvolutionTests(TemporaryTests):
         supports.write_text(f"{support}\n")
         self.call(
             "--format",
-            "vcf",
+            "bcf",
             "--bcf-filelist",
             self.bcfs,
             "--support-filelist",
@@ -93,10 +100,13 @@ class DeconvolutionTests(TemporaryTests):
             "--min-fraction",
             "0",
         )
-        rows = Path(f"{self.root / 'out.chr1'}.vcf").read_text().splitlines()
-        header = next(row for row in rows if row.startswith("#CHROM")).split("\t")
+        output = Path(f"{self.root / 'out.chr1'}.bcf")
+        header = subprocess.check_output(["bcftools", "view", "-h", output], text=True)
+        self.assertNotIn("ID=PP", header)
+        header = next(row for row in header.splitlines() if row.startswith("#CHROM")).split("\t")
         s0 = header.index("s0_0")
-        records = [row.split("\t") for row in rows if not row.startswith("#")]
+        records = subprocess.check_output(["bcftools", "view", "-H", output], text=True).splitlines()
+        records = [row.split("\t") for row in records]
         self.assertEqual(records[0][s0], "0|1")
         self.assertEqual(records[2][s0], ".|.")
 

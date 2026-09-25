@@ -4,6 +4,7 @@ __author__ = "Thomas Bøggild"
 
 import os
 import tempfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from hashlib import sha256
 from pathlib import Path
 from time import perf_counter
@@ -39,8 +40,8 @@ def checkArgs(args):
     if support is not None and len(paths) != len(support):
         raise ValueError("Cluster and support file lists must have the same number of rows")
     bcf = None if args.bcf_filelist is None else readPaths(args.bcf_filelist)
-    if args.format in ("vcf", "both") and bcf is None:
-        raise ValueError("VCF output requires --bcf-filelist")
+    if args.format in ("bcf", "both") and bcf is None:
+        raise ValueError("BCF output requires --bcf-filelist")
     if bcf is not None and len(paths) != len(bcf):
         raise ValueError("Cluster and genotype file lists must have the same number of rows")
     if not args.out or Path(args.out).name in ("", ".", ".."):
@@ -120,67 +121,6 @@ def writeClusters(prefix, source, labels, path, selected, ids, rows, include_ori
     writeIdentity(files, key, W, int(sum(row[5] for row in rows)))
 
 
-### Render one VCF GT field, retaining only alleles assigned to the copy's ancestry
-def genotype(a, b):
-    left = "." if a == 255 else str(int(a))
-    right = "." if b == 255 else str(int(b))
-    return f"{left}|{right}"
-
-
-### Stream a genotype input and emit original and/or ancestry-masked diploid copies
-def writeVcf(out, bcf, rows, path, selected, ids, include_original):
-    from hapla.vcf_cy import Reader
-
-    N, W = len(ids), len(rows)
-    with Reader(bcf, phased=True, save=True) as src:
-        if src.samples != list(ids):
-            raise ValueError(f"Genotype samples differ from cluster samples: {bcf}")
-        names = ([*ids] if include_original else []) + [f"{ids[i]}_{k}" for i, k in selected]
-        with open(out, "w", buffering=1024**2) as dst:
-            dst.write("##fileformat=VCFv4.3\n")
-            dst.write("##source=hapla deconv\n")
-            for name in src.contigs:
-                dst.write(f"##contig=<ID={name}>\n")
-            dst.write('##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n')
-            dst.write(
-                "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t" + "\t".join(names) + "\n"
-            )
-            G = np.empty((4096, 2 * N), np.uint8)
-            pos = np.empty(4096, np.int64)
-            contigs = np.empty(4096, np.int32)
-            missing = np.empty(4096, np.uint8)
-            w = seen = 0
-            while n := src.readInto(G, pos, contigs, missing):
-                site_rows = src.sites.decode().splitlines()
-                if len(site_rows) != n:
-                    raise RuntimeError("Genotype reader did not retain complete variant identities")
-                for r, site in enumerate(site_rows):
-                    if w >= W:
-                        raise ValueError(
-                            f"Genotype input has more variants than cluster windows: {bcf}"
-                        )
-                    chrom, bp, ref, alt = site.split("\t")
-                    values = (
-                        [genotype(G[r, 2 * i], G[r, 2 * i + 1]) for i in range(N)]
-                        if include_original
-                        else []
-                    )
-                    for i, k in selected:
-                        a = G[r, 2 * i] if path[2 * i, w] == k else 255
-                        b = G[r, 2 * i + 1] if path[2 * i + 1, w] == k else 255
-                        values.append(genotype(a, b))
-                    dst.write(
-                        f"{chrom}\t{bp}\t.\t{ref}\t{alt}\t.\tPASS\t.\tGT\t"
-                        + "\t".join(values)
-                        + "\n"
-                    )
-                    seen += 1
-                    if seen == rows[w][4]:
-                        seen, w = 0, w + 1
-    if w != W or seen:
-        raise ValueError(f"Genotype input has fewer variants than cluster windows: {bcf}")
-
-
 ### Filter each chromosome once, retain sufficiently observed copies globally, then write outputs
 def main(args):
     from hapla.formats import mapLabels, readMetadata, readWindows
@@ -223,6 +163,8 @@ def main(args):
         if not selected:
             raise ValueError("No ancestry copies satisfy --min-fraction")
         print(f"Original samples: {N:,}\nAncestry copies retained: {len(selected):,}", flush=True)
+        selected_arr = np.asarray(selected, dtype=np.int32)
+        copy_ids = [f"{ids[i]}_{k}" for i, k in selected]
         base = Path(args.out).absolute()
         base.parent.mkdir(parents=True, exist_ok=True)
         tags = suffixes(prefixes)
@@ -247,23 +189,37 @@ def main(args):
             for j, tag in enumerate(tags):
                 for sfx in (".bca", ".ids", ".win", ".ref.json"):
                     out[f".{tag}{sfx}"] = tmp / f"result.{tag}{sfx}"
-        if args.format in ("vcf", "both"):
-            vcfs = tmp / "vcfs"
-            with vcfs.open("w") as handle:
-                for j, tag in enumerate(tags):
-                    target = tmp / f"result.{tag}.vcf"
-                    writeVcf(
-                        target,
+        if args.format in ("bcf", "both"):
+            from hapla.vcf_cy import writeDeconvBcf
+
+            targets = [tmp / f"result.{tag}.bcf" for tag in tags]
+            workers = min(4, len(bcf), max(1, args.threads))
+            io_threads = max(0, args.threads // workers - 1)
+            print(f"Writing {len(bcf):,} BCF outputs with {workers} workers.", flush=True)
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                jobs = {
+                    pool.submit(
+                        writeDeconvBcf,
                         bcf[j],
-                        rows_all[j],
+                        targets[j],
                         np.load(filtered[j]),
-                        selected,
-                        ids,
+                        selected_arr,
+                        np.asarray([row[4] for row in rows_all[j]], dtype=np.int64),
+                        copy_ids,
                         args.include_original,
-                    )
-                    handle.write(f"{base}.{tag}.vcf\n")
-                    out[f".{tag}.vcf"] = target
-            out[".vcfs"] = vcfs
+                        io_threads,
+                    ): j
+                    for j in range(len(bcf))
+                }
+                for future in as_completed(jobs):
+                    j = jobs[future]
+                    printTiming(f"BCF chromosome {tags[j]}", future.result())
+            bcfs = tmp / "bcfs"
+            with bcfs.open("w") as handle:
+                for j, tag in enumerate(tags):
+                    handle.write(f"{base}.{tag}.bcf\n")
+                    out[f".{tag}.bcf"] = targets[j]
+            out[".bcfs"] = bcfs
         if args.save_filtered_paths:
             listed = tmp / "paths"
             with listed.open("w") as handle:

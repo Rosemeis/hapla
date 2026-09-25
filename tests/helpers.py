@@ -57,6 +57,7 @@ def writeVcf(path, rows, *, fields="GT", samples=("A", "B", "C")):
         "##contig=<ID=2,length=10000000>\n"
         '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
         '##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Depth">\n'
+        '##FORMAT=<ID=PP,Number=.,Type=String,Description="Posterior probabilities">\n'
     )
     header += "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t" + "\t".join(samples) + "\n"
     with open(path, "w") as handle:

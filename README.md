@@ -459,7 +459,7 @@ before interpreting it as a historical admixture event.
 Expand decoded local-ancestry paths into one ancestry-specific copy per
 individual and ancestry. The command reads the same ordered cluster inputs used
 by `fatash`, plus a matching list of `.path` files. It can write expanded Hapla
-cluster bundles for downstream `admix`, `struct`, or `eval`, masked phased VCFs
+cluster bundles for downstream `admix`, `struct`, or `eval`, masked phased BCFs
 for SNP-based analyses, or both. The input genotype files must be the phased,
 biallelic files from which the matching cluster assignments were made.
 
@@ -472,8 +472,8 @@ hapla deconv --clusters chr{1..22} --path-filelist paths.txt --K 4 \
 ```
 
 Cluster output is written as `<out>.<input-suffix>.bca`, `.ids`, `.win`, and
-`.ref.json`; `<out>.filelist` lists those prefixes in input order. VCF output
-uses matching `<out>.<input-suffix>.vcf` files and `<out>.vcfs` lists them.
+`.ref.json`; `<out>.filelist` lists those prefixes in input order. BCF output
+uses matching `<out>.<input-suffix>.bcf` files and `<out>.bcfs` lists them.
 Each retained copy is named `SAMPLE_K`, where `K` is its zero-based ancestry
 label. `--include-original` retains the unmasked samples before these copies.
 
@@ -481,8 +481,8 @@ label. `--include-original` retains the unmasked samples before these copies.
 | --- | --- | --- |
 | `--path-filelist FILE` | Required | Ordered decoded-path files |
 | `--K INT` | Required | Number of ancestry labels |
-| `--format clusters\|vcf\|both` | `clusters` | Requested output type |
-| `--bcf-filelist FILE` | — | Ordered phased genotype files for VCF output |
+| `--format clusters\|bcf\|both` | `clusters` | Requested output type |
+| `--bcf-filelist FILE` | — | Ordered phased genotype files for BCF output |
 | `--min-call-support FLOAT` | Off | Mask calls below this decoded-call support |
 | `--min-tract-windows INT` | Off | Mask retained tracts shorter than this length |
 | `--homozygous-only` | Off | Mask windows whose two haplotypes differ in ancestry |

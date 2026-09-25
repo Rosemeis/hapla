@@ -441,14 +441,14 @@ def main():
     dec.add_argument("--K", type=int, metavar="INT", help="Number of ancestry labels")
     dec.add_argument(
         "--format",
-        choices=("clusters", "vcf", "both"),
+        choices=("clusters", "bcf", "both"),
         default="clusters",
-        help="Write ancestry-expanded cluster assignments, masked VCFs, or both (clusters)",
+        help="Write ancestry-expanded cluster assignments, masked BCFs, or both (clusters)",
     )
     dec.add_argument(
         "--bcf-filelist",
         metavar="FILE",
-        help="One phased VCF/BCF per cluster input, in input order; required for VCF output",
+        help="One phased VCF/BCF per cluster input, in input order; required for BCF output",
     )
     dec.add_argument(
         "--min-call-support",
