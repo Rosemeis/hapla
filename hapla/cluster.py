@@ -36,11 +36,11 @@ def checkArgs(args):
         raise ValueError("--length must be positive")
     if args.step is not None and (args.size is None or not 1 <= args.step <= args.size):
         raise ValueError("--step requires --size and must lie between 1 and the window size")
-    if not math.isfinite(args.lmbda) or not 0 < args.lmbda < 1:
-        raise ValueError("--lmbda must lie strictly between 0 and 1")
-    if not math.isfinite(args.min_freq) or not 0 < args.min_freq < 1:
-        raise ValueError("--min-freq must lie strictly between 0 and 1")
-    if args.min_mac is not None and args.min_mac < 1:
+    if not math.isfinite(args.lmbda) or not 0 <= args.lmbda < 1:
+        raise ValueError("--lmbda must be in [0, 1)")
+    if not math.isfinite(args.min_freq) or not 0 <= args.min_freq < 1:
+        raise ValueError("--min-freq must be in [0, 1)")
+    if args.min_mac < 1:
         raise ValueError("--min-mac must be positive")
     if not 1 <= args.max_clusters <= 255:
         raise ValueError(
@@ -113,6 +113,9 @@ def main(args):
         growth_passes=0,
         pruning_passes=0,
         distance_pairs=0,
+        exact_windows=0,
+        reuse_attempts=0,
+        reuse_accepts=0,
     )
     size = (
         f"{args.size:,}"
@@ -166,6 +169,9 @@ def main(args):
                 stats["growth_passes"] += info["growth_passes"]
                 stats["pruning_passes"] += info["prune_passes"]
                 stats["distance_pairs"] += info["distance_pairs"]
+                stats["exact_windows"] += info["exact"]
+                stats["reuse_attempts"] += info["reuse_attempts"]
+                stats["reuse_accepts"] += info["reuse_accepts"]
                 writeWindow(files, res["window"], res["labels"], K, stats["windows"])
                 if args.medians:
                     files[".bcm"].write(res["medians"])

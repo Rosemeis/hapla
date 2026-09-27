@@ -1,4 +1,5 @@
-# cython: language_level=3, boundscheck=False, wraparound=False, initializedcheck=False
+# cython: language_level=3
+# cython: boundscheck=False, wraparound=False, initializedcheck=False
 """Bounded native HTSlib reading of phased, diploid, biallelic GT."""
 
 __author__ = "Jonas Meisner"

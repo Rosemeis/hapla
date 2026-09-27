@@ -115,6 +115,7 @@ class NativePredictionTests(TemporaryTests):
         vcf = self.root / "reference.vcf"
         prefix = self.root / "reference"
         writeVcf(vcf, rows)
+        extra.setdefault("min_mac", 1)
         options = [
             value
             for key, arg in extra.items()

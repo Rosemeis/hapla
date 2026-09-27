@@ -125,22 +125,34 @@ PLINK output marks the diploid genotype missing if either haplotype is missing.
 | `-l`, `--length INT` | — | Physical span in bp, from the first variant through start + span |
 | `-w`, `--windows FILE` | — | Increasing zero-based start indices, beginning at zero |
 | `-s`, `--step INT` | Window size | Step for overlapping `--size` windows |
-| `-p`, `--lmbda FLOAT` | `0.1` | Window fraction defining the Hamming-distance growth threshold |
-| `--min-freq FLOAT` | `0.005` | Minimum cluster frequency among observed haplotypes |
-| `--min-mac INT` | — | Minimum cluster count, overriding `--min-freq` |
+| `-p`, `--lmbda FLOAT` | `0.0625` | Hamming-distance growth threshold as a window fraction, zero allows any mismatch |
+| `--min-freq FLOAT` | `0.001` | Minimum cluster frequency among observed haplotypes, combined with `--min-mac` |
+| `--min-mac INT` | `5` | Minimum cluster count, combined with `--min-freq` |
 | `--max-clusters INT` | `255` | Maximum clusters per window, from 1 to 255 |
-| `--max-iterations INT` | `1000` | Iteration limit for fitting each window |
+| `--max-iterations INT` | `1000` | Iteration limit per growth or refinement phase |
 | `--tail {include,drop}` | `include` | Keep or omit incomplete final fixed-size windows |
 | `--missing {window,error}` | `window` | Mark affected haplotypes missing or reject missing GT |
 | `--medians` | Off | Save reference medians and variant metadata for prediction |
 
 For overlapping windows, a short tail is added only if it covers new variants.
 A `--windows` file may end with the genotype record count as an EOF marker.
-The fitter deduplicates haplotypes, grows binary medians using packed Hamming
-distances, then reassigns haplotypes from clusters below the size threshold.
-The 255-cluster cap keeps assignments to one byte per haplotype. A count
-threshold above the observed haplotype count is invalid. Fitting stops if a
-window does not converge.
+The fitter deduplicates haplotypes and grows binary medians using XOR/popcount
+Hamming distances. Seeds require at least `max(1, ceil(lmbda × window size))`
+differences from their nearest median. Two seeds ranked by count × distance
+and two ranked by distance form a shortlist. Selection uses their total weighted
+error reduction, with median refinement between insertions.
+
+Final clusters require `max(min_mac, ceil(min_freq × observed haplotypes))`
+members per window. Both limits apply, giving `max(5, ceil(0.001 × observed))`
+by default. Use `--min-freq 0` for count-only support. Seed counts may be lower
+if neighboring patterns supply enough members after refinement. Unsupported
+clusters are pruned and their members reassigned. One insertion may reuse
+retired capacity, retained only if it converges, meets support, and reduces error.
+
+When one mismatch is eligible, supported unique patterns within the cluster cap
+are returned directly with zero error. The 255-cluster cap keeps assignments to
+one byte per haplotype. A support threshold above the observed haplotype count
+is invalid. Fitting stops if growth or pruning does not converge.
 
 Clustering is invariant to REF/ALT swaps with corresponding GT recoding when
 sample/haplotype order is fixed. Major alleles define the internal orientation.
@@ -196,6 +208,8 @@ PCA writes `.eigenvecs` and `.eigenvals`. `--loadings` also writes `.loadings`,
 `.freqs`, and `.pca.json`, and requires assignment `.ref.json` files. Projection
 writes `.project.eigenvecs` and checks the saved model's ordered references and
 file partitioning. Query samples may differ.
+PCA is approximate. Training and reprojected coordinates can differ slightly.
+Increase `--power` when tighter agreement is needed.
 
 GRM writes `.grm.bin`, `.grm.N.bin`, `.grm.id`, and `.grm.meta.json`. Each window
 contributes `max(observed clusters - 1, 0)` to the contrast count.
@@ -215,7 +229,6 @@ no observed assignments receive uniform Q unless fixed by supervision.
 | `--supervised FILE` | — | One population label per sample, 0 unknown and 1..K fixed |
 | `--projection FILE` | — | Fixed P matrix, or P-file list for multiple cluster inputs |
 | `--random-init` | Off | Use random P/Q instead of SVD/ALS initialization |
-| `--source-init` | Off | Seed SVD/ALS from supported source extremes |
 | `--loo` | Off | Leave both haplotypes out of P when updating their individual's Q |
 | `--iter INT` | `1000` | Maximum outer fitting iterations |
 | `--tole FLOAT` | `1e-9` | Normalized likelihood/objective tolerance, or parameter RMSE with `--loo` |
@@ -233,9 +246,7 @@ no observed assignments receive uniform Q unless fixed by supervision.
 
 Supervision and projection are mutually exclusive. Supervised labels must fit
 0..255. Projection requires P rows to match the cluster order and fixes P while
-fitting Q. The default unsupervised initializer uses SVD/ALS. `--source-init`
-seeds ALS from supported extremes in the sample SVD scores and cannot be
-combined with `--random-init`, supervision, or projection. Opt-in P shrinkage
+fitting Q. The default unsupervised initializer uses SVD/ALS. Opt-in P shrinkage
 uses pooled cluster frequencies within each window and cannot update a fixed
 projection P. With shrinkage, convergence uses the regularized objective while
 the log also records the likelihood. Timings cover each `--check` interval and

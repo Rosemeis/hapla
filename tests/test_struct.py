@@ -123,6 +123,21 @@ class DirectProducts(unittest.TestCase):
             P = struct.project([(Z, c, None)], p, U, S * S / len(p), chunk)
             np.testing.assert_allclose(P, V, atol=2e-12)
 
+    def test_truncated_pca_subspace_and_projection_match_dense_products(self):
+        Z, c, p, _, X = structureFixture(N=80)
+        data, errors = [(Z, c, None)], []
+        exact = np.linalg.svd(X, compute_uv=False)[:4]
+        for power in (1, 11):
+            V, S, _ = struct.pca(data, p, 4, 9, power, 40)
+            U = X @ V / S
+            expected = X.T @ U / S
+            projected = struct.project(data, p, np.ascontiguousarray(U), S * S / len(p), 9)
+            np.testing.assert_allclose(projected, expected, atol=2e-12)
+            np.testing.assert_allclose(V.T @ V, np.eye(4), atol=2e-12)
+            errors.append(np.linalg.norm(projected - V))
+        self.assertLess(errors[1], errors[0] * 0.01)
+        np.testing.assert_allclose(S, exact, rtol=1e-6)
+
     def test_rank_deficiency_is_finite_and_excess_components_fail(self):
         Z = np.tile(np.repeat([0, 0, 1, 1], 2), (6, 1)).astype(np.uint8)
         c, p = np.arange(0, 13, 2, dtype=np.int64), np.full(12, 0.5)

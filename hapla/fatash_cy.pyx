@@ -1,4 +1,6 @@
-# cython: language_level=3, boundscheck=False, wraparound=False, initializedcheck=False, cdivision=True
+# cython: language_level=3
+# cython: boundscheck=False, wraparound=False, initializedcheck=False
+# cython: cdivision=True
 """Linear-time ancestry HMMs, bounded scratch, and independent haplotype fits."""
 
 __author__ = "Jonas Meisner"
@@ -47,6 +49,9 @@ cdef void _exclude(const f64* x, f64* out, Py_ssize_t K) noexcept nogil:
     for k in range(K-1, -1, -1):
         out[k] = _add(out[k], s)
         s = _add(s, x[k])
+
+
+##### Emission tables
 
 
 ### Normalize file frequencies after checking each ancestral simplex
@@ -120,9 +125,11 @@ def emissionTable(const f64[::1] P, const i64[::1] c, Py_ssize_t K,
     counts = np.diff(c)
     if np.any((counts < 0) | (counts > 255)):
         raise ValueError("Emission tables require 0..255 clusters per window")
-    cdef i64[::1] x = np.r_[0, np.cumsum(counts*counts, dtype=np.int64)]
-    if likes is not None and likes.shape[0] != x[W]:
-        raise ValueError("Median likelihood payload does not match the windows")
+    cdef i64[::1] x = None
+    if likes is not None:
+        x = np.r_[0, np.cumsum(counts*counts, dtype=np.int64)]
+        if likes.shape[0] != x[W]:
+            raise ValueError("Median likelihood payload does not match the windows")
     cdef f64[::1] table = np.empty(P.shape[0])
     for w in prange(W, nogil=True, schedule='static'):
         if c[w+1] > c[w]:
@@ -164,6 +171,9 @@ def emissions(const u8[:, ::1] Z, const f64[::1] table, const i64[::1] c,
                     b = (w-beg)//block
                     for k in range(K): E[i, b, k] += table[(c[w]+z)*K+k]
     return np.asarray(E)
+
+
+##### Posterior inference
 
 
 ### Check priors and alpha once before entering unchecked recursions
@@ -400,6 +410,9 @@ def posteriorDecode(const f64[:, :, ::1] E, Q, alpha, bint simple=False, bint co
     return np.asarray(D), np.asarray(P), np.asarray(ll)
 
 
+##### Viterbi decoding
+
+
 ### Small state spaces favor a tight dense loop with rolling score vectors
 cdef f64 _viterbiSmall(const f64* E, const f64* q, u8* path, u8* prev,
                          f64* work, Py_ssize_t W, Py_ssize_t K,
@@ -531,6 +544,9 @@ def viterbi(const f64[:, :, ::1] E, Q, alpha, bint simple=False):
                 for k in range(K): votes[t, w*K+k] = 0
     if bad: raise ValueError("No supported HMM path for an observed haplotype")
     return np.asarray(D)
+
+
+##### Parameter refinement
 
 
 ### Count observed assignments once for convergence scaling and empty samples
@@ -674,13 +690,11 @@ def refineP(const f64[::1] base, const f64[::1] counts,
     return np.asarray(P)
 
 
+##### Phase correction and output
+
+
 ### Correct reciprocal phase switches in pairs of haplotypes
-def phaseCorrect(
-        u8[:, ::1] D,
-        f64[:, ::1] L,
-        const u32 dist,
-        bint probs
-    ):
+def phaseCorrect(u8[:, ::1] D, f64[:, ::1] L, const u32 dist, bint probs):
     cdef:
         Py_ssize_t N = D.shape[0] // 2
         Py_ssize_t W = D.shape[1]

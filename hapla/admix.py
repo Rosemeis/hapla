@@ -25,10 +25,6 @@ def main(args):
     # Check input
     if args.supervised is not None and args.projection is not None:
         raise ValueError("Choose either --supervised or --projection")
-    if args.source_init and (
-        args.random_init or args.supervised is not None or args.projection is not None
-    ):
-        raise ValueError("--source-init requires unsupervised SVD/ALS initialization")
     if args.projection is not None and args.p_prior:
         raise ValueError("--p-prior cannot update fixed projection frequencies")
     if args.loo and args.projection is not None:
@@ -37,37 +33,36 @@ def main(args):
         raise ValueError("Provide exactly one of --clusters or --filelist")
     if not args.prefix or any(x in args.prefix for x in ("/", "\\")):
         raise ValueError("Output chromosome prefix must be a filename component")
-    if not (args.K is not None and 1 < args.K < 100000):
+    if args.K is None or not 1 < args.K < 100000:
         raise ValueError("Please select 1 < K < 100000 (a 1e-5 probability floor is used)!")
-    if args.keep is not None:
-        if not (os.path.isfile(args.keep)):
-            raise ValueError("Keep file doesn't exist!")
-    if not (args.threads > 0):
+    if args.keep is not None and not os.path.isfile(args.keep):
+        raise ValueError("Keep file doesn't exist!")
+    if args.threads < 1:
         raise ValueError("Please select a valid number of threads!")
-    if not (args.seed >= 0):
+    if args.seed < 0:
         raise ValueError("Please select a valid seed!")
-    if not (args.iter > 0):
+    if args.iter < 1:
         raise ValueError("Please select a valid number of iterations!")
-    if not (isfinite(args.tole) and args.tole >= 0.0):
+    if not isfinite(args.tole) or args.tole < 0:
         raise ValueError("Please select a valid tolerance!")
-    if not (args.batches > 0):
+    if args.batches < 1:
         raise ValueError("Please select a valid number of mini-batches!")
-    if not (args.check > 0):
+    if args.check < 1:
         raise ValueError("Please select a valid value for convergence check!")
-    if not (args.power > 0):
+    if args.power < 1:
         raise ValueError("Please select a valid number of power iterations!")
-    if not (args.chunk > 0):
+    if args.chunk < 1:
         raise ValueError("Please select a valid SVD chunk size!")
-    if not (args.als_iter > 0):
+    if args.als_iter < 1:
         raise ValueError("Please select a valid number of iterations in ALS!")
-    if not (isfinite(args.als_tole) and args.als_tole >= 0.0):
+    if not isfinite(args.als_tole) or args.als_tole < 0:
         raise ValueError("Please select a valid tolerance in ALS!")
-    if not (isfinite(args.p_prior) and args.p_prior >= 0.0):
+    if not isfinite(args.p_prior) or args.p_prior < 0:
         raise ValueError("Please select a finite, nonnegative P prior mass!")
-    if not (args.subsampling > 1):
+    if args.subsampling < 2:
         raise ValueError("Please select a valid subsampling factor!")
     printHeader("admix", args.threads, f"K: {args.K}, Seed: {args.seed}")
-    p_out = f"{args.out}.project" if (args.projection is not None) else f"{args.out}"
+    p_out = f"{args.out}.project" if args.projection is not None else f"{args.out}"
     f_out = f"{p_out}.K{args.K}.s{args.seed}"
     start = time()
 
@@ -169,18 +164,18 @@ def main(args):
     rng = np.random.default_rng(args.seed)
     if args.supervised is not None:  # Supervised mode
         # Check input of ancestral sources
-        if not (os.path.isfile(args.supervised)):
+        if not os.path.isfile(args.supervised):
             raise ValueError("Population assignment file doesn't exist!")
         y = np.loadtxt(args.supervised, ndmin=1)
         if y.ndim != 1 or not np.all(np.isfinite(y)) or np.any(y != np.floor(y)):
             raise ValueError("Population assignments require one integer per sample")
         if args.keep is not None and y.shape[0] == N_all:
             y = y[keep]
-        if not (y.shape[0] == N):
+        if y.shape[0] != N:
             raise ValueError("Number of samples differ between files!")
-        if not (np.max(y) <= args.K):
+        if np.max(y) > args.K:
             raise ValueError("Wrong number of ancestral sources!")
-        if not (np.min(y) >= 0):
+        if np.min(y) < 0:
             raise ValueError("Wrong format for population assignments!")
         if np.any(y > 255):
             raise ValueError("Supervised source labels must fit 0..255")
@@ -198,11 +193,11 @@ def main(args):
     elif args.projection is not None:  # Projection mode
         # Load ancestral haplotype cluster frequencies
         print("Projecting onto reference frequencies.", flush=True)
-        if not (os.path.isfile(args.projection)):
+        if not os.path.isfile(args.projection):
             raise ValueError("P matrix file/filelist doesn't exist!")
         if F > 1:  # Load multiple frequency files from filelist
             P_list = readPaths(args.projection)
-            if not (len(P_list) == F):
+            if len(P_list) != F:
                 raise ValueError("Number of files doesn't match!")
 
             # Load in files to full matrix
@@ -229,7 +224,7 @@ def main(args):
         # Check that cluster frequencies sum to one
         p_sum = np.zeros((W, args.K))
         admix_cy.checkP(P, p_sum, k_vec, c_vec, args.K)
-        if not (np.allclose(p_sum[k_vec > 0], 1.0, atol=1e-3)):
+        if not np.allclose(p_sum[k_vec > 0], 1.0, atol=1e-3):
             raise ValueError("Wrong format for haplotype cluster alleles!")
         admix_cy.normalizeP(P, p_sum, k_vec, c_vec, args.K)
         del p_sum
@@ -244,18 +239,12 @@ def main(args):
             Q = rng.random(size=(N, args.K)).clip(min=1e-5, max=1 - (1e-5))
             Q /= np.sum(Q, axis=1, keepdims=True)
         else:  # SVD/ALS initialization
-            print(
-                "Computing source estimates."
-                if args.source_init
-                else "Computing SVD/ALS estimates.",
-                flush=True,
-            )
+            print("Computing SVD/ALS estimates.", flush=True)
             ts = time()
             W_s = f_vec[ceil(F / args.subsampling)] if F > 1 else W
-            extra = 4 if args.source_init else 0
             try:
                 U, S, V = functions.centerSVD(
-                    Z, p_vec, c_tmp, W_s, args.K, args.chunk, args.power, rng, w_obs, extra
+                    Z, p_vec, c_tmp, W_s, args.K, args.chunk, args.power, rng, w_obs
                 )
             except ValueError:
                 if W_s == W:
@@ -263,7 +252,7 @@ def main(args):
                 print("SVD subset lacks rank. Using all windows.", flush=True)
                 W_s = W
                 U, S, V = functions.centerSVD(
-                    Z, p_vec, c_tmp, W_s, args.K, args.chunk, args.power, rng, w_obs, extra
+                    Z, p_vec, c_tmp, W_s, args.K, args.chunk, args.power, rng, w_obs
                 )
             if W_s < W:
                 U_r = functions.centerSub(Z, S, V, p_vec, c_tmp, W_s, args.chunk, w_obs)
@@ -279,8 +268,6 @@ def main(args):
                     args.als_iter,
                     args.als_tole,
                     rng,
-                    args.K,
-                    args.source_init,
                 )
                 del U_r
             else:
@@ -294,14 +281,9 @@ def main(args):
                     args.als_iter,
                     args.als_tole,
                     rng,
-                    args.K,
-                    args.source_init,
                 )
             del U
-            printTiming(
-                "Source initialization complete." if args.source_init else "SVD/ALS complete.",
-                time() - ts,
-            )
+            printTiming("SVD/ALS complete.", time() - ts)
             del S, V
         y = None
 
@@ -362,14 +344,25 @@ def main(args):
         stats["initial_objective"] = L_pre * L_nrm
     metric = "Objective" if prior else "Log-like"
     print(f"Initial {metric.lower()}: {L_pre * L_nrm:,.1f}", flush=True)
+    n_retry = 0
     if not args.loo:
         ts = time()
         functions.emStep(P, Q, P if P1 is not None else None, Q, ctx, qo=q_obs, **em_kw)
         functions.emQuasi(P, Q, P1, P2, Q1, Q2, ctx, qo=q_obs, **em_kw)
         functions.emStep(P, Q, P if P1 is not None else None, Q, ctx, qo=q_obs, **em_kw)
+        L_cur, ll_cur = score()
+        if not np.isfinite(L_cur) or L_cur < L_pre:
+            # The ordinary EM state survives the accelerated warm-up
+            if P1 is not None:
+                P[:] = P1
+            Q[:] = Q1
+            L_cur, ll_cur = score()
+            n_retry += 1
+        if not np.isfinite(L_cur):
+            raise ValueError("Non-finite ancestry objective during warm-up")
+        L_pre, ll_pre = L_cur, ll_cur
         printTiming("Warm-up complete.", time() - ts)
         stats["priming_seconds"] = time() - ts
-        L_pre, ll_pre = score()
 
     # Keep the batch schedule and checkpoint full-data convergence checks
     batches = 1 if args.loo else min(args.batches, W)
@@ -379,7 +372,7 @@ def main(args):
     if batches == 1 and not args.loo:
         P_save = None if P1 is None else P.copy()
         Q_save = Q.copy()
-    conv, stalled, n_retry = False, False, 0
+    conv, stalled = False, False
     history = []
     ts = time()
     lap = ts

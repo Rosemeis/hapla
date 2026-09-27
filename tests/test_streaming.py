@@ -281,6 +281,8 @@ class FormatAndPipelineTests(TemporaryTests):
                 16,
                 "--step",
                 8,
+                "--min-mac",
+                1,
                 "--medians",
                 "--plink",
                 "--buffer-mb",
@@ -430,7 +432,20 @@ class FormatAndPipelineTests(TemporaryTests):
         writeVcf(vcf, [("1", i + 1, ("0|0", "0|1", "1|1")) for i in range(35)])
         toBcf(vcf, bcf, index=True)
         reference, target = self.root / "reference", self.root / "target"
-        command("cluster", "--bcf", bcf, "--size", 16, "--step", 8, "--medians", "--out", reference)
+        command(
+            "cluster",
+            "--bcf",
+            bcf,
+            "--size",
+            16,
+            "--step",
+            8,
+            "--min-mac",
+            1,
+            "--medians",
+            "--out",
+            reference,
+        )
         command("predict", "--bcf", bcf, "--ref", reference, "--out", target)
         self.assertEqual(Path(f"{reference}.bca").read_bytes(), Path(f"{target}.bca").read_bytes())
 
@@ -441,7 +456,9 @@ class FormatAndPipelineTests(TemporaryTests):
             admix = self.root / f"admix{missing}"
             calls = (".|0" if missing else "0|0", "0|1", "1|1")
             writeVcf(vcf, [("1", i + 1, calls) for i in range(32)])
-            command("cluster", "--vcf", vcf, "--size", 8, "--medians", "--out", prefix)
+            command(
+                "cluster", "--vcf", vcf, "--size", 8, "--min-mac", 1, "--medians", "--out", prefix
+            )
             command(
                 "admix",
                 "--clusters",
@@ -499,7 +516,9 @@ class FormatAndPipelineTests(TemporaryTests):
         rows = [("1", i + 1, ("0|0", "0|1", "1|1")) for i in range(16)]
         writeVcf(vcf, rows)
         toBcf(vcf, bcf, index=True)
-        command("cluster", "--bcf", bcf, "--size", 8, "--medians", "--out", reference)
+        command(
+            "cluster", "--bcf", bcf, "--size", 8, "--min-mac", 1, "--medians", "--out", reference
+        )
         query_vcf, query_bcf = self.root / "query.vcf", self.root / "query.bcf"
         rows[10] = ("1", 11, ("0|0", ".|1", "1|1"))
         writeVcf(query_vcf, rows)
@@ -514,6 +533,7 @@ class FormatAndPipelineTests(TemporaryTests):
 
         # Two clusters per window, one byte per PLINK variant, second sample is missing.
         bed = Path(f"{target}.bed").read_bytes()[3:]
+        self.assertEqual(len(bed), 4)
         self.assertTrue(all((byte >> 2) & 3 == 1 for byte in bed[2:]))
 
     def test_all_missing_windows_are_written_and_mapped(self):

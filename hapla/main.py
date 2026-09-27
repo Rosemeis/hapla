@@ -107,9 +107,9 @@ def main():
         "-p",
         "--lmbda",
         type=float,
-        default=0.1,
+        default=0.0625,
         metavar="FLOAT",
-        help="Set lambda hyperparameter (0.1)",
+        help="Hamming-distance growth fraction, 0 allows one mismatch (0.0625)",
     )
     clu.add_argument(
         "-s",
@@ -121,12 +121,16 @@ def main():
     clu.add_argument(
         "--min-freq",
         type=float,
-        default=0.005,
+        default=0.001,
         metavar="FLOAT",
-        help="Minimum haplotype cluster frequency (0.005)",
+        help="Minimum cluster frequency, combined with --min-mac (0.001)",
     )
     clu.add_argument(
-        "--min-mac", type=int, metavar="INT", help="Minimum haplotype cluster allele count"
+        "--min-mac",
+        type=int,
+        default=5,
+        metavar="INT",
+        help="Minimum cluster count, combined with --min-freq (5)",
     )
     clu.add_argument(
         "--max-clusters",
@@ -140,7 +144,7 @@ def main():
         type=int,
         default=1000,
         metavar="INT",
-        help="Maximum number of iterations (1000)",
+        help="Iteration limit per growth or refinement phase (1000)",
     )
     clu.add_argument("--medians", action="store_true", help="Save haplotype cluster medians")
     clu.add_argument(
@@ -256,9 +260,6 @@ def main():
     )
     adm.add_argument(
         "--random-init", action="store_true", help="Random initialization of parameters"
-    )
-    adm.add_argument(
-        "--source-init", action="store_true", help="Seed SVD/ALS from supported source extremes"
     )
     adm.add_argument(
         "--loo", action="store_true", help="Exclude each individual's P counts when updating Q"

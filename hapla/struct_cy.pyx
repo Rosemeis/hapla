@@ -1,4 +1,5 @@
-# cython: language_level=3, boundscheck=False, wraparound=False, initializedcheck=False
+# cython: language_level=3
+# cython: boundscheck=False, wraparound=False, initializedcheck=False
 # cython: cdivision=True
 """Direct products of validated cluster labels, without expanded dosage matrices."""
 

@@ -114,7 +114,23 @@ def product(data, p, a, L, chunk, *, Q=None, rng=None):
     return H
 
 
-### Use QR for stable subspace iterations and solve only the small final problem
+### Build a shared randomized subspace for PCA and ancestry initialization
+def subspace(data, p, a, L, chunk, power, rng):
+    import numpy as np
+
+    Q, _ = np.linalg.qr(product(data, p, a, L, chunk, rng=rng), mode="reduced")
+    shift = 0.0
+    for _ in range(power):
+        H = product(data, p, a, L, chunk, Q=np.ascontiguousarray(Q))
+        H -= shift * Q
+        Q, R = np.linalg.qr(H, mode="reduced")
+        low = np.linalg.svd(R, compute_uv=False)[-1]
+        if low > shift:
+            shift = 0.5 * (low + shift)
+    return np.ascontiguousarray(Q)
+
+
+### Solve the small final PCA problem within the estimated subspace
 def pca(data, p, K, chunk, power, seed, v=None):
     import numpy as np
 
@@ -132,19 +148,9 @@ def pca(data, p, K, chunk, power, seed, v=None):
         raise ValueError(
             "PCA components must fit the centered sample and variable-cluster dimensions"
         )
-    rng = np.random.default_rng(seed)
-    Q, _ = np.linalg.qr(product(data, p, a, L, chunk, rng=rng), mode="reduced")
-    shift = 0.0
-    for it in range(power):
-        H = product(data, p, a, L, chunk, Q=np.ascontiguousarray(Q))
-        H -= shift * Q
-        Q, R = np.linalg.qr(H, mode="reduced")
-        low = np.linalg.svd(R, compute_uv=False)[-1]
-        if low > shift:
-            shift = 0.5 * (low + shift)
+    Q = subspace(data, p, a, L, chunk, power, np.random.default_rng(seed))
 
     # Accumulate (X Q)' (X Q) without storing all cluster loadings
-    Q = np.ascontiguousarray(Q)
     T, sums = np.zeros((L, L)), Q.sum(axis=0)
     for Z, c, s, obs in blocks(data, chunk):
         A = np.empty((int(c[-1]), L))
