@@ -2,7 +2,6 @@
 
 __author__ = "Jonas Meisner"
 
-import json
 import shutil
 from pathlib import Path
 
@@ -20,7 +19,7 @@ from helpers import (
 from hapla import struct
 from hapla import struct_cy as cy
 from hapla.formats import MAGIC, readMetadata
-from hapla.identity import featureKeys, writeIdentity
+from hapla.identity import checkModel, featureKeys, readIdentity, writeIdentity
 
 
 ### Save a small PCA model with projection loadings
@@ -44,7 +43,7 @@ def export(ref, out, *args, success=True):
 
 ### Attach cluster identity metadata to a test bundle
 def bind(pfx, reference, W, M):
-    out = {s: Path(f"{pfx}{s}") for s in (".bca", ".ids", ".win", ".ref.json")}
+    out = {s: Path(f"{pfx}{s}") for s in (".bca", ".ids", ".win", ".ref")}
     writeIdentity(out, reference, W, M)
 
 
@@ -70,7 +69,7 @@ class StructureContracts(TemporaryTests):
                 struct.pca([(Z, c, obs)], p, 1, 7, 2, 42)
             ref = writeClusters(self.root, f"zero{missing}", Z, c)
             out = self.root / "zero"
-            Path(f"{out}.eigenvecs").write_text("previous\n")
+            Path(f"{out}.vec").write_text("previous\n")
             result = command(
                 "struct", "--clusters", ref, "--pca", 1, "--chunk", 7, "--out", out, success=False
             )
@@ -80,7 +79,7 @@ class StructureContracts(TemporaryTests):
                     "struct", "--clusters", ref, "--grm", *opts, "--out", out, success=False
                 )
                 self.assertIn("empirical dosage variation", result.stderr)
-            self.assertEqual(Path(f"{out}.eigenvecs").read_text(), "previous\n")
+            self.assertEqual(Path(f"{out}.vec").read_text(), "previous\n")
 
     def test_pca_replacement_removes_the_entire_obsolete_model(self):
         Z, c, _, _, _ = structureFixture()
@@ -88,7 +87,7 @@ class StructureContracts(TemporaryTests):
         model = self.root / "model"
         export(ref, model)
         command("struct", "--clusters", ref, "--pca", 1, "--raw", "--out", model)
-        for s in (".loadings", ".freqs", ".pca.json"):
+        for s in (".load", ".freq", ".pca"):
             self.assertFalse(Path(f"{model}{s}").exists())
         result = command(
             "struct",
@@ -107,7 +106,7 @@ class StructureContracts(TemporaryTests):
         ref = writeClusters(self.root, "ref", Z, c)
         model = self.root / "model"
         export(ref, model)
-        suffixes = (".eigenvals", ".eigenvecs", ".loadings", ".freqs", ".pca.json", ".log")
+        suffixes = (".val", ".vec", ".load", ".freq", ".pca", ".log")
         previous = {s: Path(f"{model}{s}").read_bytes() for s in suffixes}
         result = command("struct", "--clusters", ref, "--pca", 999, "--out", model, success=False)
         self.assertNotEqual(result.returncode, 0)
@@ -126,6 +125,34 @@ class StructureContracts(TemporaryTests):
         self.assertIn("conflicts with input", result.stderr)
         for s, original in previous.items():
             self.assertEqual(Path(f"{model}{s}").read_bytes(), original)
+
+    def test_identity_records_reject_wrong_versions_duplicates_and_incomplete_rows(self):
+        Z, c, _, _, _ = structureFixture()
+        ref = writeClusters(self.root, "ref", Z, c)
+        model = self.root / "model"
+        export(ref, model)
+        keys = featureKeys([ref], np.diff(c), [len(Z)])
+        for pth, check in (
+            (Path(f"{ref}.ref"), lambda: readIdentity(ref, (".bca", ".ids", ".win"))),
+            (Path(f"{model}.pca"), lambda: checkModel(model, keys)),
+        ):
+            original = pth.read_text()
+            rows = original.splitlines()
+            for text in (
+                "",
+                original.replace(" 1\n", " 2\n", 1),
+                original.replace("#HAPLA", "#OTHER", 1),
+                original + rows[-1] + "\n",
+                original + "incomplete\n",
+                "\n".join(rows[:-1]) + "\n",
+            ):
+                with self.subTest(path=pth.name, text=text):
+                    pth.write_text(text)
+                    with self.assertRaises(ValueError):
+                        check()
+            pth.write_text(original)
+            check()
+        self.assertFalse(list(self.root.glob("*.json")))
 
     def test_projection_rejects_reordered_files_and_different_reference_labels(self):
         Z, c, _, _, _ = structureFixture()
@@ -169,12 +196,12 @@ class StructureContracts(TemporaryTests):
         Z, c, _, _, _ = structureFixture()
         ref = writeClusters(self.root, "ref", Z, c)
         other = writeClusters(self.root, "other", structureFixture(seed=85)[0], c)
-        identity = json.loads(Path(f"{ref}.ref.json").read_text())["reference"]
+        identity = readIdentity(ref, ())["reference"]
         bind(other, identity, len(Z), int(c[-1]))
         a, b = self.root / "a", self.root / "b"
         export(ref, a)
         export(other, b)
-        for suffix in (".freqs", ".loadings", ".eigenvals"):
+        for suffix in (".freq", ".load", ".val"):
             original = Path(f"{a}{suffix}").read_bytes()
             Path(f"{a}{suffix}").write_bytes(Path(f"{b}{suffix}").read_bytes())
             result = command(
@@ -218,12 +245,12 @@ class StructureContracts(TemporaryTests):
         Z, c, _, _, _ = structureFixture()
         ref = writeClusters(self.root, "ref", Z, c)
         renamed = self.root / "renamed"
-        for s in (".bca", ".win", ".ids", ".ref.json"):
+        for s in (".bca", ".win", ".ids", ".ref"):
             shutil.copyfile(f"{ref}{s}", f"{renamed}{s}")
         self.assertEqual(
             featureKeys([ref], np.diff(c), [len(Z)]), featureKeys([renamed], np.diff(c), [len(Z)])
         )
-        Path(f"{renamed}.ref.json").unlink()
+        Path(f"{renamed}.ref").unlink()
         result = export(renamed, self.root / "model", success=False)
         self.assertIn("Missing identity metadata", result.stderr)
         result = command("struct", "--clusters", ref, "--projection", "", success=False)
@@ -246,7 +273,7 @@ class StructureContracts(TemporaryTests):
                 count = sum(max(0, len(set(z.tolist()) - {255}) - 1) for z in Z)
                 np.testing.assert_array_equal(np.fromfile(f"{out}.grm.N.bin", np.float32), count)
                 info = readLog(out)
-                self.assertEqual(info["Count unit"], "categorical_contrasts")
+                self.assertEqual(info["Count unit"], "categorical contrasts")
                 self.assertEqual(int(info["Count"]), count)
                 self.assertEqual(info["Count is pairwise observed"], "no")
                 den = float(info["Normalization denominator"])
@@ -295,12 +322,12 @@ class StructureContracts(TemporaryTests):
         )
         pred = self.root / "pred"
         command("predict", "--vcf", query, "--ref", ref, "--threads", 4, "--out", pred)
-        a, b = [json.loads(Path(f"{x}.ref.json").read_text()) for x in (ref, pred)]
+        a, b = [readIdentity(x, ()) for x in (ref, pred)]
         self.assertEqual(a["reference"], b["reference"])
-        self.assertNotEqual(a["files"][".bca"], b["files"][".bca"])
+        self.assertNotEqual(a[".bca"], b[".bca"])
         self.assertEqual(readMetadata(ref)[1].tolist(), ["A#1", "A#2", "B"])
         out = self.root / "project"
         command("struct", "--clusters", pred, "--projection", model, "--raw", "--out", out)
-        V = np.loadtxt(f"{out}.project.eigenvecs")
+        V = np.loadtxt(f"{out}.proj.vec")
         np.testing.assert_allclose(V[1], 0, atol=1e-13)
-        np.testing.assert_allclose(V[0], np.loadtxt(f"{model}.eigenvecs")[2], atol=2e-9)
+        np.testing.assert_allclose(V[0], np.loadtxt(f"{model}.vec")[2], atol=2e-9)

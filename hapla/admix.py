@@ -61,8 +61,8 @@ def main(args):
         raise ValueError("Please select a finite, nonnegative P prior mass!")
     if args.subsampling < 2:
         raise ValueError("Please select a valid subsampling factor!")
-    printHeader("admix", args.threads, f"K: {args.K}, Seed: {args.seed}")
-    p_out = f"{args.out}.project" if args.projection is not None else f"{args.out}"
+    printHeader("admix", args)
+    p_out = f"{args.out}.proj" if args.projection is not None else f"{args.out}"
     f_out = f"{p_out}.K{args.K}.s{args.seed}"
     start = time()
 
@@ -333,8 +333,8 @@ def main(args):
         if not np.isfinite(L_cur):
             raise ValueError("Non-finite ancestry objective during warm-up")
         L_pre, ll_pre = L_cur, ll_cur
-        printTiming("Warm-up complete.", time() - ts)
         stats["priming_seconds"] = time() - ts
+        printTiming("Warm-up complete.", stats["priming_seconds"])
 
     # Keep the batch schedule and checkpoint full-data convergence checks
     batches = 1 if args.loo else min(args.batches, W)
@@ -464,12 +464,12 @@ def main(args):
     # Publish all requested files together after successful calculation
     sfxs = [".Q", ".ids", ".log"]
     if not args.no_freqs and P1 is not None:
-        sfxs += [f".{args.prefix}{f + 1}.P" for f in range(F)] + [".pfilelist"] if F > 1 else [".P"]
+        sfxs += [f".{args.prefix}{f + 1}.P" for f in range(F)] + [".plist"] if F > 1 else [".P"]
     inputs = [f"{p}{s}" for p in Z_list for s in (".bca", ".win", ".ids")]
     inputs += [args.filelist, args.keep, args.supervised, args.projection]
     if args.projection and F > 1:
         inputs += P_list
-    stale = (".P", ".pfilelist") + tuple(f".{args.prefix}{f + 1}.P" for f in range(F) if F > 1)
+    stale = (".P", ".plist") + tuple(f".{args.prefix}{f + 1}.P" for f in range(F) if F > 1)
     ts = time()
     with ExitStack() as stack:
         out = stageOutputs(stack, f_out, sfxs, inputs, stale=stale)
@@ -480,13 +480,13 @@ def main(args):
                 for f in range(F):
                     part = P[c_vec[f_vec[f]] : c_vec[f_vec[f + 1]]].reshape(-1, args.K)
                     np.savetxt(out[f".{args.prefix}{f + 1}.P"], part, fmt="%.10g")
-                out[".pfilelist"].write_text(
+                out[".plist"].write_text(
                     "".join(f"{Path(f_out).absolute()}.{args.prefix}{f + 1}.P\n" for f in range(F))
                 )
             else:
                 np.savetxt(out[".P"], P.reshape(M, args.K), fmt="%.10g")
         stats.update(output_seconds=time() - ts, elapsed_seconds=time() - start)
-        writeLog(out[".log"], "admix", args, stats)
+        writeLog(out, "admix", args, stats, f_out)
         commitOutputs(f_out, out, stale=stale)
     printDone(f_out, out, stats["elapsed_seconds"])
     return stats

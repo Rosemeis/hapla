@@ -34,7 +34,7 @@ class CodebaseContracts(TemporaryTests):
         out = self.root / "result"
         Path(f"{out}.log").write_text("previous")
         with ExitStack() as stack:
-            stageOutputs(stack, out, [".log"], [self.root / "absent.ref.json"], stale=())
+            stageOutputs(stack, out, [".log"], [self.root / "absent.ref"], stale=())
         self.assertEqual(Path(f"{out}.log").read_text(), "previous")
 
     def test_admix_rejects_ambiguous_shapes_and_sample_subsets(self):
@@ -79,7 +79,7 @@ class CodebaseContracts(TemporaryTests):
         res = command("struct", "--filelist", files, "--pca", 2, "--out", out, success=False)
         self.assertIn("conflicts", res.stderr)
         self.assertEqual(files.read_text(), original)
-        Path(f"{ref}.ref.json").unlink()
+        Path(f"{ref}.ref").unlink()
         command("struct", "--clusters", ref, "--pca", 2, "--out", out)
         command("struct", "--clusters", ref, "--pca", 2, "--out", out)
 

@@ -17,6 +17,7 @@ dist/
 /hapla-*/
 
 # Local reports, benchmarks, and release artifacts
+/HSM.md
 /analysis/
 /benchmarks/
 /reports/
@@ -53,17 +54,17 @@ venv/
 *.wix
 *.sites
 *.ids
-*.ref.json
-*.pca.json
+*.ref
+*.pca
 *.hsm.json
-*.hsm.coverage
+*.hsm.cov
 *.Q
 *.P
-*.pfilelist
-*.eigenvecs
-*.eigenvals
-*.loadings
-*.freqs
+*.plist
+*.vec
+*.val
+*.load
+*.freq
 *.grm.bin
 *.grm.N.bin
 *.grm.id
@@ -75,3 +76,13 @@ venv/
 *.corres
 *.npy
 *.npz
+
+# Previous analysis outputs
+*.ref.json
+*.pca.json
+*.hsm.coverage
+*.pfilelist
+*.eigenvecs
+*.eigenvals
+*.loadings
+*.freqs

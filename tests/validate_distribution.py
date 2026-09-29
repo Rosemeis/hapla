@@ -17,7 +17,6 @@ PACKAGE = {
 }
 NATIVE = {p.stem for p in (ROOT / "hapla").glob("*.pyx")}
 SOURCE = {
-    "HSM.md",
     "LICENSE",
     "MANIFEST.in",
     "README.md",

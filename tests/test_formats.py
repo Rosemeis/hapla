@@ -113,7 +113,7 @@ class SharedInputTests(TemporaryTests):
         np.testing.assert_array_equal(
             P, np.concatenate([np.loadtxt(self.root / f"admix2.K2.s1.chr{i}.P") for i in (1, 2)])
         )
-        paths = readPaths(self.root / "admix0.K2.s1.pfilelist")
+        paths = readPaths(self.root / "admix0.K2.s1.plist")
         self.assertTrue(all(Path(p).is_absolute() and Path(p).is_file() for p in paths))
         command(
             "admix",
@@ -135,7 +135,7 @@ class SharedInputTests(TemporaryTests):
             "admix0",
             cwd=self.root,
         )
-        for sfx in (".P", ".pfilelist", ".chr1.P", ".chr2.P"):
+        for sfx in (".P", ".plist", ".chr1.P", ".chr2.P"):
             self.assertFalse((self.root / f"admix0.K2.s1{sfx}").exists())
 
 

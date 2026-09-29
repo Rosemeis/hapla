@@ -111,12 +111,7 @@ def main(args):
         capped_windows=0,
         exact_windows=0,
     )
-    size = (
-        f"{args.size:,}"
-        if args.size is not None
-        else (f"{args.length:,} bp" if args.length is not None else "predefined")
-    )
-    printHeader("cluster", args.threads, f"Size: {size}")
+    printHeader("cluster", args)
     with ExitStack() as stack:
         src, stats["diagnostics"] = openReader(stack, args.vcf, nio)
         print(f"Samples: {len(src.samples):,}\nClustering windows.", flush=True)
@@ -183,6 +178,7 @@ def main(args):
 
         # Flush staged files before replacing previous outputs
         stats.update(
+            samples=len(src.samples),
             variants=buf["variants"],
             haplotypes=2 * len(src.samples),
             read_seconds=buf["time"],
@@ -193,7 +189,7 @@ def main(args):
             io_threads=nio,
             htslib_version=src.htslib_version,
         )
-        writeLog(out[".log"], "cluster", args, stats)
+        writeLog(out, "cluster", args, stats)
         commitOutputs(args.out, out)
     print(
         f"Clustered {stats['variants']:,} variants into:\n"

@@ -691,7 +691,7 @@ class FatashPipeline(TemporaryTests):
                 )
                 if multi:
                     self.assertEqual(
-                        Path(f"{out}.pfilelist").read_text(), "".join(f"{s}.P\n" for s in stems)
+                        Path(f"{out}.plist").read_text(), "".join(f"{s}.P\n" for s in stems)
                     )
             for result in results[1:]:
                 for x, y in zip(results[0], result):

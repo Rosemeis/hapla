@@ -10,6 +10,8 @@ from hapla.runtime import (
     configureThreads,
     printDone,
     printHeader,
+    printMissing,
+    printTiming,
     stageOutputs,
     writeLog,
 )
@@ -144,7 +146,7 @@ def main(args):
     from hapla.struct import readData
 
     start = perf_counter()
-    printHeader("eval", args.threads)
+    printHeader("eval", args)
     print("Reading clusters.", flush=True)
     paths, ids, k, sizes = readMetadata(args.clusters, args.filelist)
     data, _ = readData(paths, k, sizes, len(ids), freq=False)
@@ -170,13 +172,25 @@ def main(args):
     if not np.allclose(Q.sum(axis=1), 1, rtol=0, atol=1e-5):
         raise ValueError("Q rows must sum to one")
     Q /= Q.sum(axis=1, keepdims=True)
-    print(f"Data size: {len(ids):,} samples, {len(k):,} windows", flush=True)
-    print("Computing residual correlations.", flush=True)
+    stats = dict(
+        samples=len(ids),
+        windows=len(k),
+        ancestries=Q.shape[1],
+        missing_assignments=sum(int((2 * len(ids) - o).sum()) for _, _, o in data if o is not None),
+        read_seconds=perf_counter() - start,
+    )
+    print(
+        f"Data size: {len(ids):,} samples, {len(k):,} windows, {Q.shape[1]:,} ancestries",
+        flush=True,
+    )
+    printMissing(stats["missing_assignments"], 2 * len(ids) * len(k))
+    print("\nComputing residual correlations.", flush=True)
     inputs = [args.filelist, args.qfile, q_ids, args.keep]
     inputs += [f"{p}{s}" for p in paths for s in (".bca", ".win", ".ids")]
     sfxs = (".bhat", ".chat", ".corres", ".ids", ".log")
     with ExitStack() as stack:
         out = stageOutputs(stack, args.out, sfxs, inputs, stale=())
+        tick = perf_counter()
         C, E = covariance(data, Q)
         correlation(C)
         correlation(E)
@@ -184,12 +198,9 @@ def main(args):
             with out[sfx].open("wb") as dst:
                 cy.writeMatrix(dst.fileno(), A, B)
         np.savetxt(out[".ids"], ids, fmt="%s")
-        stats = dict(
-            samples=len(ids),
-            windows=len(k),
-            threads=args.threads,
-            elapsed_seconds=perf_counter() - start,
-        )
-        writeLog(out[".log"], "eval", args, stats)
+        stats["correlation_seconds"] = perf_counter() - tick
+        printTiming("Residual correlations complete.", stats["correlation_seconds"])
+        stats["elapsed_seconds"] = perf_counter() - start
+        writeLog(out, "eval", args, stats)
         commitOutputs(args.out, out, stale=())
     printDone(args.out, out, stats["elapsed_seconds"])

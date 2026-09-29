@@ -128,7 +128,7 @@ def writeClusters(root, name, Z, c):
         "#CHROM START END LENGTH SIZE K\n"
         + "".join(f"1 {i + 1} {i + 1} 0 1 {K}\n" for i, K in enumerate(np.diff(c)))
     )
-    out = {s: Path(f"{pfx}{s}") for s in (".bca", ".ids", ".win", ".ref.json")}
+    out = {s: Path(f"{pfx}{s}") for s in (".bca", ".ids", ".win", ".ref")}
     writeIdentity(out, sha256(Z.tobytes() + c.tobytes()).hexdigest(), len(Z), int(c[-1]))
     return pfx
 

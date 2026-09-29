@@ -103,9 +103,9 @@ def main(args):
         raise ValueError("Reference identity dimensions do not match the medians")
     mem = args.buffer_mb * 1024**2
     inputs = [args.vcf]
-    inputs += [f"{args.ref}{s}" for s in (".bcm", ".win", ".wix", ".sites", ".ref.json")]
+    inputs += [f"{args.ref}{s}" for s in (".bcm", ".win", ".wix", ".sites", ".ref")]
     stats = dict(windows=0, missing_assignments=0)
-    printHeader("predict", args.threads)
+    printHeader("predict", args)
     with ExitStack() as stack:
         out = stageOutputs(stack, args.out, outputSuffixes(False, args.plink), inputs)
         sites = stack.enter_context(open(f"{args.ref}.sites", "rb"))
@@ -158,6 +158,8 @@ def main(args):
 
         # Flush staged files before replacing previous outputs
         stats.update(
+            samples=len(ids),
+            clusters=ident["clusters"],
             variants=buf["variants"],
             haplotypes=2 * len(ids),
             elapsed_seconds=perf_counter() - start,
@@ -168,7 +170,7 @@ def main(args):
             input_buffer_mib=mem / 1024**2,
             htslib_version=src.htslib_version,
         )
-        writeLog(out[".log"], "predict", args, stats)
+        writeLog(out, "predict", args, stats)
         commitOutputs(args.out, out)
     printMissing(stats["missing_assignments"], stats["windows"] * stats["haplotypes"])
     printDone(args.out, out, stats["elapsed_seconds"])

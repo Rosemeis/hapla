@@ -298,7 +298,7 @@ def main(args):
     from hapla.identity import checkModel, featureKeys, writeModel
 
     start = perf_counter()
-    printHeader("struct", args.threads)
+    printHeader("struct", args)
     print("Reading clusters.", flush=True)
     paths, ids, k, sizes = readMetadata(args.clusters, args.filelist)
     if args.hsm_svd is not None and args.hsm_svd >= len(ids):
@@ -321,42 +321,39 @@ def main(args):
     print(f"Data size: {len(ids):,} samples, {len(k):,} windows, {M:,} clusters", flush=True)
     printMissing(stats["missing_assignments"], 2 * len(ids) * len(k))
     sfxs = [".log"]
-    stale = (".loadings", ".freqs", ".pca.json") if args.pca is not None else ()
+    stale = (".load", ".freq", ".pca") if args.pca is not None else ()
     if args.grm:
         sfxs += [".grm.bin", ".grm.N.bin", ".grm.id"]
         stale += (".grm.meta.json",)
     if args.pca is not None:
-        sfxs += [".eigenvecs", ".eigenvals"]
+        sfxs += [".vec", ".val"]
         if args.loadings:
-            sfxs += [".loadings", ".freqs", ".pca.json"]
+            sfxs += [".load", ".freq", ".pca"]
     if args.projection is not None:
-        sfxs += [".project.eigenvecs"]
+        sfxs += [".proj.vec"]
     if hsm:
-        sfxs += [".hsm.coverage"]
+        sfxs += [".hsm.cov"]
         stale = (
             ".hsm.json",
             ".hsm.grm.bin",
             ".hsm.grm.id",
             ".hsm.grm.N.bin",
-            ".hsm.eigenvecs",
-            ".hsm.eigenvals",
+            ".hsm.vec",
+            ".hsm.val",
         )
         if args.hsm:
             sfxs += [".hsm.grm.bin", ".hsm.grm.id"]
         if args.hsm_svd is not None:
-            sfxs += [".hsm.eigenvecs", ".hsm.eigenvals"]
+            sfxs += [".hsm.vec", ".hsm.val"]
     inputs = [f"{pth}{s}" for pth in paths for s in (".bca", ".win", ".ids")]
-    inputs += [args.filelist, *[f"{pth}.ref.json" for pth in paths]]
+    inputs += [args.filelist, *[f"{pth}.ref" for pth in paths]]
     if args.projection:
-        inputs += [
-            f"{args.projection}{s}" for s in (".freqs", ".loadings", ".eigenvals", ".pca.json")
-        ]
+        inputs += [f"{args.projection}{s}" for s in (".freq", ".load", ".val", ".pca")]
     with ExitStack() as stack:
         out = stageOutputs(stack, args.out, sfxs, inputs, stale=stale)
         if hsm:
             from hapla import sharing
 
-            tick = perf_counter()
             print("\nComputing HSM.", flush=True)
             print("Distance: Mb (physical distance proxy)", flush=True)
             print(f"Transform: {'sqrt' if args.hsm_sqrt else 'linear'}", flush=True)
@@ -388,34 +385,31 @@ def main(args):
                 if args.hsm_svd is not None:
                     step = perf_counter()
                     V, S = sharing.pca(cache, args.hsm_svd, args.power, args.seed)
-                    writeVectors(out[".hsm.eigenvecs"], V, ids, args.raw, args.duplicate_fid, "HC")
-                    np.savetxt(out[".hsm.eigenvals"], S * S * scale, fmt="%.10g")
+                    writeVectors(out[".hsm.vec"], V, ids, args.raw, args.duplicate_fid, "HC")
+                    np.savetxt(out[".hsm.val"], S * S * scale, fmt="%.10g")
                     info["svd_seconds"] = perf_counter() - step
                     printTiming("HSM components complete.", info["svd_seconds"])
                 del cache
-            with out[".hsm.coverage"].open("w") as dst:
+            with out[".hsm.cov"].open("w") as dst:
                 dst.write("#IID\tLENGTH\tFRACTION\n")
                 for name, val in zip(ids, cov):
                     dst.write(f"{name}\t{val:.10g}\t{val / info['available_length']:.10g}\n")
             info.update(
-                method="set_maximal_cluster_sharing",
-                tied_donors=args.hsm_matches,
+                method="set-maximal cluster sharing",
+                match_limit=args.hsm_matches,
                 max_gap_bp=args.hsm_gap,
-                samples=len(ids),
                 profile_transform="sqrt" if args.hsm_sqrt else "linear",
-                normalization="centered_sharing_profile_gram_with_trace_N_minus_one",
+                normalization="centered profile Gram, trace N-1",
                 profile_sum_squares=ss,
                 gower_scale=scale,
                 matrix_exported=args.hsm,
-                matrix_format="GCTA_lower_triangle_float32_le" if args.hsm else None,
+                matrix_format="GCTA lower triangle, float32 LE" if args.hsm else None,
                 snp_counts_available=False,
                 components=args.hsm_svd,
-                component_scaling="unit_norm_eigenvectors" if args.hsm_svd is not None else None,
+                component_scaling="unit norm eigenvectors" if args.hsm_svd is not None else None,
                 projection_supported=False,
             )
             stats["hsm"] = info
-            stats["hsm_seconds"] = perf_counter() - tick
-            printTiming("HSM complete.", stats["hsm_seconds"])
         if args.grm:
             tick = perf_counter()
             print("\nComputing GRM.", flush=True)
@@ -426,11 +420,11 @@ def main(args):
             levels = np.diff(seen[c])
             count = int(np.maximum(levels - 1, 0).sum())
             info = dict(
-                count_unit="categorical_contrasts",
+                count_unit="categorical contrasts",
                 count=count,
                 windows=len(k),
                 polymorphic_windows=int(np.count_nonzero(levels > 1)),
-                missingness="haplotype_mean_imputation",
+                missingness="haplotype mean imputation",
                 count_is_pairwise_observed=False,
             )
             G, den = grm(data, p, args.chunk, not args.grm_no_center, info=info)
@@ -449,11 +443,11 @@ def main(args):
             tick = perf_counter()
             print(f"\nComputing {args.pca} principal components.", flush=True)
             V, S, a = pca(data, p, args.pca, args.chunk, args.power, args.seed, v)
-            writeVectors(out[".eigenvecs"], V, ids, args.raw, args.duplicate_fid)
-            np.savetxt(out[".eigenvals"], S * S / len(p), fmt="%.10g")
+            writeVectors(out[".vec"], V, ids, args.raw, args.duplicate_fid)
+            np.savetxt(out[".val"], S * S / len(p), fmt="%.10g")
             if args.loadings:
-                writeLoadings(out[".loadings"], data, p, a, V, S, args.chunk)
-                np.savetxt(out[".freqs"], p, fmt="%.10g")
+                writeLoadings(out[".load"], data, p, a, V, S, args.chunk)
+                np.savetxt(out[".freq"], p, fmt="%.10g")
                 writeModel(out, keys)
             stats["pca_seconds"] = perf_counter() - tick
             printTiming("PCA complete.", stats["pca_seconds"])
@@ -461,17 +455,17 @@ def main(args):
         if args.projection is not None:
             tick = perf_counter()
             print("\nProjecting samples.", flush=True)
-            vals = np.loadtxt(f"{args.projection}.eigenvals", ndmin=1)
-            U = np.loadtxt(f"{args.projection}.loadings", ndmin=2)
-            freq = np.loadtxt(f"{args.projection}.freqs", ndmin=1)
+            vals = np.loadtxt(f"{args.projection}.val", ndmin=1)
+            U = np.loadtxt(f"{args.projection}.load", ndmin=2)
+            freq = np.loadtxt(f"{args.projection}.freq", ndmin=1)
             if len(freq) != M:
                 raise ValueError("Number of clusters does not match the reference")
             V = project(data, freq, U, vals, args.chunk)
-            writeVectors(out[".project.eigenvecs"], V, ids, args.raw, args.duplicate_fid)
+            writeVectors(out[".proj.vec"], V, ids, args.raw, args.duplicate_fid)
             stats["projection_seconds"] = perf_counter() - tick
             printTiming("Projection complete.", stats["projection_seconds"])
         stats["elapsed_seconds"] = perf_counter() - start
-        writeLog(out[".log"], "struct", args, stats)
+        writeLog(out, "struct", args, stats)
         commitOutputs(args.out, out, stale=stale)
     printDone(args.out, out, stats["elapsed_seconds"])
     return stats
