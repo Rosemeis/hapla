@@ -388,7 +388,7 @@ def main(args):
     from hapla.struct import readData
 
     tick = perf_counter()
-    printHeader("fatash", args.threads)
+    printHeader("fatash", args)
     print("Reading clusters and P/Q estimates.", flush=True)
     paths, ids, counts, sizes = readMetadata(args.clusters, args.filelist, likes=args.medians)
     pfiles = readPaths(args.pfilelist, args.pfile)
@@ -408,12 +408,12 @@ def main(args):
     stems = [f".{args.prefix}{i + 1}" if len(paths) > 1 else "" for i in range(len(paths))]
     sfxs = [".log", ".Q", ".ids"] + [f"{s}{x}" for s in stems for x in (".path", ".P")]
     if len(paths) > 1:
-        sfxs.append(".pfilelist")
+        sfxs.append(".plist")
     stale = [f"{s}.prob" for s in stems]
     if args.save_posteriors:
         sfxs += stale
     if len(paths) == 1:
-        stale.append(".pfilelist")
+        stale.append(".plist")
     inputs = [args.filelist, args.pfilelist, args.qfile, q_ids, *pfiles] + [
         f"{p}{s}"
         for p in paths
@@ -421,13 +421,14 @@ def main(args):
     ]
     stats = dict(
         samples=len(ids),
+        windows=len(counts),
         ancestries=K,
         threads=args.threads,
         alpha=alpha.tolist(),
         ensemble="Viterbi plurality" if args.viterbi else "mean posterior",
         files=[],
     )
-    print(f"Data size: {len(ids):,} samples, {len(counts):,} windows, K={K}", flush=True)
+    print(f"Data size: {len(ids):,} samples, {len(counts):,} windows, {K:,} ancestries", flush=True)
     offset, data, P = 0, [], []
     with ExitStack() as stack:
         out = stageOutputs(stack, args.out, sfxs, inputs, stale=stale)
@@ -464,9 +465,7 @@ def main(args):
         np.savetxt(out[".Q"], Q, fmt="%.10g")
         np.savetxt(out[".ids"], ids, fmt="%s")
         if len(paths) > 1:
-            out[".pfilelist"].write_text(
-                "".join(f"{Path(args.out).absolute()}{s}.P\n" for s in stems)
-            )
+            out[".plist"].write_text("".join(f"{Path(args.out).absolute()}{s}.P\n" for s in stems))
         mode = "Viterbi" if args.viterbi else "Mean posterior"
         print(f"\n{mode} decoding:", flush=True)
         for index, (pfx, stem, (Z, c, use, regions, size), p) in enumerate(
@@ -506,11 +505,15 @@ def main(args):
                 )
             )
             stats["files"][index]["seconds"] = perf_counter() - start
-            label = f"File {index + 1}/{len(paths)}" if len(paths) > 1 else "Decoding complete."
+            label = (
+                f"File {index + 1:,}/{len(paths):,} decoded."
+                if len(paths) > 1
+                else "Decoding complete."
+            )
             printTiming(label, stats["files"][index]["seconds"])
             del table, likes
         stats["elapsed_seconds"] = perf_counter() - tick
-        writeLog(out[".log"], "fatash", args, stats)
+        writeLog(out, "fatash", args, stats)
         commitOutputs(args.out, out, stale=stale)
     printDone(args.out, out, stats["elapsed_seconds"])
     return stats

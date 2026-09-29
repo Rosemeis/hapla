@@ -217,11 +217,9 @@ class StructurePipeline(TemporaryTests):
                 "--out",
                 self.root / "project",
             )
-            V = np.loadtxt(f"{out}.eigenvecs")
-            np.testing.assert_allclose(
-                np.loadtxt(self.root / "project.project.eigenvecs"), V, atol=3e-9
-            )
-            np.testing.assert_allclose(np.loadtxt(f"{out}.freqs"), p, atol=1e-10)
+            V = np.loadtxt(f"{out}.vec")
+            np.testing.assert_allclose(np.loadtxt(self.root / "project.proj.vec"), V, atol=3e-9)
+            np.testing.assert_allclose(np.loadtxt(f"{out}.freq"), p, atol=1e-10)
             results.append(V)
         np.testing.assert_allclose(*results, atol=2e-12)
 
@@ -254,11 +252,9 @@ class StructurePipeline(TemporaryTests):
                 out,
             )
             command("struct", *opt, "--projection", out, "--raw", "--out", self.root / f"query{i}")
-            V = np.loadtxt(f"{out}.eigenvecs")
-            np.testing.assert_allclose(
-                np.loadtxt(self.root / f"query{i}.project.eigenvecs"), V, atol=2e-9
-            )
-            np.testing.assert_allclose(np.loadtxt(f"{out}.freqs"), p, atol=1e-10)
+            V = np.loadtxt(f"{out}.vec")
+            np.testing.assert_allclose(np.loadtxt(self.root / f"query{i}.proj.vec"), V, atol=2e-9)
+            np.testing.assert_allclose(np.loadtxt(f"{out}.freq"), p, atol=1e-10)
             outputs.append(np.fromfile(f"{out}.grm.bin", np.float32))
         for G in outputs[1:]:
             np.testing.assert_allclose(outputs[0], G, atol=3e-7)
@@ -268,10 +264,10 @@ class StructurePipeline(TemporaryTests):
         Z[0, 0] = 1
         ref = writeClusters(self.root, "missing", Z, c)
         out = self.root / "result"
-        Path(f"{out}.eigenvecs").write_text("previous\n")
+        Path(f"{out}.vec").write_text("previous\n")
         res = command("struct", "--clusters", ref, "--pca", 1, "--out", out, success=False)
         self.assertIn("outside", res.stderr)
-        self.assertEqual(Path(f"{out}.eigenvecs").read_text(), "previous\n")
+        self.assertEqual(Path(f"{out}.vec").read_text(), "previous\n")
         Path(f"{ref}.win").write_text("#CHROM START END LENGTH SIZE K\n1 1 1 0 1 4294967295\n")
         res = command("struct", "--clusters", ref, "--grm", "--out", out, success=False)
         self.assertIn("0..255", res.stderr)
@@ -280,10 +276,10 @@ class StructurePipeline(TemporaryTests):
         Z, c, p, _, _ = structureFixture()
         ref = writeClusters(self.root, "input", Z, c)
         model = self.root / "model"
-        np.savetxt(f"{model}.freqs", p)
-        np.savetxt(f"{model}.loadings", np.ones((len(p), 1)))
-        np.savetxt(f"{model}.eigenvals", [0])
-        files = {s: Path(f"{model}{s}") for s in (".freqs", ".loadings", ".eigenvals", ".pca.json")}
+        np.savetxt(f"{model}.freq", p)
+        np.savetxt(f"{model}.load", np.ones((len(p), 1)))
+        np.savetxt(f"{model}.val", [0])
+        files = {s: Path(f"{model}{s}") for s in (".freq", ".load", ".val", ".pca")}
         writeModel(files, featureKeys([ref], np.diff(c), [len(Z)]))
         out = self.root / "out"
         Path(f"{out}.grm.bin").write_bytes(b"previous")

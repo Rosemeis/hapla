@@ -125,7 +125,7 @@ class NativePredictionTests(TemporaryTests):
                 self.assertIn("Unphased heterozygous or partially missing GT", result.stderr)
                 self.assertIn("record 19, position 190", result.stderr)
                 self.assertEqual(Path(f"{out}.bca").read_bytes(), b"existing analysis")
-                self.assertFalse(Path(f"{out}.ref.json").exists())
+                self.assertFalse(Path(f"{out}.ref").exists())
                 self.assertFalse(list(self.root.glob(".hapla-*")))
 
     def test_unindexed_parallel_phased_prediction_and_missingness(self):

@@ -293,7 +293,7 @@ class FormatAndPipelineTests(TemporaryTests):
             ".blk",
             ".wix",
             ".sites",
-            ".ref.json",
+            ".ref",
             ".bed",
             ".bim",
             ".fam",

@@ -1,7 +1,7 @@
-include README.md HSM.md LICENSE environment-cpu.yml
+include README.md LICENSE environment-cpu.yml
 recursive-include hapla *.pyx
 recursive-include tests *.py
-exclude hapla/*.c
+exclude HSM.md hapla/*.c
 prune analysis
 prune benchmarks
 prune reports

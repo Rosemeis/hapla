@@ -279,7 +279,7 @@ class AdmixtureTests(TemporaryTests):
             "--out",
             self.root / "project",
         )
-        self.assertTrue(np.isfinite(np.loadtxt(self.root / "project.project.K5.s42.Q")).all())
+        self.assertTrue(np.isfinite(np.loadtxt(self.root / "project.proj.K5.s42.Q")).all())
         empty = writeClusters(self.root, "empty", np.full((2, 6), 255, np.uint8), np.zeros(3, int))
         res = command("admix", "--clusters", empty, "--K", 5, "--out", out, success=False)
         self.assertIn("No observed", res.stderr)
@@ -432,7 +432,7 @@ class AdmixtureTests(TemporaryTests):
             "--out",
             out,
         )
-        log = readLog(f"{out}.project.K5.s42")
+        log = readLog(f"{out}.proj.K5.s42")
         self.assertAlmostEqual(float(log["Initial log-like"]), 0)
         self.assertAlmostEqual(float(log["Final log-like"]), 0)
 
@@ -613,7 +613,7 @@ class AdmixtureTests(TemporaryTests):
             "--out",
             self.root / "project",
         )
-        q = np.loadtxt(self.root / "project.project.K6.s42.Q")
+        q = np.loadtxt(self.root / "project.proj.K6.s42.Q")
         self.assertEqual(q.shape, (3, 6))
         np.testing.assert_allclose(q.sum(axis=1), 1, atol=2e-9)
 
@@ -623,12 +623,12 @@ class AdmixtureTests(TemporaryTests):
         model = self.root / "invalid.P"
         np.savetxt(model, np.full((sum(ctx[1]), 5), np.nan))
         out = self.root / "fit"
-        Path(f"{out}.project.K5.s42.Q").write_text("previous\n")
+        Path(f"{out}.proj.K5.s42.Q").write_text("previous\n")
         res = command(
             "admix", "--clusters", ref, "--K", 5, "--projection", model, "--out", out, success=False
         )
         self.assertIn("finite", res.stderr)
-        self.assertEqual(Path(f"{out}.project.K5.s42.Q").read_text(), "previous\n")
+        self.assertEqual(Path(f"{out}.proj.K5.s42.Q").read_text(), "previous\n")
 
     def test_decreasing_full_updates_recover_or_restore_checkpoint(self):
         from hapla import admix

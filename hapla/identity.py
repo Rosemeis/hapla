@@ -2,7 +2,6 @@
 
 __author__ = "Jonas Meisner"
 
-import json
 from hashlib import sha256
 from pathlib import Path
 
@@ -16,50 +15,62 @@ def fileHash(pth):
     return h.hexdigest()
 
 
-### Read and validate identity metadata
-def readRecord(pth):
+### Read a versioned table of identity fields and file hashes
+def readRecord(pth, kind):
     if not Path(pth).is_file():
         raise ValueError(f"Missing identity metadata: {pth}. Regenerate clusters or the PCA model")
-    obj = json.loads(Path(pth).read_text())
-    if (
-        not isinstance(obj, dict)
-        or obj.get("version") != 1
-        or not isinstance(obj.get("files"), dict)
-    ):
+    rows = Path(pth).read_text().splitlines()
+    if not rows or rows[0] != f"#HAPLA {kind} 1":
         raise ValueError(f"Invalid identity metadata: {pth}")
+    obj = {}
+    for line in rows[1:]:
+        row = line.split()
+        if len(row) != 2 or row[0] in obj:
+            raise ValueError(f"Invalid identity metadata: {pth}")
+        obj[row[0]] = row[1]
     return obj
+
+
+### Write compact identity metadata without paths or sample-dependent feature keys
+def writeRecord(pth, kind, obj):
+    Path(pth).write_text(f"#HAPLA {kind} 1\n" + "".join(f"{k}\t{v}\n" for k, v in obj.items()))
 
 
 ### Check each file against its recorded hash
 def checkFiles(pfx, obj, sfxs):
     for s in sfxs:
-        if obj["files"].get(s) != fileHash(f"{pfx}{s}"):
+        if obj.get(s) != fileHash(f"{pfx}{s}"):
             raise ValueError(f"File does not match its identity metadata: {pfx}{s}")
 
 
 ### Preserve reference identity while binding each query's own assignments and IDs
 def writeIdentity(out, ref, windows, K):
-    obj = dict(version=1, reference=ref, windows=int(windows), clusters=int(K))
-    obj["files"] = {
-        s: fileHash(out[s]) for s in (".bca", ".ids", ".win", ".bcm", ".wix", ".sites") if s in out
-    }
-    out[".ref.json"].write_text(json.dumps(obj, indent=2) + "\n")
+    obj = dict(reference=ref, windows=int(windows), clusters=int(K))
+    obj.update(
+        {
+            s: fileHash(out[s])
+            for s in (".bca", ".ids", ".win", ".bcm", ".wix", ".sites")
+            if s in out
+        }
+    )
+    writeRecord(out[".ref"], "REF", obj)
 
 
 ### Validate reference dimensions and assignment files
 def readIdentity(pfx, sfxs):
-    obj = readRecord(f"{pfx}.ref.json")
-    ref = obj.get("reference")
-    if (
-        not isinstance(ref, str)
-        or len(ref) != 64
-        or any(c not in "0123456789abcdef" for c in ref)
-        or type(obj.get("windows")) is not int
-        or obj["windows"] < 1
-        or type(obj.get("clusters")) is not int
-        or obj["clusters"] < 0
-    ):
-        raise ValueError("Invalid cluster reference identity")
+    obj = readRecord(f"{pfx}.ref", "REF")
+    try:
+        ref = obj["reference"]
+        obj["windows"], obj["clusters"] = int(obj["windows"]), int(obj["clusters"])
+        if (
+            len(ref) != 64
+            or any(c not in "0123456789abcdef" for c in ref)
+            or obj["windows"] < 1
+            or obj["clusters"] < 0
+        ):
+            raise ValueError
+    except (KeyError, ValueError) as exc:
+        raise ValueError("Invalid cluster reference identity") from exc
     checkFiles(pfx, obj, sfxs)
     return obj
 
@@ -72,27 +83,21 @@ def featureKeys(paths, counts, sizes):
         end = start + int(size)
         if obj["windows"] != int(size) or obj["clusters"] != int(counts[start:end].sum()):
             raise ValueError("Cluster identity dimensions do not match the window metadata")
-        keys.append(
-            {k: obj[k] for k in ("reference", "windows", "clusters")}
-            | {"window_sha256": obj["files"][".win"]}
-        )
+        keys.append(f"{obj['reference']} {obj['windows']} {obj['clusters']} {obj['.win']}")
         start = end
     return keys
 
 
 ### All projection parameters belong to one published model generation
 def writeModel(out, keys):
-    obj = dict(
-        version=1,
-        features=keys,
-        files={s: fileHash(out[s]) for s in (".freqs", ".loadings", ".eigenvals")},
-    )
-    out[".pca.json"].write_text(json.dumps(obj, indent=2) + "\n")
+    obj = dict(features=sha256("\n".join(keys).encode()).hexdigest())
+    obj.update({s: fileHash(out[s]) for s in (".freq", ".load", ".val")})
+    writeRecord(out[".pca"], "PCA", obj)
 
 
 ### Match the ordered references and saved projection parameters
 def checkModel(pfx, keys):
-    obj = readRecord(f"{pfx}.pca.json")
-    if obj.get("features") != keys:
+    obj = readRecord(f"{pfx}.pca", "PCA")
+    if obj.get("features") != sha256("\n".join(keys).encode()).hexdigest():
         raise ValueError("Ordered cluster references do not match the PCA model")
-    checkFiles(pfx, obj, (".freqs", ".loadings", ".eigenvals"))
+    checkFiles(pfx, obj, (".freq", ".load", ".val"))

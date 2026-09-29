@@ -54,7 +54,7 @@ hapla eval --clusters chr{1..22} --qfile fit.K5.s42.Q --threads 8 --out residual
 
 Bash and Zsh expand unquoted braces. Hapla uses the resulting order as given.
 For a saved list, use `--filelist prefixes.txt` with one prefix per line.
-`fatash` also accepts `--pfilelist fit.K5.s42.pfilelist`. Cluster and P-file
+`fatash` also accepts `--pfilelist fit.K5.s42.plist`. Cluster and P-file
 lists must have the same order, and sample IDs must match across cluster files.
 Q rows must follow that sample order. Hapla checks the sibling `.ids` file for
 saved `.Q` files when present. Check each log for convergence and input notes.
@@ -87,10 +87,14 @@ Shared by `struct`, `admix`, `fatash`, and `eval`. Select exactly one input form
 | `-z`, `--clusters PREFIX...` | — | One or more cluster prefixes in input order |
 | `-f`, `--filelist FILE` | — | File with one cluster prefix per line |
 
-A cluster bundle contains `.bca`, `.ids`, `.win`, and `.ref.json`. The `.bca`
+A cluster bundle contains `.bca`, `.ids`, `.win`, and `.ref`. The `.bca`
 format stores one byte per haplotype per window. Labels 0–254 represent up to
 255 clusters. Byte 255 means missing. A window with no observations has K=0.
 Keep bundles and their model files together.
+
+`.ref` and `.pca` are compact text records with reference identities and file
+hashes. They prevent mixing cluster definitions or PCA model files. Regenerate
+older references and PCA models for this format.
 
 ### Genotype reader options
 
@@ -158,7 +162,7 @@ sample/haplotype order is fixed. Major alleles define the internal orientation.
 At 50:50 sites, the first complete haplotype breaks the tie. Saved medians retain
 the input allele coding.
 
-Outputs are `.bca`, `.ids`, `.win`, `.ref.json`, and `.log`. `--medians` adds
+Outputs are `.bca`, `.ids`, `.win`, `.ref`, and `.log`. `--medians` adds
 `.bcm` medians, `.blk` cluster log-likelihood scores, `.wix` window indices, and
 `.sites` ordered variants.
 
@@ -180,7 +184,7 @@ Missing alleles mark only the affected haplotype window missing. Unphased
 heterozygous or partially missing calls are rejected. Unambiguous calls such as
 `0/0`, `1/1`, and `./.` are accepted. Alleles are not flipped automatically.
 
-Required reference files are `.bcm`, `.wix`, `.sites`, `.win`, and `.ref.json`.
+Required reference files are `.bcm`, `.wix`, `.sites`, `.win`, and `.ref`.
 Outputs are a new assignment bundle and `.log`, with optional PLINK files.
 
 ## hapla struct
@@ -208,9 +212,9 @@ The haplotype sharing matrix (`--hsm`) uses phased matches across windows.
 | `--power INT` | `11` | Randomized PCA power iterations |
 | `--seed INT` | `42` | Random seed |
 
-PCA writes `.eigenvecs` and `.eigenvals`. `--loadings` also writes `.loadings`,
-`.freqs`, and `.pca.json`, and requires assignment `.ref.json` files. Projection
-writes `.project.eigenvecs` and checks the saved model's ordered references and
+PCA writes `.vec` and `.val`. `--loadings` also writes `.load`,
+`.freq`, and `.pca`, and requires assignment `.ref` files. Projection
+writes `.proj.vec` and checks the saved model's ordered references and
 file partitioning. Query samples may differ.
 PCA is approximate. Training and reprojected coordinates can differ slightly.
 Increase `--power` when tighter agreement is needed.
@@ -237,12 +241,12 @@ Profiles are combined across chromosomes, normalized by matched coverage, and
 centred. Linear profiles are the default. `--hsm-sqrt` applies square roots before
 centering for both outputs.
 
-- `--hsm-svd K` writes unit-norm `.hsm.eigenvecs` and kernel `.hsm.eigenvals`.
+- `--hsm-svd K` writes unit-norm `.hsm.vec` and kernel `.hsm.val`.
   Multiply eigenvectors by `sqrt(eigenvalue)` for kernel PCA scores.
 - `--hsm` writes the full PSD kernel with trace `N - 1`, up to rounding, as GCTA
   float32 `.hsm.grm.bin` and `.hsm.grm.id`. No SNP-count file is written.
 
-Both flags share one matching pass. `.hsm.coverage` reports matched lengths and
+Both flags share one matching pass. `.hsm.cov` reports matched lengths and
 fractions. The log records the transformation and `Gower scale`. SVD uses sparse
 profiles and temporary storage. Full matrix export requires quadratic disk space.
 HSM runs separately from PCA, GRM, and projection. Matches are not verified IBD,
@@ -302,9 +306,9 @@ EM uses float64 sample tiles with an 8 MiB target for Q scratch, subject to a
 minimum of one sample per window partition. P counts reuse the existing output
 buffers. Parameter arrays and input storage still scale with the dataset.
 
-Outputs use `<out>.K<K>.s<seed>`, or `<out>.project.K<K>.s<seed>` for projection.
+Outputs use `<out>.K<K>.s<seed>`, or `<out>.proj.K<K>.s<seed>` for projection.
 They include `.Q`, `.ids`, and `.log`. Fitted frequencies use `.P` for one input
-or `.chr1.P`, `.chr2.P`, etc. plus `.pfilelist` for multiple inputs. P-file lists
+or `.chr1.P`, `.chr2.P`, etc. plus `.plist` for multiple inputs. P-file lists
 contain absolute paths. Rerunning with `--no-freqs` removes prior P outputs for
 the current input set.
 
@@ -387,7 +391,7 @@ Viterbi uses per-window plurality. Phase correction is a heuristic.
 Outputs include `.Q`, `.P`, `.ids`, `.path`, and `.log`. `.path` has one row per
 haplotype and one column per window, with zero-based ancestry labels.
 `--save-posteriors` adds `.prob`. Multiple inputs use `.chr1.P`, `.chr1.path`,
-etc. and a `.pfilelist`. Reuse the same alpha and decoding options with saved
+etc. and a `.plist`. Reuse the same alpha and decoding options with saved
 P/Q and `--fixed-model` to reproduce an analysis.
 
 ## hapla eval

@@ -139,7 +139,7 @@ def readMedians(prefix, K, sizes):
 
 ### Declare the cluster or prediction output set
 def outputSuffixes(medians, plink):
-    out = [".bca", ".ids", ".win", ".ref.json", ".log"]
+    out = [".bca", ".ids", ".win", ".ref", ".log"]
     if medians:
         out += [".bcm", ".blk", ".wix", ".sites"]
     if plink:
@@ -161,7 +161,7 @@ def openOutputs(stack, out, ids, dup=False):
             )
         )
         for s, p in out.items()
-        if s not in (".ids", ".fam", ".log", ".ref.json")
+        if s not in (".ids", ".fam", ".log", ".ref")
     }
     for s in (".bca", ".bcm", ".blk", ".sites"):
         if s in files:

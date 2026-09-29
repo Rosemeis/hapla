@@ -106,14 +106,26 @@ def commitOutputs(pfx, out, *, stale=_OPTIONAL):
 ##### Console and log output
 
 
-### Print one compact command header before native diagnostics
-def printHeader(cmd, threads, detail=None):
+### Use the same compact header in the console and log
+def headerRows(cmd, args):
     rows = [f"hapla v{__version__}", f"hapla {cmd}"]
-    if detail is not None:
-        rows.append(detail)
-    rows.append(f"Threads: {threads}")
+    if cmd == "cluster":
+        size = (
+            f"{args.size:,}"
+            if args.size is not None
+            else (f"{args.length:,} bp" if args.length is not None else "predefined")
+        )
+        rows.append(f"Size: {size}")
+    elif cmd == "admix":
+        rows.append(f"K: {args.K:,}, Seed: {args.seed:,}")
+    rows.append(f"Threads: {args.threads:,}")
     bar = "-" * max(64, *map(len, rows))
-    print("\n".join([bar, *rows, bar, ""]), flush=True)
+    return [bar, *rows, bar, ""]
+
+
+### Print the command header before native diagnostics
+def printHeader(cmd, args):
+    print("\n".join(headerRows(cmd, args)), flush=True)
 
 
 ### Keep completed stage timings at a shared column
@@ -127,11 +139,19 @@ def printMissing(n, total):
         print(f"Missing assignments: {n:,} ({100 * n / total:.2f}%)", flush=True)
 
 
-### List the actual published files once without repeating their prefix
-def printDone(pfx, out, sec):
-    print(f"\nTime elapsed: {sec:,.1f}s\nOutput prefix: {pfx}", flush=True)
+### Summarize runtime and actual files without repeating their prefix
+def outputRows(pfx, out, sec):
     files = ", ".join([s for s in out if s != ".log"] + [".log"])
-    print(textwrap.fill(f"Files: {files}", width=100, subsequent_indent="       "), flush=True)
+    return [
+        f"\nTime elapsed: {sec:,.1f}s",
+        f"Output prefix: {pfx}",
+        textwrap.fill(f"Files: {files}", width=100, subsequent_indent="       "),
+    ]
+
+
+### Report the published outputs once
+def printDone(pfx, out, sec):
+    print("\n".join(outputRows(pfx, out, sec)), flush=True)
 
 
 ### Format plain log values without JSON punctuation or excessive precision
@@ -167,6 +187,8 @@ def logRows(data, pad="  "):
         "io": "I/O",
         "mib": "MiB",
         "em": "EM",
+        "svd": "SVD",
+        "snp": "SNP",
         "p": "P",
         "q": "Q",
         "pca": "PCA",
@@ -180,7 +202,9 @@ def logRows(data, pad="  "):
             continue
         if key in empty and not val:
             continue
-        name = " ".join(words.get(s, s) for s in key.split("_"))
+        name = " ".join(
+            words.get(s, s) for s in key.replace("log_likelihood", "loglike").split("_")
+        )
         name = name[0].upper() + name[1:]
         if isinstance(val, dict):
             yield f"\n{pad}{name}:"
@@ -225,11 +249,9 @@ def logRows(data, pad="  "):
 
 
 ### Record the command and results without duplicating all default options
-def writeLog(pth, cmd, args, stats):
-    rows = [
-        f"hapla v{__version__} | {cmd}",
-        f"Date: {datetime.now().astimezone().isoformat(timespec='seconds')}",
-    ]
+def writeLog(out, cmd, args, stats, pfx=None):
+    rows = headerRows(cmd, args)
+    rows.append(f"Date: {datetime.now().astimezone().isoformat(timespec='seconds')}")
     rows.append(f"Directory: {os.getcwd()}")
     if hasattr(args, "_cmd"):
         rows.append(f"Command: {shlex.join(args._cmd)}")
@@ -239,8 +261,11 @@ def writeLog(pth, cmd, args, stats):
             logRows({k: v for k, v in vars(args).items() if v is not None and v is not False})
         )
     rows.append("\nResults:")
-    rows.extend(logRows(stats))
-    Path(pth).write_text("\n".join(rows) + "\n")
+    rows.extend(
+        logRows({k: v for k, v in stats.items() if k not in ("threads", "elapsed_seconds")})
+    )
+    rows.extend(outputRows(args.out if pfx is None else pfx, out, stats["elapsed_seconds"]))
+    Path(out[".log"]).write_text("\n".join(rows) + "\n")
 
 
 ### Consolidate only the two known PP notices while preserving other diagnostics
