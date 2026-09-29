@@ -10,7 +10,7 @@ import numpy as np
 
 from libc.stdint cimport uint8_t, uint32_t, uint64_t
 from libc.math cimport log
-from libc.string cimport memcpy, memset
+from libc.string cimport memset
 
 ctypedef uint8_t u8
 ctypedef uint32_t u32
@@ -112,16 +112,15 @@ cdef inline bint precedes(const u64* a, const u64* b, Py_ssize_t Q) noexcept nog
 
 
 ### Reuse unchanged distances and update only moved haplotypes
-cdef u64 assign(words mode, const u64[:, ::1] X, const u64[::1] w_vec, u64[:, ::1] R,
+cdef void assign(words mode, const u64[:, ::1] X, const u64[::1] w_vec, u64[:, ::1] R,
                 u64[:, ::1] R_old, u8[::1] a_old, u8[::1] active,
                 u32[::1] c_idx, u8[::1] dirty, u32[::1] z, u32[::1] d_vec,
                 u64[:, ::1] C, u64[::1] n, int slots, Py_ssize_t B,
-                bint cached, int seed=-1, const u32[::1] ds=None) noexcept nogil:
+                bint cached) noexcept nogil:
     cdef Py_ssize_t i, q, Q = X.shape[1], U = X.shape[0]
     cdef int k, index, changed = 0, dst, old
     cdef u32 best, d
     cdef bint full
-    cdef u64 pairs = 0
     for k in range(slots):
         dirty[k] = active[k] and not a_old[k]
         if active[k]:
@@ -140,18 +139,13 @@ cdef u64 assign(words mode, const u64[:, ::1] X, const u64[::1] w_vec, u64[:, ::
         for index in range(slots if full else changed):
             k = index if full else c_idx[index]
             if active[k]:
-                if k == seed:
-                    d = ds[i]
-                else:
-                    d = distance(mode, &X[i, 0], &R[k, 0], Q, best)
-                    pairs += 1
+                d = distance(mode, &X[i, 0], &R[k, 0], Q, best)
                 if d < best or (d == best and k > dst):
                     best, dst = d, k
         if old != dst:
             moveCounts(&X[i, 0], C, n, old, dst, w_vec[i], B)
             z[i] = dst
         d_vec[i] = best
-    return pairs
 
 
 ### Update strict-majority medians and retire empty clusters
@@ -177,138 +171,64 @@ cdef bint medians(u64[:, ::1] R, const u64[:, ::1] C, const u64[::1] n,
     return changed
 
 
-### Order seeds by weighted error or distance, with canonical ties
-cdef inline bint better(Py_ssize_t i, Py_ssize_t j, const u64[:, ::1] X,
-                        const u64[::1] w, const u32[::1] d, bint weighted) noexcept nogil:
-    cdef u64 a, b
-    if j < 0:
-        return True
-    a, b = w[i]*d[i] if weighted else d[i], w[j]*d[j] if weighted else d[j]
-    if a != b:
-        return a > b
-    if d[i] != d[j]:
-        return d[i] > d[j]
-    if w[i] != w[j]:
-        return w[i] > w[j]
-    return precedes(&X[i, 0], &X[j, 0], X.shape[1])
-
-
-### Score two weighted and two distant seeds, retaining exact winning distances
-cdef Py_ssize_t propose(words mode, const u64[:, ::1] X, const u64[::1] w,
-                        const u32[::1] d, u32 limit, Py_ssize_t B,
-                        u32[::1] ds, u32[::1] tmp, u64* pairs,
-                        bint* scored) noexcept nogil:
-    cdef Py_ssize_t top[4]
-    cdef Py_ssize_t i, j, k, c, best = -1, U = X.shape[0]
-    cdef u64 gain, high = 0
-    cdef u32 dist, far = 0
-    cdef bint duplicate
-    scored[0] = False
-    for j in range(4):
-        top[j] = -1
-    for i in range(U):
+### Select the furthest pattern, breaking ties by count and canonical order
+cdef Py_ssize_t furthest(const u64[:, ::1] X, const u64[::1] w,
+                         const u32[::1] d, u32 limit) noexcept nogil:
+    cdef Py_ssize_t i, best = -1
+    for i in range(X.shape[0]):
         if d[i] < limit:
             continue
-        far = max(far, d[i])
-        for j in range(0, 4, 2):
-            if better(i, top[j], X, w, d, j == 0):
-                top[j+1], top[j] = top[j], i
-            elif better(i, top[j+1], X, w, d, j == 0):
-                top[j+1] = i
-    # At residual distance one, only exact copies can contribute positive gain.
-    if top[1] < 0 or far == 1:
-        return top[0]
-    for j in range(4):
-        c = top[j]
-        if c < 0:
-            continue
-        duplicate = False
-        for k in range(j):
-            duplicate |= top[k] == c
-        if duplicate:
-            continue
-        gain = 0
-        for i in range(U):
-            dist = distance(mode, &X[i, 0], &X[c, 0], X.shape[1], <u32>B)
-            tmp[i] = dist
-            if dist < d[i]:
-                gain += w[i]*(d[i] - dist)
-        pairs[0] += U
-        if gain > high or (gain == high and better(c, best, X, w, d, True)):
-            best, high = c, gain
-            memcpy(&ds[0], &tmp[0], U*sizeof(u32))
-    scored[0] = True
+        if best < 0 or d[i] > d[best]:
+            best = i
+        elif d[i] == d[best]:
+            if w[i] > w[best] or (w[i] == w[best] and
+                    precedes(&X[i, 0], &X[best, 0], X.shape[1])):
+                best = i
     return best
 
 
-### Insert one seed without changing the interleaved median updates
-cdef void birth(const u64[:, ::1] X, const u64[::1] w, Py_ssize_t cand,
-                 int slot, u64[:, ::1] R, u64[:, ::1] C, u64[::1] n,
-                 u8[::1] active, u32[::1] z, u32[::1] d, Py_ssize_t B) noexcept nogil:
-    cdef Py_ssize_t j
-    n[slot] = 0
-    for j in range(B):
-        C[slot, j] = 0
-    moveCounts(&X[cand, 0], C, n, z[cand], slot, w[cand], B)
-    z[cand], d[cand], active[slot] = slot, 0, 1
-    for j in range(X.shape[1]):
-        R[slot, j] = X[cand, j]
-
-
-### Settle medians, optionally removing unsupported clusters one at a time
-cdef int settle(words mode, const u64[:, ::1] X, const u64[::1] w,
+### Remove unsupported clusters one at a time and refine their assignments
+cdef bint prune(words mode, const u64[:, ::1] X, const u64[::1] w,
                  u64[:, ::1] R, u64[:, ::1] R_old, u8[::1] a_old, u8[::1] active,
                  u32[::1] c_idx, u8[::1] dirty, u32[::1] z, u32[::1] d,
                  u64[:, ::1] C, u64[::1] n, int slots, Py_ssize_t B, int limit,
-                 u64 minimum, bint prune, u64* pairs, int seed=-1,
-                 const u32[::1] ds=None) noexcept nogil:
+                 u64 minimum) noexcept nogil:
     cdef int it, k, small
     cdef u64 low
     cdef bint changed
     for it in range(limit):
-        if prune:
-            small, low = -1, <u64>-1
-            for k in range(slots):
-                if active[k] and n[k] <= low:
-                    small, low = k, n[k]
-            if low < minimum:
-                active[small] = 0
-            elif it == 0:
-                return 0
-        pairs[0] += assign(mode, X, w, R, R_old, a_old, active, c_idx, dirty,
-                           z, d, C, n, slots, B, True, seed if it == 0 else -1, ds)
+        small, low = -1, <u64>-1
+        for k in range(slots):
+            if active[k] and n[k] <= low:
+                small, low = k, n[k]
+        if low < minimum:
+            active[small] = 0
+        elif it == 0:
+            return True
+        assign(mode, X, w, R, R_old, a_old, active, c_idx, dirty,
+               z, d, C, n, slots, B, True)
         changed = medians(R, C, n, active, slots, B)
         low = minimum
-        if prune:
-            for k in range(slots):
-                if active[k]:
-                    low = min(low, n[k])
+        for k in range(slots):
+            if active[k]:
+                low = min(low, n[k])
         if not changed and low >= minimum:
-            return it + 1
-    return -1
-
-
-### Weighted reconstruction error at a converged assignment
-cdef u64 distortion(const u64[::1] w, const u32[::1] d) noexcept nogil:
-    cdef Py_ssize_t i
-    cdef u64 loss = 0
-    for i in range(w.shape[0]):
-        loss += w[i]*d[i]
-    return loss
+            return True
+    return False
 
 
 ### Deduplicate observed haplotypes, grow medians, and prune to convergence
-def fitWindow(const u8[:, ::1] G, double alpha=0.0625, double min_freq=0.001,
+def fitWindow(const u8[:, ::1] G, double alpha=0, double min_freq=0.001,
               min_mac=5, int K_max=255, int n_iter=1000,
               bint missing=True):
     # Complete windows skip missingness checks inside the clustering kernel
     cdef Py_ssize_t B = G.shape[0], H = G.shape[1], Q = (B + 63) >> 6
     cdef Py_ssize_t i, j, q, h, first, prev = -1, U = 0, H_obs, cand
-    cdef int k, slot, it, free, seed = -1, n_grow = 0, n_prune = 0, tries = 0, reused = 0
+    cdef int k, slot, it
     cdef u32 d_lim, value
-    cdef u64 n_min, n_low = <u64>-1, before, pairs = 0, loss = 0
+    cdef u64 n_min, n_low = <u64>-1
     cdef bint equal, bad = False, full = True, born, changed, capped = False
-    cdef bint g_done = False, recode = False, scored = False
+    cdef bint done = False, recode = False
     if B <= 0 or H <= 0 or B >= 2**32 - 1 or H >= 2**32:
         raise ValueError("A window must have positive dimensions below uint32 limits")
     if not math.isfinite(alpha) or not 0 <= alpha < 1:
@@ -349,9 +269,7 @@ def fitWindow(const u8[:, ::1] G, double alpha=0.0625, double min_freq=0.001,
     if H_obs == 0:
         return dict(labels=np.asarray(labels), medians=np.empty((0, B), dtype=np.uint8),
                     counts=np.empty((0, B), dtype=np.uint64), sizes=np.empty(0, dtype=np.uint64),
-                    stats=dict(unique=0, observed=0, missing=H, K=0, growth_passes=0,
-                               prune_passes=0, distance_pairs=0, distortion=0, capped=False,
-                               exact=False, reuse_attempts=0, reuse_accepts=0))
+                    stats=dict(missing=H, K=0, capped=False, exact=False))
     if min_mac > H_obs:
         raise ValueError("Minimum cluster count exceeds the observed haplotypes in this window")
     n_min = max(int(min_mac), math.ceil(H_obs * min_freq))
@@ -436,10 +354,7 @@ def fitWindow(const u8[:, ::1] G, double alpha=0.0625, double min_freq=0.001,
                     labels[h] = mapping[inverse[h]]
         return dict(labels=np.asarray(labels), medians=np.asarray(exact_R),
                     counts=np.asarray(exact_C), sizes=np.asarray(exact_n),
-                    stats=dict(unique=U, observed=H_obs, missing=H-H_obs, K=U,
-                               growth_passes=0, prune_passes=0, distance_pairs=0,
-                               distortion=0, capped=False, exact=True,
-                               reuse_attempts=0, reuse_accepts=0))
+                    stats=dict(missing=H-H_obs, K=U, capped=False, exact=True))
 
     # Maintain counts and cached assignments across growth and pruning.
     cdef u64[:, ::1] R = np.zeros((K_max, Q), dtype=np.uint64)
@@ -452,8 +367,6 @@ def fitWindow(const u8[:, ::1] G, double alpha=0.0625, double min_freq=0.001,
     cdef u32[::1] c_idx = np.empty(K_max, dtype=np.uint32)
     cdef u32[::1] z = np.zeros(U, dtype=np.uint32)
     cdef u32[::1] d_vec = np.zeros(U, dtype=np.uint32)
-    cdef u32[::1] ds = np.empty(U, dtype=np.uint32)
-    cdef u32[::1] work = np.empty(U, dtype=np.uint32)
     cdef u8[::1] remap = np.zeros(K_max, dtype=np.uint8)
     slot = 1
     active[0] = 1
@@ -463,19 +376,14 @@ def fitWindow(const u8[:, ::1] G, double alpha=0.0625, double min_freq=0.001,
             C[0, j] = sums[j]
         for it in range(n_iter):
             if Q == 1:
-                pairs += assign[u8](0, X, w_vec, R, R_old, a_old, active, c_idx,
-                                     dirty, z, d_vec, C, n, slot, B, it > 0, seed, ds)
+                assign[u8](0, X, w_vec, R, R_old, a_old, active, c_idx,
+                           dirty, z, d_vec, C, n, slot, B, it > 0)
             else:
-                pairs += assign[u64](0, X, w_vec, R, R_old, a_old, active, c_idx,
-                                      dirty, z, d_vec, C, n, slot, B, it > 0, seed, ds)
-            seed = -1
-            n_grow += 1
+                assign[u64](0, X, w_vec, R, R_old, a_old, active, c_idx,
+                            dirty, z, d_vec, C, n, slot, B, it > 0)
             cand = -1
             if slot < K_max:
-                if Q == 1:
-                    cand = propose[u8](0, X, w_vec, d_vec, d_lim, B, ds, work, &pairs, &scored)
-                else:
-                    cand = propose[u64](0, X, w_vec, d_vec, d_lim, B, ds, work, &pairs, &scored)
+                cand = furthest(X, w_vec, d_vec, d_lim)
             else:
                 for i in range(U):
                     if d_vec[i] >= d_lim:
@@ -483,64 +391,26 @@ def fitWindow(const u8[:, ::1] G, double alpha=0.0625, double min_freq=0.001,
                         break
             born = cand >= 0
             if born:
-                birth(X, w_vec, cand, slot, R, C, n, active, z, d_vec, B)
-                if scored:
-                    seed = slot
+                memset(&C[slot, 0], 0, B*sizeof(u64))
+                moveCounts(&X[cand, 0], C, n, z[cand], slot, w_vec[cand], B)
+                z[cand], active[slot] = slot, 1
                 slot += 1
             changed = medians(R, C, n, active, slot, B)
             if not born and not changed:
-                g_done = True
+                done = True
                 break
-    if not g_done:
+    if not done:
         raise RuntimeError(f"Growth did not converge within {n_iter} iterations")
     with nogil:
         if Q == 1:
-            n_prune = settle[u8](0, X, w_vec, R, R_old, a_old, active, c_idx, dirty,
-                                 z, d_vec, C, n, slot, B, n_iter, n_min, True, &pairs)
+            done = prune[u8](0, X, w_vec, R, R_old, a_old, active, c_idx, dirty,
+                             z, d_vec, C, n, slot, B, n_iter, n_min)
         else:
-            n_prune = settle[u64](0, X, w_vec, R, R_old, a_old, active, c_idx, dirty,
-                                  z, d_vec, C, n, slot, B, n_iter, n_min, True, &pairs)
-    if n_prune < 0:
+            done = prune[u64](0, X, w_vec, R, R_old, a_old, active, c_idx, dirty,
+                              z, d_vec, C, n, slot, B, n_iter, n_min)
+    if not done:
         raise RuntimeError(f"Pruning did not converge within {n_iter} iterations")
 
-    # Try one insertion into retired capacity, then compare completed feasible fits.
-    free, cand = -1, -1
-    with nogil:
-        for k in range(slot):
-            if not active[k]:
-                free = k
-        if free >= 0:
-            if Q == 1:
-                cand = propose[u8](0, X, w_vec, d_vec, d_lim, B, ds, work, &pairs, &scored)
-            else:
-                cand = propose[u64](0, X, w_vec, d_vec, d_lim, B, ds, work, &pairs, &scored)
-    if cand >= 0:
-        saved = (np.array(R), np.array(C), np.array(n), np.array(active), np.array(z))
-        tries = 1
-        with nogil:
-            before = distortion(w_vec, d_vec)
-            birth(X, w_vec, cand, free, R, C, n, active, z, d_vec, B)
-            seed = free if scored else -1
-            medians(R, C, n, active, slot, B)
-            if Q == 1:
-                it = settle[u8](0, X, w_vec, R, R_old, a_old, active, c_idx, dirty,
-                                z, d_vec, C, n, slot, B, n_iter, n_min, False, &pairs, seed, ds)
-            else:
-                it = settle[u64](0, X, w_vec, R, R_old, a_old, active, c_idx, dirty,
-                                 z, d_vec, C, n, slot, B, n_iter, n_min, False, &pairs, seed, ds)
-            n_grow += it if it >= 0 else n_iter
-            if it >= 0:
-                if Q == 1:
-                    it = settle[u8](0, X, w_vec, R, R_old, a_old, active, c_idx, dirty,
-                                    z, d_vec, C, n, slot, B, n_iter, n_min, True, &pairs)
-                else:
-                    it = settle[u64](0, X, w_vec, R, R_old, a_old, active, c_idx, dirty,
-                                     z, d_vec, C, n, slot, B, n_iter, n_min, True, &pairs)
-                n_prune += it if it >= 0 else n_iter
-            reused = it >= 0 and distortion(w_vec, d_vec) < before
-        if not reused:
-            R, C, n, active, z = saved
-        del saved
     keep = np.flatnonzero(np.asarray(active))
     cdef Py_ssize_t K = len(keep)
     cdef u8[:, ::1] R_out = np.empty((K, B), dtype=np.uint8)
@@ -553,7 +423,6 @@ def fitWindow(const u8[:, ::1] G, double alpha=0.0625, double min_freq=0.001,
                 # Export medians and counts in the input REF/ALT coding.
                 value = (flip[j >> 6] >> (j & 63)) & 1
                 R_out[i, j] = ((R[k, j >> 6] >> (j & 63)) & 1) ^ value
-                loss += min(C[k, j], n[k] - C[k, j])
                 if value:
                     C[k, j] = n[k] - C[k, j]
         for h in range(H):
@@ -561,10 +430,7 @@ def fitWindow(const u8[:, ::1] G, double alpha=0.0625, double min_freq=0.001,
                 labels[h] = remap[z[inverse[h]]]
     return dict(labels=np.asarray(labels), medians=np.asarray(R_out),
                 counts=np.asarray(C)[keep], sizes=np.asarray(n)[keep],
-                stats=dict(unique=U, observed=H_obs, missing=H-H_obs, K=K,
-                           growth_passes=n_grow, prune_passes=n_prune,
-                           distance_pairs=int(pairs), distortion=int(loss), capped=bool(capped),
-                           exact=False, reuse_attempts=tries, reuse_accepts=reused))
+                stats=dict(missing=H-H_obs, K=K, capped=bool(capped), exact=False))
 
 
 ##### Cluster outputs

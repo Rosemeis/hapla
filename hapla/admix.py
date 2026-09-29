@@ -83,8 +83,6 @@ def main(args):
     N_all, W = len(z_ids), len(k_vec)
     f_vec = np.insert(np.cumsum(w_vec, dtype=np.uint32), 0, 0)
 
-    if not W or N_all < 1 or np.any(k_vec > 255):
-        raise ValueError("Admixture requires samples and 0..255 clusters per window")
     M = int(np.sum(k_vec, dtype=np.uint64))
     if M == 0:
         raise ValueError("No observed cluster alleles for ancestry estimation")
@@ -139,8 +137,7 @@ def main(args):
     if n_obs == 0:
         raise ValueError("No observed cluster assignments for ancestry estimation")
     n_miss = W * 2 * N - n_obs
-    has_mis = n_miss > 0
-    if has_mis:
+    if n_miss:
         q_obs = admix_cy.observedCounts(Z)
         w_obs = obs.astype(np.uint32)
     else:
@@ -184,11 +181,8 @@ def main(args):
 
         # Initialize parameters
         P = rng.random(size=(M, args.K)).clip(min=1e-5, max=1 - (1e-5))
-        Q = rng.random(size=(N, args.K)).clip(min=1e-5, max=1 - (1e-5))
-        Q /= np.sum(Q, axis=1, keepdims=True)
         P[:, np.unique(y[y > 0]) - 1] = 0.0
         admix_cy.superP(Z, P, k_vec, c_tmp, y)
-        admix_cy.superQ(Q, y)
         P = P.ravel()
     elif args.projection is not None:  # Projection mode
         # Load ancestral haplotype cluster frequencies
@@ -229,63 +223,43 @@ def main(args):
         admix_cy.normalizeP(P, p_sum, k_vec, c_vec, args.K)
         del p_sum
 
-        # Initialize Q matrix
+    elif args.random_init:  # Random initialization
+        print("Random initialization.", flush=True)
+        P = rng.random(size=(M * args.K)).clip(min=1e-5, max=1 - (1e-5))
+    else:  # SVD/ALS initialization
+        print("Computing SVD/ALS estimates.", flush=True)
+        ts = time()
+        W_s = f_vec[ceil(F / args.subsampling)] if F > 1 else W
+        try:
+            U, S, V = functions.centerSVD(
+                Z, p_vec, c_tmp, W_s, args.K, args.chunk, args.power, rng, w_obs
+            )
+        except ValueError:
+            if W_s == W:
+                raise
+            print("SVD subset lacks rank. Using all windows.", flush=True)
+            W_s = W
+            U, S, V = functions.centerSVD(
+                Z, p_vec, c_tmp, W_s, args.K, args.chunk, args.power, rng, w_obs
+            )
+        U_r = (
+            functions.centerSub(Z, S, V, p_vec, c_tmp, W_s, args.chunk, w_obs) if W_s < W else None
+        )
+        p = p_vec.astype(np.float32)
+        P, Q = functions.factorALS(
+            U, S, V, p[: len(U)], k_vec[:W_s], c_tmp[: W_s + 1], args.als_iter, args.als_tole, rng
+        )
+        if U_r is not None:
+            Y = np.ascontiguousarray(np.concatenate((U, U_r), axis=0) * S)
+            P, Q = functions.alsStep(Y, V, p, k_vec, c_tmp, Q)
+            del Y
+        del U, U_r, p
+        printTiming("SVD/ALS complete.", time() - ts)
+        del S, V
+
+    if args.supervised is not None or args.projection is not None or args.random_init:
         Q = rng.random(size=(N, args.K)).clip(min=1e-5, max=1 - (1e-5))
         Q /= np.sum(Q, axis=1, keepdims=True)
-    else:
-        if args.random_init:  # Random initialization
-            print("Random initialization.", flush=True)
-            P = rng.random(size=(M * args.K)).clip(min=1e-5, max=1 - (1e-5))
-            Q = rng.random(size=(N, args.K)).clip(min=1e-5, max=1 - (1e-5))
-            Q /= np.sum(Q, axis=1, keepdims=True)
-        else:  # SVD/ALS initialization
-            print("Computing SVD/ALS estimates.", flush=True)
-            ts = time()
-            W_s = f_vec[ceil(F / args.subsampling)] if F > 1 else W
-            try:
-                U, S, V = functions.centerSVD(
-                    Z, p_vec, c_tmp, W_s, args.K, args.chunk, args.power, rng, w_obs
-                )
-            except ValueError:
-                if W_s == W:
-                    raise
-                print("SVD subset lacks rank. Using all windows.", flush=True)
-                W_s = W
-                U, S, V = functions.centerSVD(
-                    Z, p_vec, c_tmp, W_s, args.K, args.chunk, args.power, rng, w_obs
-                )
-            if W_s < W:
-                U_r = functions.centerSub(Z, S, V, p_vec, c_tmp, W_s, args.chunk, w_obs)
-                P, Q = functions.factorSub(
-                    U,
-                    U_r,
-                    S,
-                    V,
-                    p_vec.astype(np.float32),
-                    k_vec,
-                    c_tmp,
-                    W_s,
-                    args.als_iter,
-                    args.als_tole,
-                    rng,
-                )
-                del U_r
-            else:
-                P, Q = functions.factorALS(
-                    U,
-                    S,
-                    V,
-                    p_vec.astype(np.float32),
-                    k_vec,
-                    c_tmp,
-                    args.als_iter,
-                    args.als_tole,
-                    rng,
-                )
-            del U
-            printTiming("SVD/ALS complete.", time() - ts)
-            del S, V
-        y = None
 
     # Enforce one probability domain for initialization, EM, and acceleration
     P = np.ascontiguousarray(P, dtype=float).ravel()
@@ -317,8 +291,6 @@ def main(args):
     if prior:
         stats["p_prior"] = prior
     if args.loo:
-        from hapla.shared_cy import damp
-
         stats.update(loo=True, convergence="parameter RMSE")
     Q1, T = np.empty_like(Q), np.empty_like(Q)
     Q2 = None if args.loo else np.empty_like(Q)
@@ -380,7 +352,7 @@ def main(args):
     for it in range(1, args.iter + 1):
         if args.loo:
             functions.looStep(P, Q, P1, Q1, ctx, p_vec, prior, q_obs)
-            change = max(damp(P, P1), damp(Q.ravel(), Q1.ravel()))
+            change = max(admix_cy.damp(P, P1), admix_cy.damp(Q.ravel(), Q1.ravel()))
             P, P1 = P1, P
             Q, Q1 = Q1, Q
             conv = change <= args.tole
@@ -494,9 +466,7 @@ def main(args):
     if not args.no_freqs and P1 is not None:
         sfxs += [f".{args.prefix}{f + 1}.P" for f in range(F)] + [".pfilelist"] if F > 1 else [".P"]
     inputs = [f"{p}{s}" for p in Z_list for s in (".bca", ".win", ".ids")]
-    inputs += [
-        p for p in (args.filelist, args.keep, args.supervised, args.projection) if p is not None
-    ]
+    inputs += [args.filelist, args.keep, args.supervised, args.projection]
     if args.projection and F > 1:
         inputs += P_list
     stale = (".P", ".pfilelist") + tuple(f".{args.prefix}{f + 1}.P" for f in range(F) if F > 1)

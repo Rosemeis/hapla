@@ -100,7 +100,7 @@ shown as one input note.
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `-g`, `--vcf FILE`, `--bcf FILE` | — | Genotype input |
+| `-g`, `--vcf FILE`, `--bcf FILE` | — | Phased VCF/BCF input |
 | `--buffer-mb INT` | `256` | Input and queued-window budget in MiB |
 | `--io-threads INT` | Automatic | HTSlib decompression threads within the CPU budget |
 | `--batch-windows INT` | `32` | Maximum windows per worker task |
@@ -125,7 +125,7 @@ PLINK output marks the diploid genotype missing if either haplotype is missing.
 | `-l`, `--length INT` | — | Physical span in bp, from the first variant through start + span |
 | `-w`, `--windows FILE` | — | Increasing zero-based start indices, beginning at zero |
 | `-s`, `--step INT` | Window size | Step for overlapping `--size` windows |
-| `-p`, `--lmbda FLOAT` | `0.0625` | Hamming-distance growth threshold as a window fraction, zero allows any mismatch |
+| `-p`, `--lmbda FLOAT` | `0` | Hamming-distance growth threshold as a window fraction, zero allows any mismatch |
 | `--min-freq FLOAT` | `0.001` | Minimum cluster frequency among observed haplotypes, combined with `--min-mac` |
 | `--min-mac INT` | `5` | Minimum cluster count, combined with `--min-freq` |
 | `--max-clusters INT` | `255` | Maximum clusters per window, from 1 to 255 |
@@ -137,17 +137,16 @@ PLINK output marks the diploid genotype missing if either haplotype is missing.
 For overlapping windows, a short tail is added only if it covers new variants.
 A `--windows` file may end with the genotype record count as an EOF marker.
 The fitter deduplicates haplotypes and grows binary medians using XOR/popcount
-Hamming distances. Seeds require at least `max(1, ceil(lmbda × window size))`
-differences from their nearest median. Two seeds ranked by count × distance
-and two ranked by distance form a shortlist. Selection uses their total weighted
-error reduction, with median refinement between insertions.
+Hamming distances. Each step selects the single furthest pattern from its nearest
+median, breaking ties by pattern count and canonical allele order. Seeds require
+at least `max(1, ceil(lmbda × window size))` differences, so any mismatch is
+eligible by default. Medians are refined between insertions.
 
 Final clusters require `max(min_mac, ceil(min_freq × observed haplotypes))`
 members per window. Both limits apply, giving `max(5, ceil(0.001 × observed))`
 by default. Use `--min-freq 0` for count-only support. Seed counts may be lower
 if neighboring patterns supply enough members after refinement. Unsupported
-clusters are pruned and their members reassigned. One insertion may reuse
-retired capacity, retained only if it converges, meets support, and reduces error.
+clusters are pruned and their members reassigned until support and medians stabilize.
 
 When one mismatch is eligible, supported unique patterns within the cluster cap
 are returned directly with zero error. The 255-cluster cap keeps assignments to
@@ -165,22 +164,21 @@ Outputs are `.bca`, `.ids`, `.win`, `.ref.json`, and `.log`. `--medians` adds
 
 ## hapla predict
 
-Assign new samples to reference clusters. Provide genotype input or a PLINK
-prefix, and a reference produced by `cluster --medians`. The entire variant set
+Assign phased haplotypes to reference clusters. Provide a diploid, biallelic
+VCF/BCF and a reference produced by `cluster --medians`. The entire variant set
 must match chromosome, position, REF, ALT, and order. Samples may differ.
+
+Predicting the original data reproduces the cluster assignments exactly,
+including missing labels. Both commands resolve equal Hamming distances in
+favor of the higher cluster index.
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `-b`, `--bfile PREFIX` | — | SNP-major PLINK `.bed`, `.bim`, and `.fam` input |
 | `-r`, `--ref PREFIX` | Required | Cluster reference prefix |
-| `--phase-mode {auto,phased,unphased}` | `auto` | Detect phase per sample/window, require phase, or ignore it |
 
-`auto` uses the cluster-pair heuristic for samples with ambiguous unphased calls
-in a window. Otherwise, it assigns haplotypes independently. Missing phased
-alleles affect only their haplotype. Missing unphased alleles affect both.
-PLINK input is always unphased, with BIM A2 matching REF and A1 matching ALT.
-Alleles are not flipped automatically. **Unphased predictions are unsuitable
-for local ancestry inference.**
+Missing alleles mark only the affected haplotype window missing. Unphased
+heterozygous or partially missing calls are rejected. Unambiguous calls such as
+`0/0`, `1/1`, and `./.` are accepted. Alleles are not flipped automatically.
 
 Required reference files are `.bcm`, `.wix`, `.sites`, `.win`, and `.ref.json`.
 Outputs are a new assignment bundle and `.log`, with optional PLINK files.
@@ -188,18 +186,24 @@ Outputs are a new assignment bundle and `.log`, with optional PLINK files.
 ## hapla struct
 
 Estimate PCA, a genomic relationship matrix, or project onto saved PCs.
-Select at least one operation. Missing haplotypes use mean imputation.
+Select at least one operation. PCA and GRM mean-impute missing haplotypes.
 PCA requires empirical dosage variation and enough rank for the requested PCs.
+The haplotype sharing matrix (`--hsm`) uses phased matches across windows.
 
 | Option | Default | Description |
 | --- | --- | --- |
 | `--pca INT` | — | Number of principal components |
+| `--hsm` | Off | Export the full haplotype sharing kernel in GCTA format |
+| `--hsm-svd INT` | — | Number of eigenvectors from sharing profiles |
+| `--hsm-sqrt` | Off | Square-root sharing profiles before centering |
+| `--hsm-matches INT` | `16` | Maximum tied haplotypes per maximal sharing match |
+| `--hsm-gap INT` | `1000000` | Break sharing runs across gaps larger than this many bp |
 | `--grm` | Off | Estimate the GRM |
 | `--projection PREFIX` | — | Project onto a saved PCA model |
 | `--loadings` | Off | Save loadings, frequencies, and PCA identity metadata |
 | `--raw` | Off | Write PC values without FID/IID columns |
 | `--duplicate-fid` | Off | Use sample ID as FID instead of `0` |
-| `--no-centering` | Off | Disable Gower and data centering of the GRM |
+| `--grm-no-center` | Off | Disable GRM centering and Gower scaling, requires `--grm` |
 | `--chunk INT` | `4096` | Target cluster alleles per calculation block |
 | `--power INT` | `11` | Randomized PCA power iterations |
 | `--seed INT` | `42` | Random seed |
@@ -211,10 +215,65 @@ file partitioning. Query samples may differ.
 PCA is approximate. Training and reprojected coordinates can differ slightly.
 Increase `--power` when tighter agreement is needed.
 
-GRM writes `.grm.bin`, `.grm.N.bin`, `.grm.id`, and `.grm.meta.json`. Each window
+GRM writes `.grm.bin`, `.grm.N.bin`, and `.grm.id`. Each window
 contributes `max(observed clusters - 1, 0)` to the contrast count.
 Counts are constant across pairs under mean imputation. SNP-count-weighted GRM
-merging is not supported. The log records the calculation times and dimensions.
+merging is not supported. The log records normalization, counts, dimensions, and timings.
+
+### Haplotype sharing matrix
+
+```sh
+hapla struct --clusters chr{1..22} --hsm-svd 20 --threads 8 --out result
+hapla struct --clusters chr{1..22} --hsm --hsm-svd 20 --threads 8 --out result
+hapla struct --clusters chr{1..22} --hsm-svd 20 --hsm-sqrt --threads 8 --out result
+```
+
+HSM requires consistent phase across ordered, nonoverlapping windows. A categorical
+PBWT finds set-maximal label matches, with segment weights following
+[PBWTpaint](https://doi.org/10.1038/s41467-025-57601-3). Matches exclude both haplotypes
+of the same individual. Ties use sample priorities controlled by `--seed`.
+Increase `--hsm-matches` to check sensitivity to the cap. Matches are not verified IBD.
+
+Weights multiply distances to both match boundaries, then normalize across matches
+at each covered window. Genomic cells meet halfway between window centres and stop
+at chromosome boundaries, constant windows, and large gaps. Missing labels break
+matches. Unmatched windows contribute no sharing or coverage. Samples with no
+coverage are rejected. Complete chromosomes with identical diploid haplotype pairs
+across all samples are excluded, allowing whole-chromosome phase swaps.
+
+Distances and window lengths use Mb as a physical-distance proxy.
+
+Profiles sum across chromosomes, divide by total matched coverage, and centre each
+column. Linear profiles are the default. `--hsm-sqrt` takes elementwise square roots
+after normalization and before centering, for both matrix and SVD output.
+Randomized SVD uses the combined sparse profiles without a dense sample-by-sample matrix. Matches,
+profiles, and SVD transposes use temporary storage under `$TMPDIR` or the system
+temporary directory. Cache size grows with matches and sharing links, which can
+become dense. Matching runs across chromosomes in parallel. Painting and products
+also use multiple threads.
+
+`--hsm` writes `.hsm.grm.bin` and `.hsm.grm.id`. The kernel is
+`G = (N - 1) B B' / sum(B²)`, where B contains the centred sharing profiles after the
+selected transformation.
+It is PSD with trace `N - 1`, up to float32 rounding. Export uses the full kernel,
+independently of the requested components, with bounded row buffers. Dense kernel
+calculation costs O(N³) work and the packed file uses `2N(N + 1)` bytes.
+Entries are little-endian float32 in lower-triangle row order, including the diagonal.
+Use `result.hsm` as the GCTA GRM prefix. No `.grm.N.bin` is written because sharing
+has no per-pair SNP count. GCTA supports omitting it for analyses that do not use
+SNP counts. SNP-count-weighted merging is not supported.
+
+`--hsm-svd` writes unit-norm eigenvectors `U` to `.hsm.eigenvecs` and corresponding
+kernel eigenvalues to `.hsm.eigenvals`. Weighting is left to the researcher.
+Multiply columns by `sqrt(eigenvalue)` for kernel PCA scores, or by
+`sqrt(eigenvalue / gower_scale)` for profile SVD scores `UΣ`.
+The log records `Gower scale`, the profile transform, and normalization.
+Both flags share one matching pass and write `.hsm.coverage`.
+Coverage reports matched length and its fraction across both haplotypes.
+HSM requires centering and runs separately from PCA, GRM, loadings, and projection.
+Ancestry initialization is unchanged. See [HSM.md](HSM.md) for the math.
+This kernel needs separate validation for heritability estimation. Check chromosome
+reproducibility and sensitivity to relatives, sampling, missingness, and phase errors.
 
 ## hapla admix
 

@@ -55,6 +55,8 @@ venv/
 *.ids
 *.ref.json
 *.pca.json
+*.hsm.json
+*.hsm.coverage
 *.Q
 *.P
 *.pfilelist

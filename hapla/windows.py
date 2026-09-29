@@ -8,22 +8,20 @@ import numpy as np
 
 
 ### Allocate reusable arrays and keep reader state in one dictionary
-def createBuffer(read, ids, chroms, limit, *, phase=False, sites=None, b_read=16 * 1024**2):
+def createBuffer(read, ids, chroms, limit, *, sites=None, b_read=16 * 1024**2):
     H = 2 * len(ids)
-    row = H + 13 + (H // 2 if phase else 0)
+    row = H + 13
     n = int(limit) // row
     if n < 1:
         raise ValueError("Input buffer cannot hold one variant. Increase --buffer-mb")
     return dict(
         read=read,
-        ids=ids,
         chroms=chroms,
         sites=sites,
         G=np.empty((n, H), np.uint8),
         pos=np.empty(n, np.int64),
         rid=np.empty(n, np.int32),
         miss=np.empty(n, np.uint8),
-        phase=np.empty((n, H // 2), np.uint8) if phase else None,
         chunk=max(1, min(n, int(b_read) // row)),
         beg=0,
         end=0,
@@ -42,14 +40,13 @@ def fillBuffer(buf, n):
         raise ValueError("A window exceeds the input buffer. Increase --buffer-mb")
     if left >= n or buf["eof"]:
         return left
-    keys = ("G", "pos", "rid", "miss", "phase")
+    keys = ("G", "pos", "rid", "miss")
     if beg:
         for key in keys:
-            if buf[key] is not None:
-                buf[key][:left] = buf[key][beg:end]
+            buf[key][:left] = buf[key][beg:end]
     stop = min(len(buf["pos"]), left + max(n - left, buf["chunk"]))
     start = perf_counter()
-    m = buf["read"](*(None if buf[k] is None else buf[k][left:stop] for k in keys))
+    m = buf["read"](*(buf[k][left:stop] for k in keys))
     buf["eof"] = m < stop - left
     if buf["sites"] is not None:
         buf["sites"](buf["eof"])
@@ -75,7 +72,7 @@ def chromosomeEnd(buf):
     return int(np.searchsorted(rid, rid[0], side="right"))
 
 
-### Copy one job: ((index, chromosome, start, end, size), GT, missing, phase)
+### Copy one job: ((index, chromosome, start, end, size), GT, missing)
 def takeWindow(buf, n):
     beg, end = buf["beg"], buf["beg"] + n
     meta = (
@@ -85,8 +82,7 @@ def takeWindow(buf, n):
         int(buf["pos"][end - 1]),
         n,
     )
-    phase = None if buf["phase"] is None else np.any(buf["phase"][beg:end], axis=0)
-    return meta, buf["G"][beg:end].copy(), bool(np.any(buf["miss"][beg:end])), phase
+    return meta, buf["G"][beg:end].copy(), bool(np.any(buf["miss"][beg:end]))
 
 
 ### Slide fixed SNP windows without crossing chromosome boundaries

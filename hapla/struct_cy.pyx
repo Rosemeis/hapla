@@ -178,21 +178,30 @@ cpdef void rightProduct(const u8[:, ::1] Z, const i64[::1] c,
 
 
 ### Center and scale the packed GRM without allocating a square matrix
-cpdef f64 normalizeGram(f64[::1] G, f64 den, f64[::1] u, bint center):
+cpdef f64 normalizeGram(f64[::1] G, f64 den, Py_ssize_t N, bint center):
     cdef:
-        Py_ssize_t N = u.shape[0], i, j, off
-        f64 val, trace = 0.0, mean = 0.0, scale = 1.0
-    with nogil:
-        for i in range(N):
-            off = i*(i+1)//2
-            for j in range(i+1):
-                val = G[off+j] / (2.0*den)
-                G[off+j] = val
-                u[i] += val
-                if j != i:
+        Py_ssize_t i, j, off
+        f64 val, total, trace = 0.0, mean = 0.0, scale = 1.0
+        f64[::1] u = np.zeros(N) if center else None
+    if not center:
+        for i in prange(G.shape[0], nogil=True, schedule='static', use_threads_if=G.shape[0] >= 262144):
+            G[i] /= 2.0*den
+        with nogil:
+            for i in range(N):
+                trace += G[i*(i+1)//2+i]
+    else:
+        with nogil:
+            for i in range(N):
+                off = i*(i+1)//2
+                total = 0.0
+                for j in range(i):
+                    val = G[off+j] / (2.0*den)
+                    G[off+j] = val
+                    total += val
                     u[j] += val
-            trace += G[off+i]
-        if center:
+                G[off+i] /= 2.0*den
+                u[i] = total + G[off+i]
+                trace += G[off+i]
             for i in range(N):
                 u[i] /= N
                 mean += u[i] / N

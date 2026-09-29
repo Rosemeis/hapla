@@ -7,7 +7,7 @@ __author__ = "Jonas Meisner"
 
 from cython.parallel import prange
 import numpy as np
-from libc.math cimport INFINITY, fabs, fmax, fmaxf, fmin, fminf, isfinite, log, sqrtf
+from libc.math cimport INFINITY, fabs, fmax, fmaxf, fmin, fminf, isfinite, log, sqrt, sqrtf
 from libc.stdint cimport uint8_t, uint32_t
 
 ctypedef uint8_t u8
@@ -500,6 +500,20 @@ cpdef Py_ssize_t validateLabels(const u8[:, ::1] Z, const u32[::1] k_vec):
 
 
 ##### Parameter updates
+
+
+### Damp a fixed-point proposal and measure its accepted parameter change
+def damp(const f64[::1] old, f64[::1] new):
+    cdef Py_ssize_t j, n = old.shape[0]
+    cdef f64 d, total = 0
+    if new.shape[0] != n:
+        raise ValueError("Parameter dimensions differ")
+    with nogil:
+        for j in range(n):
+            d = 0.5 * (new[j] - old[j])
+            new[j] = old[j] + d
+            total += d*d
+    return sqrt(total/n) if n else 0.0
 
 
 ### Accelerated jump for all or selected windows, preserving each norm's reduction order

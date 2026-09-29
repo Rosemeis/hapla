@@ -317,8 +317,9 @@ cdef f64 _fbLog(const f64* E, f64* shift, f64* F, f64* work, const f64* q,
     return ll
 
 
-### Average ancestry posteriors and reset counts across alpha values
-def posterior(const f64[:, :, ::1] E, Q, alpha, bint simple=False, bint resets=False, bint score=False):
+### Share posterior inference while keeping decoding scratch bounded per thread
+cdef _posterior(const f64[:, :, ::1] E, Q, alpha, bint simple, bint resets,
+                bint score, bint decode, bint confidence):
     if score and resets:
         raise ValueError("Reset counts require posterior decoding")
     if simple and resets:
@@ -327,12 +328,15 @@ def posterior(const f64[:, :, ::1] E, Q, alpha, bint simple=False, bint resets=F
     cdef const f64[:, ::1] q = Q
     cdef const f64[::1] rates = alpha
     cdef Py_ssize_t N = E.shape[0], W = E.shape[1], K = E.shape[2], A = len(alpha)
-    cdef Py_ssize_t nt = min(N, omp.omp_get_max_threads()), i, a, t
+    cdef Py_ssize_t nt = min(N, omp.omp_get_max_threads()), i, a, t, w, k, dst
     cdef int mode, bad = 0
-    cdef f64 amin = min(alpha), value
+    cdef f64 amin = min(alpha), value, best
     cdef f64* count
     cdef f64* g
-    cdef f64[:, :, ::1] G = np.empty((0, 0, 0)) if score else np.zeros((N, W, K))
+    cdef f64[:, :, ::1] G = (np.empty((0, 0, 0)) if score else
+                             np.empty((nt, W, K)) if decode else np.zeros((N, W, K)))
+    cdef u8[:, ::1] D = np.empty((N, W), np.uint8) if decode else None
+    cdef f64[:, ::1] P = (np.empty((N, W)) if confidence else np.empty((0, 0))) if decode else None
     cdef f64[:, ::1] C = np.zeros((N, K)) if resets else np.empty((0, 0))
     cdef f64[:, ::1] ll = np.empty((N, A))
     cdef f64[:, ::1] F = np.empty((nt, W*K))
@@ -347,7 +351,9 @@ def posterior(const f64[:, :, ::1] E, Q, alpha, bint simple=False, bint resets=F
             bad |= 1
             continue
         count = &C[i, 0] if resets else NULL
-        g = NULL if score else &G[i, 0, 0]
+        g = NULL if score else &G[t if decode else i, 0, 0]
+        if decode:
+            for w in range(W*K): g[w] = 0
         for a in range(A):
             if mode or simple:
                 value = _fbLog(&E[i, 0, 0], &shift[t, 0], &F[t, 0], &tmp[t, 0], &q[i, 0],
@@ -358,56 +364,31 @@ def posterior(const f64[:, :, ::1] E, Q, alpha, bint simple=False, bint resets=F
                                  g, count, W, K, rates[a], 1.0/A)
             ll[i, a] = value
             if not isfinite(value): bad |= 1
+        if decode:
+            for w in range(W):
+                dst = 0
+                best = g[w*K]
+                for k in range(1, K):
+                    value = g[w*K+k]
+                    if value > best:
+                        best = value
+                        dst = k
+                D[i, w] = dst
+                if confidence: P[i, w] = best
     if bad: raise ValueError("Nonfinite emissions or no supported HMM path for an observed haplotype")
+    if decode:
+        return np.asarray(D), np.asarray(P), np.asarray(ll)
     return np.asarray(G), np.asarray(C), np.asarray(ll)
+
+
+### Average ancestry posteriors and reset counts across alpha values
+def posterior(const f64[:, :, ::1] E, Q, alpha, bint simple=False, bint resets=False, bint score=False):
+    return _posterior(E, Q, alpha, simple, resets, score, False, False)
 
 
 ### Decode the mean posterior from bounded per-thread scratch
 def posteriorDecode(const f64[:, :, ::1] E, Q, alpha, bint simple=False, bint confidence=False):
-    Q, alpha = _arguments(np.asarray(E), Q, alpha)
-    cdef const f64[:, ::1] q = Q
-    cdef const f64[::1] rates = alpha
-    cdef Py_ssize_t N = E.shape[0], W = E.shape[1], K = E.shape[2], A = len(alpha)
-    cdef Py_ssize_t nt = min(N, omp.omp_get_max_threads()), i, a, t, w, k, dst
-    cdef int mode, bad = 0
-    cdef f64 amin = min(alpha), value, best
-    cdef u8[:, ::1] D = np.empty((N, W), np.uint8)
-    cdef f64[:, ::1] P = np.empty((N, W)) if confidence else np.empty((0, 0))
-    cdef f64[:, ::1] ll = np.empty((N, A))
-    cdef f64[:, ::1] F = np.empty((nt, W*K))
-    cdef f64[:, ::1] S = np.empty((nt, W*K))
-    cdef f64[:, ::1] G = np.empty((nt, W*K))
-    cdef f64[:, ::1] shift = np.empty((nt, W))
-    cdef f64[:, ::1] scale = np.empty((nt, W))
-    cdef f64[:, ::1] tmp = np.empty((nt, 5*K))
-    for i in prange(N, nogil=True, schedule='static', num_threads=nt):
-        t = threadid()
-        mode = _prepare(&E[i, 0, 0], &S[t, 0], &shift[t, 0], &q[i, 0], W, K, amin)
-        if mode < 0:
-            bad |= 1
-            continue
-        for w in range(W*K): G[t, w] = 0
-        for a in range(A):
-            if mode or simple:
-                value = _fbLog(&E[i, 0, 0], &shift[t, 0], &F[t, 0], &tmp[t, 0], &q[i, 0],
-                                &G[t, 0], NULL, W, K, rates[a], 1.0/A, simple)
-            else:
-                value = _fbProb(&S[t, 0], &shift[t, 0], &scale[t, 0], &F[t, 0],
-                                 &tmp[t, 0], &q[i, 0], &G[t, 0], NULL, W, K, rates[a], 1.0/A)
-            ll[i, a] = value
-            if not isfinite(value): bad |= 1
-        for w in range(W):
-            dst = 0
-            best = G[t, w*K]
-            for k in range(1, K):
-                value = G[t, w*K+k]
-                if value > best:
-                    best = value
-                    dst = k
-            D[i, w] = dst
-            if confidence: P[i, w] = best
-    if bad: raise ValueError("Nonfinite emissions or no supported HMM path for an observed haplotype")
-    return np.asarray(D), np.asarray(P), np.asarray(ll)
+    return _posterior(E, Q, alpha, simple, False, False, True, confidence)
 
 
 ##### Viterbi decoding

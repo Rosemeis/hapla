@@ -82,13 +82,14 @@ def centerSVD(Z, p_vec, c_vec, W, K, chunk, power, rng, obs=None):
     )
 
 
-### One alternating least squares update for P and Q
-def _alsStep(Y, V, p_vec, k_vec, c_vec, Q, P=None):
-    H = np.dot(Q, np.linalg.pinv(np.dot(Q.T, Q)))
-    P = np.dot(Y, np.dot(V.T, H), out=P)
-    P *= 0.5
-    P += np.outer(p_vec, np.sum(H, axis=0))
-    admix_cy.projectP(P, k_vec, c_vec)
+### Update Q from P, or both parameters after initialization
+def alsStep(Y, V, p_vec, k_vec, c_vec, Q, P=None):
+    if Q is not None:
+        H = np.dot(Q, np.linalg.pinv(np.dot(Q.T, Q)))
+        P = np.dot(Y, np.dot(V.T, H), out=P)
+        P *= 0.5
+        P += np.outer(p_vec, np.sum(H, axis=0))
+        admix_cy.projectP(P, k_vec, c_vec)
     H = np.dot(P, np.linalg.pinv(np.dot(P.T, P)))
     Q = 0.5 * np.dot(V, np.dot(Y.T, H))
     H *= p_vec[:, None]
@@ -103,16 +104,12 @@ def factorALS(U, S, V, p_vec, k_vec, c_vec, iter, tole, rng):
     Y = np.ascontiguousarray(U * S)
     P = rng.random(size=(M, K), dtype=np.float32)
     admix_cy.projectP(P, k_vec, c_vec)
-    H = np.dot(P, np.linalg.pinv(np.dot(P.T, P)))
-    Q = 0.5 * np.dot(V, np.dot(Y.T, H))
-    H *= p_vec[:, None]
-    Q += H.sum(axis=0)
-    admix_cy.projectQ(Q)
+    P, Q = alsStep(Y, V, p_vec, k_vec, c_vec, None, P)
     Q0 = np.copy(Q)
 
     # Perform ALS iterations
     for _ in range(iter):
-        P, Q = _alsStep(Y, V, p_vec, k_vec, c_vec, Q, P)
+        P, Q = alsStep(Y, V, p_vec, k_vec, c_vec, Q, P)
 
         # Check convergence
         if admix_cy.rmseQ(Q, Q0) < tole:
@@ -143,15 +140,3 @@ def centerSub(Z, S, V, p_vec, c_vec, W_sub, chunk, obs=None):
         struct_cy.leftProduct(z, c, p[s], a[s], Q, sums, A, o)
         U[s] = A
     return U
-
-
-### Least square (ALS) for subsampled P and Q followed by standard iteration
-def factorSub(U_sub, U_rem, S, V, p_vec, k_vec, c_vec, W_sub, iter, tole, rng):
-    # Fit the same ALS updates on the selected windows
-    M = U_sub.shape[0]
-    _, Q = factorALS(U_sub, S, V, p_vec[:M], k_vec[:W_sub], c_vec[:W_sub], iter, tole, rng)
-
-    # Perform extra full ALS iteration
-    Y = np.ascontiguousarray(np.concatenate((U_sub, U_rem), axis=0) * S)
-    P, Q = _alsStep(Y, V, p_vec, k_vec, c_vec, Q)
-    return P, Q

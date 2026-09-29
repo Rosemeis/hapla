@@ -65,13 +65,13 @@ def extensions():
     hts_cc, hts_ld = htsFlags()
     out = []
     for name in (
-        "shared_cy",
         "admix_cy",
         "fatash_cy",
         "eval_cy",
         "vcf_cy",
         "packed_cy",
         "struct_cy",
+        "sharing_cy",
     ):
         cargs, largs = cc.copy(), ld.copy()
         if name == "vcf_cy":

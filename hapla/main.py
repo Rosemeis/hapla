@@ -48,6 +48,13 @@ def main():
             help="One or more cluster prefixes, in input order (shell expansion allowed)",
         )
     for sub in (clu, pre):
+        sub.add_argument(
+            "-g",
+            "--vcf",
+            "--bcf",
+            metavar="FILE",
+            help="Input phased genotype file in VCF/BCF format",
+        )
         sub.add_argument("--plink", action="store_true", help="Generate binary PLINK output")
         sub.add_argument(
             "--buffer-mb",
@@ -91,11 +98,12 @@ def main():
         sub.add_argument(
             "-q", "--qfile", metavar="FILE", help="Path to file with ancestry proportions"
         )
+    for sub in (adm, lai):
+        sub.add_argument(
+            "--loo", action="store_true", help="Exclude each individual's P counts when updating Q"
+        )
 
     # hapla cluster
-    clu.add_argument(
-        "-g", "--vcf", "--bcf", metavar="FILE", help="Input phased genotype file in VCF/BCF format"
-    )
     clu.add_argument("-f", "--size", type=int, metavar="INT", help="Use fixed sized windows")
     clu.add_argument(
         "-l", "--length", type=int, metavar="INT", help="Use length-based windows (in BP)"
@@ -107,9 +115,9 @@ def main():
         "-p",
         "--lmbda",
         type=float,
-        default=0.0625,
+        default=0,
         metavar="FLOAT",
-        help="Hamming-distance growth fraction, 0 allows one mismatch (0.0625)",
+        help="Hamming-distance growth fraction, 0 allows any mismatch (0)",
     )
     clu.add_argument(
         "-s",
@@ -162,26 +170,10 @@ def main():
 
     # hapla predict
     pre.add_argument(
-        "-g",
-        "--vcf",
-        "--bcf",
-        metavar="FILE",
-        help="Input phased/unphased genotype file in VCF/BCF format",
-    )
-    pre.add_argument(
-        "-b", "--bfile", metavar="FILE", help="Input unphased genotype file in binary PLINK format"
-    )
-    pre.add_argument(
         "-r",
         "--ref",
         metavar="FILE",
         help="Input reference prefix of pre-estimated cluster medians",
-    )
-    pre.add_argument(
-        "--phase-mode",
-        choices=("auto", "phased", "unphased"),
-        default="auto",
-        help="Detect phase per sample/window, require phased GT, or ignore phase (auto)",
     )
 
     # hapla struct
@@ -190,11 +182,34 @@ def main():
     )
     pca.add_argument("--projection", metavar="FILE", help="Project samples on to existing PC space")
     pca.add_argument(
-        "--no-centering", action="store_true", help="Do not perform Gower and data centering of GRM"
+        "--grm-no-center", action="store_true", help="Disable GRM centering and Gower scaling"
     )
     pca.add_argument("--pca", type=int, metavar="INT", help="Perform PCA and extract eigenvectors")
     pca.add_argument("--loadings", action="store_true", help="Save frequencies and loadings of SVD")
     pca.add_argument("--raw", action="store_true", help="Raw output without '*.fam' info")
+    pca.add_argument(
+        "--hsm", action="store_true", help="Export the full haplotype sharing kernel in GCTA format"
+    )
+    pca.add_argument(
+        "--hsm-svd", type=int, metavar="INT", help="Eigenvectors from haplotype sharing profiles"
+    )
+    pca.add_argument(
+        "--hsm-sqrt", action="store_true", help="Square-root sharing profiles before centering"
+    )
+    pca.add_argument(
+        "--hsm-matches",
+        type=int,
+        default=16,
+        metavar="INT",
+        help="Maximum tied haplotypes per maximal sharing match (16)",
+    )
+    pca.add_argument(
+        "--hsm-gap",
+        type=int,
+        default=1000000,
+        metavar="INT",
+        help="Break sharing runs across gaps larger than this many bp (1000000)",
+    )
 
     # hapla admix
     adm.add_argument("-k", "--K", type=int, metavar="INT", help="Number of ancestral components")
@@ -260,9 +275,6 @@ def main():
     )
     adm.add_argument(
         "--random-init", action="store_true", help="Random initialization of parameters"
-    )
-    adm.add_argument(
-        "--loo", action="store_true", help="Exclude each individual's P counts when updating Q"
     )
     adm.add_argument(
         "--prefix",
@@ -352,9 +364,6 @@ def main():
     fit.add_argument("--baum-welch", action="store_true", help="Fit P/Q without regularization")
     fit.add_argument(
         "--fixed-model", action="store_true", help="Decode supplied P/Q without fitting"
-    )
-    lai.add_argument(
-        "--loo", action="store_true", help="Exclude each individual's P counts when updating Q"
     )
     lai.add_argument("--iter", type=int, default=10, help="Maximum HMM fitting iterations (10)")
     lai.add_argument(

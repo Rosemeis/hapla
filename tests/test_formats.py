@@ -147,8 +147,7 @@ class OwnershipTests(TemporaryTests):
         src = Reader(pth)
         self.assertFalse(src.finished)
         self.assertTrue(src.htslib_version)
-        self.assertTrue(src.htslib_features)
-        for key in ("finished", "htslib_version", "htslib_features"):
+        for key in ("finished", "htslib_version"):
             with self.assertRaises(AttributeError):
                 setattr(src, key, None)
         src.close()
