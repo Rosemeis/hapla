@@ -1,4 +1,5 @@
-# cython: language_level=3, boundscheck=False, wraparound=False, initializedcheck=False
+# cython: language_level=3
+# cython: boundscheck=False, wraparound=False, initializedcheck=False
 """Bounded native HTSlib reading of phased, diploid, biallelic GT."""
 
 __author__ = "Jonas Meisner"
@@ -24,7 +25,6 @@ cdef extern from "htslib/hts.h" nogil:
     int hts_close(htsFile*)
     int hts_set_threads(htsFile*, int)
     const char* hts_version()
-    const char* hts_feature_string()
 
 cdef extern from "htslib/vcf.h" nogil:
     ctypedef struct bcf_hdr_t:
@@ -63,9 +63,9 @@ cdef extern from "htslib/vcf.h" nogil:
     int BCF_UN_STR
 
 
-### Decode strict INT8 GT without phase-buffer bookkeeping
-cdef bint decodePhased8(const int8_t* raw, uint8_t* output, int samples,
-                         uint8_t* missing) noexcept nogil:
+### Decode phased INT8 GT and diagnose invalid rows with scalar code
+cdef bint decode8(const int8_t* raw, uint8_t* output, int samples,
+                   uint8_t* missing) noexcept nogil:
     cdef int i, a, b
     cdef unsigned int invalid = 0, absent = 0
     for i in range(samples):
@@ -73,26 +73,6 @@ cdef bint decodePhased8(const int8_t* raw, uint8_t* output, int samples,
         invalid |= (a < 0) | (b < 0) | (a > 5) | (b > 5)
         invalid |= ((a >> 1) != (b >> 1)) & ((b & 1) == 0)
         absent |= (a < 2) | (b < 2)
-        output[2*i] = <uint8_t>((a >> 1) - 1)
-        output[2*i+1] = <uint8_t>((b >> 1) - 1)
-    missing[0] = absent != 0
-    return invalid == 0
-
-
-### Detect phase ambiguity in one pass and diagnose invalid rows with scalar code
-cdef bint decode8(const int8_t* raw, uint8_t* output, int samples,
-                   uint8_t* missing, uint8_t* phase, bint strict) noexcept nogil:
-    cdef int i, a, b, unph
-    cdef unsigned int invalid = 0, absent = 0
-    for i in range(samples):
-        a, b = raw[2*i], raw[2*i+1]
-        invalid |= (a < 0) | (b < 0) | (a > 5) | (b > 5)
-        unph = ((a >> 1) != (b >> 1)) & ((b & 1) == 0)
-        invalid |= unph & strict
-        phase[i] = unph
-        absent |= (a < 2) | (b < 2)
-
-        # HTSlib missing 0/1 maps directly to unsigned byte 255.
         output[2*i] = <uint8_t>((a >> 1) - 1)
         output[2*i+1] = <uint8_t>((b >> 1) - 1)
     missing[0] = absent != 0
@@ -110,9 +90,9 @@ cdef class Reader:
     cdef int rid0
     cdef int64_t pos0
     cdef kstring_t sbuf
-    cdef bint failed, busy, phased, save
+    cdef bint failed, busy, save
     cdef readonly bint finished
-    cdef readonly object htslib_version, htslib_features
+    cdef readonly object htslib_version
     cdef public object samples, contigs, path, sites
     cdef public unsigned long long variants
 
@@ -126,17 +106,14 @@ cdef class Reader:
         self.pos0 = -1
 
     # Validate the header and retain one reusable record and GT buffer
-    def __init__(self, path, int threads=0, bint phased=True,
-                 bint save=False):
+    def __init__(self, path, int threads=0, bint save=False):
         cdef bytes encoded
         if threads < 0:
             raise ValueError("HTSlib threads must be nonnegative")
         self.path = os.fspath(path)
-        self.phased = phased
         self.save = save
         self.sites = b""
         self.htslib_version = hts_version().decode("ascii")
-        self.htslib_features = hts_feature_string().decode("ascii")
         encoded = os.fsencode(path)
         self.handle = hts_open(encoded, b"r")
         if self.handle == NULL:
@@ -201,8 +178,7 @@ cdef class Reader:
 
     # Fill variant-major arrays, using direct INT8 or reusable INT32 GT decoding
     def readInto(self, uint8_t[:, ::1] output, int64_t[::1] pos,
-                 int32_t[::1] contigs, uint8_t[::1] missing,
-                 uint8_t[:, ::1] unph=None):
+                 int32_t[::1] contigs, uint8_t[::1] missing):
         cdef Py_ssize_t row = 0, i, size = output.shape[0]
         cdef int status = 0, a = 0, b = 0, error = 0
         cdef bcf_fmt_t* fmt
@@ -216,10 +192,6 @@ cdef class Reader:
             raise ValueError("Genotype buffer has the wrong number of haplotypes")
         if pos.shape[0] != size or contigs.shape[0] != size or missing.shape[0] != size:
             raise ValueError("Genotype and metadata buffer lengths differ")
-        if unph is not None and (unph.shape[0] != size or unph.shape[1] != self.N):
-            raise ValueError("Phase buffer has the wrong dimensions")
-        if not self.phased and unph is None:
-            raise ValueError("Prediction reading requires a phase buffer")
         self.sites = b""
         self.sbuf.l = 0
         if self.finished:
@@ -267,14 +239,8 @@ cdef class Reader:
                         break
                 decoded = False
                 if fmt.type == BCF_BT_INT8:
-                    if unph is None:
-                        decoded = decodePhased8(raw, &output[row, 0], self.N, &missing[row])
-                    else:
-                        decoded = decode8(raw, &output[row, 0], self.N, &missing[row],
-                                          &unph[row, 0], self.phased)
+                    decoded = decode8(raw, &output[row, 0], self.N, &missing[row])
                 for i in range(0 if decoded else self.N):
-                    if unph is not None:
-                        unph[row, i] = 0
                     if fmt.type == BCF_BT_INT8:
                         a, b = raw[2*i], raw[2*i+1]
                     else:
@@ -290,10 +256,8 @@ cdef class Reader:
 
                     # Homozygous or wholly missing calls have no phase ambiguity.
                     if (a >> 1) != (b >> 1) and not (b & 1):
-                        if self.phased:
-                            error = 8
-                            break
-                        unph[row, i] = 1
+                        error = 8
+                        break
                     output[row, 2*i] = 255 if a < 2 else (a >> 1) - 1
                     output[row, 2*i+1] = 255 if b < 2 else (b >> 1) - 1
                     if a < 2 or b < 2:

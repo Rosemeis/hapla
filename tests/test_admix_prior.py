@@ -89,7 +89,7 @@ class AdmixPriorTests(unittest.TestCase):
             for _ in range(3):
                 p_new, q_new = np.empty_like(P), np.empty_like(Q)
                 cy.em(Z, p_cur, p_new, q_cur, T, k, c, pt, qt, obs=obs, pool=pool, mass=mass)
-                cy.accelQMiss(q_cur, q_new, T, qo)
+                cy.accelQ(q_cur, q_new, T, len(Z), qo)
                 now = cy.likelihood(Z, p_new, q_new, c, np.empty(len(Z)), obs) * scale
                 now += cy.priorScore(p_new, pool, k, c, K, mass)
                 self.assertGreaterEqual(now, old - 1e-12)

@@ -317,38 +317,7 @@ class AdmixtureTests(TemporaryTests):
                 self.assertNotIn("P prior", log)
         self.assertGreater(np.max(np.abs(fits[0] - fits[1])), 1e-6)
 
-    def test_source_initializer_is_opt_in(self):
-        _, _, ctx = fixture(5)
-        ref = writeClusters(self.root, "source", ctx[0], ctx[2] // 5)
-        for K, source in ((5, False), (5, True), (6, True)):
-            out = self.root / f"source{K}_{source}"
-            opts = ("--source-init",) if source else ()
-            res = command(
-                "admix",
-                "--clusters",
-                ref,
-                "--K",
-                K,
-                "--power",
-                2,
-                "--als-iter",
-                2,
-                "--iter",
-                1,
-                *opts,
-                "--out",
-                out,
-            )
-            text = "Computing source estimates." if source else "Computing SVD/ALS estimates."
-            self.assertIn(text, res.stdout)
-            self.assertTrue(np.isfinite(np.loadtxt(f"{out}.K{K}.s42.Q")).all())
-        for opts in (("--random-init",), ("--supervised", "sources"), ("--projection", "model.P")):
-            res = command(
-                "admix", "--clusters", ref, "--K", 5, "--source-init", *opts, success=False
-            )
-            self.assertIn("--source-init requires", res.stderr)
-
-    def test_source_and_prior_across_chromosomes_with_missingness(self):
+    def test_prior_across_chromosomes_with_missingness(self):
         rng = np.random.default_rng(617)
         K, C, W, N, mass = 6, 4, 48, 48, 0.5
         Z = rng.integers(0, C, (W, 2 * N), dtype=np.uint8)
@@ -368,7 +337,6 @@ class AdmixtureTests(TemporaryTests):
                 *refs,
                 "--K",
                 K,
-                "--source-init",
                 "--p-prior",
                 mass,
                 "--threads",
@@ -686,7 +654,6 @@ class AdmixtureTests(TemporaryTests):
                 p_prior=0.0,
                 subsampling=4,
                 random_init=True,
-                source_init=False,
                 loo=False,
                 supervised=None,
                 projection=None,
@@ -717,3 +684,61 @@ class AdmixtureTests(TemporaryTests):
                 np.loadtxt(f"{out}.K5.s42.P").ravel(), expected[0], atol=5e-11
             )
             np.testing.assert_allclose(np.loadtxt(f"{out}.K5.s42.Q"), expected[1], atol=5e-11)
+
+    def test_decreasing_warmup_recovers_ordinary_em_without_extra_buffers(self):
+        from hapla.main import main
+
+        step, workspace = functions.emQuasi, functions.emWorkspace
+        for missing, prior in ((False, 0), (False, 2), (True, 0), (True, 2)):
+            Z = np.tile(np.repeat([0, 1], 4), (4, 1)).astype(np.uint8)
+            if missing:
+                Z[0, 0] = 255
+            ref = writeClusters(self.root, "input", Z, np.arange(5) * 2)
+            out = self.root / f"warmup{missing}-{prior}"
+            P = np.tile([[0.95, 0.05], [0.05, 0.95]], (4, 1))
+            Q = np.repeat([[0.95, 0.05], [0.05, 0.95]], 2, axis=0)
+            calls = 0
+
+            def proposal(*args, **kwargs):
+                nonlocal calls
+                step(*args, **kwargs)
+                if calls == 0:
+                    # A poor proposal must not replace a better initial fit
+                    args[0][:] = 0.5
+                    args[1][:] = 0.5
+                calls += 1
+
+            def tiled(*args):
+                pt, qt = workspace(*args)
+                return pt, np.empty((qt.shape[0], 1, qt.shape[2]))
+
+            argv = [
+                "hapla",
+                "admix",
+                "--clusters",
+                str(ref),
+                "--K",
+                "2",
+                "--iter",
+                "1",
+                "--batches",
+                "1",
+                "--p-prior",
+                str(prior),
+                "--out",
+                str(out),
+            ]
+            with (
+                patch.object(sys, "argv", argv),
+                patch.object(functions, "factorALS", return_value=(P, Q)),
+                patch.object(functions, "emQuasi", side_effect=proposal),
+                patch.object(functions, "emWorkspace", side_effect=tiled),
+                redirect_stdout(StringIO()),
+            ):
+                main()
+            stats = readLog(f"{out}.K2.s42")
+            metric = "objective" if prior else "log-like"
+            self.assertGreaterEqual(
+                float(stats[f"Final {metric}"]), float(stats[f"Initial {metric}"])
+            )
+            self.assertGreaterEqual(int(stats["Recoveries"]), 1)

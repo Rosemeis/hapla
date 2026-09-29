@@ -100,7 +100,7 @@ shown as one input note.
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `-g`, `--vcf FILE`, `--bcf FILE` | — | Genotype input |
+| `-g`, `--vcf FILE`, `--bcf FILE` | — | Phased VCF/BCF input |
 | `--buffer-mb INT` | `256` | Input and queued-window budget in MiB |
 | `--io-threads INT` | Automatic | HTSlib decompression threads within the CPU budget |
 | `--batch-windows INT` | `32` | Maximum windows per worker task |
@@ -125,22 +125,33 @@ PLINK output marks the diploid genotype missing if either haplotype is missing.
 | `-l`, `--length INT` | — | Physical span in bp, from the first variant through start + span |
 | `-w`, `--windows FILE` | — | Increasing zero-based start indices, beginning at zero |
 | `-s`, `--step INT` | Window size | Step for overlapping `--size` windows |
-| `-p`, `--lmbda FLOAT` | `0.1` | Window fraction defining the Hamming-distance growth threshold |
-| `--min-freq FLOAT` | `0.005` | Minimum cluster frequency among observed haplotypes |
-| `--min-mac INT` | — | Minimum cluster count, overriding `--min-freq` |
+| `-p`, `--lmbda FLOAT` | `0` | Hamming-distance growth threshold as a window fraction, zero allows any mismatch |
+| `--min-freq FLOAT` | `0.001` | Minimum cluster frequency among observed haplotypes, combined with `--min-mac` |
+| `--min-mac INT` | `5` | Minimum cluster count, combined with `--min-freq` |
 | `--max-clusters INT` | `255` | Maximum clusters per window, from 1 to 255 |
-| `--max-iterations INT` | `1000` | Iteration limit for fitting each window |
+| `--max-iterations INT` | `1000` | Iteration limit per growth or refinement phase |
 | `--tail {include,drop}` | `include` | Keep or omit incomplete final fixed-size windows |
 | `--missing {window,error}` | `window` | Mark affected haplotypes missing or reject missing GT |
 | `--medians` | Off | Save reference medians and variant metadata for prediction |
 
 For overlapping windows, a short tail is added only if it covers new variants.
 A `--windows` file may end with the genotype record count as an EOF marker.
-The fitter deduplicates haplotypes, grows binary medians using packed Hamming
-distances, then reassigns haplotypes from clusters below the size threshold.
-The 255-cluster cap keeps assignments to one byte per haplotype. A count
-threshold above the observed haplotype count is invalid. Fitting stops if a
-window does not converge.
+The fitter deduplicates haplotypes and grows binary medians using XOR/popcount
+Hamming distances. Each step selects the single furthest pattern from its nearest
+median, breaking ties by pattern count and canonical allele order. Seeds require
+at least `max(1, ceil(lmbda × window size))` differences, so any mismatch is
+eligible by default. Medians are refined between insertions.
+
+Final clusters require `max(min_mac, ceil(min_freq × observed haplotypes))`
+members per window. Both limits apply, giving `max(5, ceil(0.001 × observed))`
+by default. Use `--min-freq 0` for count-only support. Seed counts may be lower
+if neighboring patterns supply enough members after refinement. Unsupported
+clusters are pruned and their members reassigned until support and medians stabilize.
+
+When one mismatch is eligible, supported unique patterns within the cluster cap
+are returned directly with zero error. The 255-cluster cap keeps assignments to
+one byte per haplotype. A support threshold above the observed haplotype count
+is invalid. Fitting stops if growth or pruning does not converge.
 
 Clustering is invariant to REF/ALT swaps with corresponding GT recoding when
 sample/haplotype order is fixed. Major alleles define the internal orientation.
@@ -153,22 +164,21 @@ Outputs are `.bca`, `.ids`, `.win`, `.ref.json`, and `.log`. `--medians` adds
 
 ## hapla predict
 
-Assign new samples to reference clusters. Provide genotype input or a PLINK
-prefix, and a reference produced by `cluster --medians`. The entire variant set
+Assign phased haplotypes to reference clusters. Provide a diploid, biallelic
+VCF/BCF and a reference produced by `cluster --medians`. The entire variant set
 must match chromosome, position, REF, ALT, and order. Samples may differ.
+
+Predicting the original data reproduces the cluster assignments exactly,
+including missing labels. Both commands resolve equal Hamming distances in
+favor of the higher cluster index.
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `-b`, `--bfile PREFIX` | — | SNP-major PLINK `.bed`, `.bim`, and `.fam` input |
 | `-r`, `--ref PREFIX` | Required | Cluster reference prefix |
-| `--phase-mode {auto,phased,unphased}` | `auto` | Detect phase per sample/window, require phase, or ignore it |
 
-`auto` uses the cluster-pair heuristic for samples with ambiguous unphased calls
-in a window. Otherwise, it assigns haplotypes independently. Missing phased
-alleles affect only their haplotype. Missing unphased alleles affect both.
-PLINK input is always unphased, with BIM A2 matching REF and A1 matching ALT.
-Alleles are not flipped automatically. **Unphased predictions are unsuitable
-for local ancestry inference.**
+Missing alleles mark only the affected haplotype window missing. Unphased
+heterozygous or partially missing calls are rejected. Unambiguous calls such as
+`0/0`, `1/1`, and `./.` are accepted. Alleles are not flipped automatically.
 
 Required reference files are `.bcm`, `.wix`, `.sites`, `.win`, and `.ref.json`.
 Outputs are a new assignment bundle and `.log`, with optional PLINK files.
@@ -176,18 +186,24 @@ Outputs are a new assignment bundle and `.log`, with optional PLINK files.
 ## hapla struct
 
 Estimate PCA, a genomic relationship matrix, or project onto saved PCs.
-Select at least one operation. Missing haplotypes use mean imputation.
+Select at least one operation. PCA and GRM mean-impute missing haplotypes.
 PCA requires empirical dosage variation and enough rank for the requested PCs.
+The haplotype sharing matrix (`--hsm`) uses phased matches across windows.
 
 | Option | Default | Description |
 | --- | --- | --- |
 | `--pca INT` | — | Number of principal components |
+| `--hsm` | Off | Export the full haplotype sharing kernel in GCTA format |
+| `--hsm-svd INT` | — | Number of eigenvectors from sharing profiles |
+| `--hsm-sqrt` | Off | Square-root sharing profiles before centering |
+| `--hsm-matches INT` | `16` | Maximum tied haplotypes per maximal sharing match |
+| `--hsm-gap INT` | `1000000` | Break sharing runs across gaps larger than this many bp |
 | `--grm` | Off | Estimate the GRM |
 | `--projection PREFIX` | — | Project onto a saved PCA model |
 | `--loadings` | Off | Save loadings, frequencies, and PCA identity metadata |
 | `--raw` | Off | Write PC values without FID/IID columns |
 | `--duplicate-fid` | Off | Use sample ID as FID instead of `0` |
-| `--no-centering` | Off | Disable Gower and data centering of the GRM |
+| `--grm-no-center` | Off | Disable GRM centering and Gower scaling, requires `--grm` |
 | `--chunk INT` | `4096` | Target cluster alleles per calculation block |
 | `--power INT` | `11` | Randomized PCA power iterations |
 | `--seed INT` | `42` | Random seed |
@@ -196,11 +212,41 @@ PCA writes `.eigenvecs` and `.eigenvals`. `--loadings` also writes `.loadings`,
 `.freqs`, and `.pca.json`, and requires assignment `.ref.json` files. Projection
 writes `.project.eigenvecs` and checks the saved model's ordered references and
 file partitioning. Query samples may differ.
+PCA is approximate. Training and reprojected coordinates can differ slightly.
+Increase `--power` when tighter agreement is needed.
 
-GRM writes `.grm.bin`, `.grm.N.bin`, `.grm.id`, and `.grm.meta.json`. Each window
+GRM writes `.grm.bin`, `.grm.N.bin`, and `.grm.id`. Each window
 contributes `max(observed clusters - 1, 0)` to the contrast count.
 Counts are constant across pairs under mean imputation. SNP-count-weighted GRM
-merging is not supported. The log records the calculation times and dimensions.
+merging is not supported. The log records normalization, counts, dimensions, and timings.
+
+### Haplotype sharing matrix
+
+```sh
+hapla struct --clusters chr{1..22} --hsm-svd 20 --threads 8 --out result
+hapla struct --clusters chr{1..22} --hsm --hsm-svd 20 --hsm-sqrt --threads 8 --out result
+```
+
+HSM compares matching cluster-label runs across phased, ordered, nonoverlapping
+windows. Matches exclude the individual's own haplotypes and use
+[PBWTpaint](https://doi.org/10.1038/s41467-025-57601-3) weights with physical distance
+in Mb. Missing labels, constant windows, chromosome boundaries, and large gaps break
+matches. Samples without matched coverage are rejected.
+
+Profiles are combined across chromosomes, normalized by matched coverage, and
+centred. Linear profiles are the default. `--hsm-sqrt` applies square roots before
+centering for both outputs.
+
+- `--hsm-svd K` writes unit-norm `.hsm.eigenvecs` and kernel `.hsm.eigenvals`.
+  Multiply eigenvectors by `sqrt(eigenvalue)` for kernel PCA scores.
+- `--hsm` writes the full PSD kernel with trace `N - 1`, up to rounding, as GCTA
+  float32 `.hsm.grm.bin` and `.hsm.grm.id`. No SNP-count file is written.
+
+Both flags share one matching pass. `.hsm.coverage` reports matched lengths and
+fractions. The log records the transformation and `Gower scale`. SVD uses sparse
+profiles and temporary storage. Full matrix export requires quadratic disk space.
+HSM runs separately from PCA, GRM, and projection. Matches are not verified IBD,
+and heritability use needs separate validation.
 
 ## hapla admix
 
@@ -215,7 +261,6 @@ no observed assignments receive uniform Q unless fixed by supervision.
 | `--supervised FILE` | — | One population label per sample, 0 unknown and 1..K fixed |
 | `--projection FILE` | — | Fixed P matrix, or P-file list for multiple cluster inputs |
 | `--random-init` | Off | Use random P/Q instead of SVD/ALS initialization |
-| `--source-init` | Off | Seed SVD/ALS from supported source extremes |
 | `--loo` | Off | Leave both haplotypes out of P when updating their individual's Q |
 | `--iter INT` | `1000` | Maximum outer fitting iterations |
 | `--tole FLOAT` | `1e-9` | Normalized likelihood/objective tolerance, or parameter RMSE with `--loo` |
@@ -233,9 +278,7 @@ no observed assignments receive uniform Q unless fixed by supervision.
 
 Supervision and projection are mutually exclusive. Supervised labels must fit
 0..255. Projection requires P rows to match the cluster order and fixes P while
-fitting Q. The default unsupervised initializer uses SVD/ALS. `--source-init`
-seeds ALS from supported extremes in the sample SVD scores and cannot be
-combined with `--random-init`, supervision, or projection. Opt-in P shrinkage
+fitting Q. The default unsupervised initializer uses SVD/ALS. Opt-in P shrinkage
 uses pooled cluster frequencies within each window and cannot update a fixed
 projection P. With shrinkage, convergence uses the regularized objective while
 the log also records the likelihood. Timings cover each `--check` interval and

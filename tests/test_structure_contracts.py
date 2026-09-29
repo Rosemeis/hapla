@@ -11,6 +11,7 @@ from helpers import (
     TemporaryTests,
     command,
     missingFixture,
+    readLog,
     structureFixture,
     writeClusters,
     writeVcf,
@@ -74,7 +75,7 @@ class StructureContracts(TemporaryTests):
                 "struct", "--clusters", ref, "--pca", 1, "--chunk", 7, "--out", out, success=False
             )
             self.assertIn("empirical dosage variation", result.stderr)
-            for opts in ((), ("--no-centering",)):
+            for opts in ((), ("--grm-no-center",)):
                 result = command(
                     "struct", "--clusters", ref, "--grm", *opts, "--out", out, success=False
                 )
@@ -236,24 +237,34 @@ class StructureContracts(TemporaryTests):
         for tag, parts in (("complete", structureFixture()), ("missing", missingFixture())):
             Z, c, p, D, _ = parts
             ref = writeClusters(self.root, tag, Z, c)
-            out = self.root / f"{tag}-grm"
-            command("struct", "--clusters", ref, "--grm", "--out", out)
-            count = sum(max(0, len(set(z.tolist()) - {255}) - 1) for z in Z)
-            np.testing.assert_array_equal(np.fromfile(f"{out}.grm.N.bin", np.float32), count)
-            info = json.loads(Path(f"{out}.grm.meta.json").read_text())
-            self.assertEqual(info["count_unit"], "categorical_contrasts")
-            self.assertEqual(info["count"], count)
-            self.assertFalse(info["count_is_pairwise_observed"])
-            self.assertAlmostEqual(info["normalization_denominator"], 2 * np.sum(p * (1 - p)))
-            E = D - 2 * p[:, None]
-            raw = E.T @ E / info["normalization_denominator"]
-            raw = raw - raw.mean(axis=0) - raw.mean(axis=1)[:, None] + raw.mean()
-            expected = raw * info["gower_scale"]
-            np.testing.assert_allclose(
-                np.fromfile(f"{out}.grm.bin", np.float32),
-                expected[np.tril_indices(D.shape[1])],
-                atol=5e-7,
-            )
+            for center in (False, True):
+                out = self.root / f"{tag}-grm"
+                opt = () if center else ("--grm-no-center",)
+                Path(f"{out}.grm.meta.json").write_text("previous\n")
+                command("struct", "--clusters", ref, "--grm", *opt, "--out", out)
+                self.assertFalse(Path(f"{out}.grm.meta.json").exists())
+                count = sum(max(0, len(set(z.tolist()) - {255}) - 1) for z in Z)
+                np.testing.assert_array_equal(np.fromfile(f"{out}.grm.N.bin", np.float32), count)
+                info = readLog(out)
+                self.assertEqual(info["Count unit"], "categorical_contrasts")
+                self.assertEqual(int(info["Count"]), count)
+                self.assertEqual(info["Count is pairwise observed"], "no")
+                den = float(info["Normalization denominator"])
+                scale = float(info["Gower scale"])
+                self.assertAlmostEqual(den, 2 * np.sum(p * (1 - p)))
+                E = D - 2 * p[:, None]
+                raw = E.T @ E / den
+                self.assertEqual(info["Centered"], "yes" if center else "no")
+                if center:
+                    raw = raw - raw.mean(axis=0) - raw.mean(axis=1)[:, None] + raw.mean()
+                else:
+                    self.assertEqual(scale, 1.0)
+                expected = raw * scale
+                np.testing.assert_allclose(
+                    np.fromfile(f"{out}.grm.bin", np.float32),
+                    expected[np.tril_indices(D.shape[1])],
+                    atol=5e-7,
+                )
 
     def test_native_prediction_propagates_reference_identity_to_new_missing_samples(self):
         rng = np.random.default_rng(39)

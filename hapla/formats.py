@@ -85,7 +85,7 @@ def readMetadata(pfx, files=None, *, likes=False):
             if not Path(f"{pth}{sfx}").is_file():
                 raise ValueError(f"{sfx[1:]} file doesn't exist: {pth}{sfx}")
         cur = readIds(f"{pth}.ids")
-        if not len(cur) or len(np.unique(cur)) != len(cur):
+        if len(np.unique(cur)) != len(cur):
             raise ValueError("Sample IDs must be nonempty and unique")
         if ids is None:
             ids = cur

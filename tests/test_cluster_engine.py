@@ -9,7 +9,7 @@ from hapla.packed_cy import fitWindow, likelihoods, plinkWindow, predictHaplotyp
 
 
 ### Fit weighted medians using a full distance matrix
-def reference(G, alpha=0.1, min_freq=0.005, min_mac=None, K_max=255):
+def reference(G, alpha=0, min_freq=0.001, min_mac=5, K_max=255):
     observed = np.all(G != 255, axis=0)
     H = G[:, observed].T
     labels = np.full(G.shape[1], 255, dtype=np.uint8)
@@ -20,8 +20,11 @@ def reference(G, alpha=0.1, min_freq=0.005, min_mac=None, K_max=255):
     H = H ^ flip
     X, inverse, weights = np.unique(H[:, ::-1], axis=0, return_inverse=True, return_counts=True)
     X = X[:, ::-1]
-    minimum = min_mac or int(np.ceil(len(H) * min_freq))
-    threshold = int(np.ceil(alpha * G.shape[0]))
+    minimum = max(min_mac, int(np.ceil(len(H) * min_freq)))
+    threshold = max(1, int(np.ceil(alpha * G.shape[0])))
+    if threshold == 1 and len(X) <= K_max and weights.min() >= minimum:
+        labels[observed] = inverse
+        return labels, X ^ flip, (X ^ flip).astype(np.uint64) * weights[:, None]
     z = np.zeros(len(X), dtype=int)
     centers = [(2 * H.sum(0) > len(H)).astype(np.uint8)]
     active = np.ones(1, dtype=bool)
@@ -32,50 +35,42 @@ def reference(G, alpha=0.1, min_freq=0.005, min_mac=None, K_max=255):
         new_z = len(centers) - 1 - np.argmin(distance[:, ::-1], axis=1)
         return new_z, distance[np.arange(len(X)), new_z]
 
-    def recount():
+    def refresh():
         sizes = np.bincount(z, weights=weights, minlength=len(centers)).astype(np.uint64)
-        sums = np.zeros((len(centers), G.shape[0]), dtype=np.uint64)
-        for k in range(len(centers)):
-            sums[k] = (X[z == k].astype(np.uint64) * weights[z == k, None]).sum(0)
-        return sizes, sums
-
-    def update(sizes, sums):
+        sums = np.array([(X[z == k] * weights[z == k, None]).sum(0) for k in range(len(centers))])
         new_active = sizes > 0
         changed = not np.array_equal(new_active, active)
         for k in np.flatnonzero(new_active):
             new = (2 * sums[k] > sizes[k]).astype(np.uint8)
             changed |= not np.array_equal(centers[k], new)
             centers[k] = new
-        return new_active, changed
+        return sizes, sums, new_active, changed
+
+    def candidate(d):
+        eligible = np.flatnonzero(d >= threshold)
+        return min(eligible, key=lambda i: (-int(d[i]), -int(weights[i]), i), default=None)
 
     for _ in range(1000):
         z, distances = assignment()
-        candidates = np.flatnonzero(distances == distances.max())
-        candidate = candidates[np.argmax(weights[candidates])]
-        birth = distances[candidate] >= threshold and len(centers) < K_max
-        if birth:
-            z[candidate] = len(centers)
-            centers.append(X[candidate].copy())
+        c = candidate(distances) if len(centers) < K_max else None
+        if c is not None:
+            z[c] = len(centers)
+            centers.append(X[c].copy())
             active = np.append(active, True)
-        sizes, sums = recount()
-        active, changed = update(sizes, sums)
-        if not birth and not changed:
+        sizes, sums, active, changed = refresh()
+        if c is None and not changed:
             break
     else:
         raise AssertionError("Reference growth failed to converge")
-    for _ in range(1000):
+    for it in range(1000):
         rare = np.flatnonzero(active & (sizes < minimum))
-        if not len(rare):
-            # Complete any pending median movement after the last deletion.
-            new_z, _ = assignment()
-            if np.array_equal(new_z, z):
-                break
         if len(rare):
             smallest = rare[::-1][np.argmin(sizes[rare[::-1]])]
             active[smallest] = False
+        elif it == 0:
+            break
         z, _ = assignment()
-        sizes, sums = recount()
-        active, changed = update(sizes, sums)
+        sizes, sums, active, changed = refresh()
         if not changed and np.all(sizes[active] >= minimum):
             break
     else:
@@ -98,6 +93,7 @@ class PackedClusteringTests(unittest.TestCase):
         result = fitWindow(G, **options)
         for value, key in zip(expected, ("labels", "medians", "counts")):
             np.testing.assert_array_equal(value, result[key])
+        np.testing.assert_array_equal(predictHaplotypes(G, result["medians"]), result["labels"])
         self.assertEqual(int(result["sizes"].sum()), np.count_nonzero(np.all(G != 255, axis=0)))
         return result
 
@@ -110,7 +106,9 @@ class PackedClusteringTests(unittest.TestCase):
                 G = np.repeat(patterns, weights, axis=0).T.copy()
                 if repeat % 2:
                     G[0, 0] = 255
-                self.checkReference(G, min_mac=min(8, G.shape[1] - 1), K_max=16)
+                self.checkReference(
+                    G, alpha=(0, 0.0625)[repeat % 2], min_mac=min(8, G.shape[1] - 1), K_max=16
+                )
 
     def test_complete_fast_path_is_identical(self):
         G = np.random.default_rng(33).integers(0, 2, (65, 100), dtype=np.uint8)
@@ -191,7 +189,7 @@ class PackedClusteringTests(unittest.TestCase):
 
     def test_missing_windows_and_frequency_denominator(self):
         G = np.array([[0, 0, 1, 255], [0, 0, 1, 0]], np.uint8)
-        result = self.checkReference(G, min_freq=0.3)
+        result = self.checkReference(G, min_freq=0.3, min_mac=1)
         self.assertEqual(result["stats"]["K"], 2)
         self.assertEqual(result["labels"][3], 255)
         empty = fitWindow(np.full((8, 6), 255, np.uint8))
@@ -204,8 +202,56 @@ class PackedClusteringTests(unittest.TestCase):
     def test_single_cluster_and_strict_minimum(self):
         result = self.checkReference(np.array([[0] * 99 + [1]] * 8, np.uint8), min_mac=10)
         self.assertEqual(result["stats"]["K"], 1)
-        same = fitWindow(np.zeros((16, 4), np.uint8), K_max=1)
+        same = fitWindow(np.zeros((16, 4), np.uint8), K_max=1, min_mac=1)
         self.assertEqual(same["stats"]["K"], 1)
+
+    def test_combined_support_uses_observed_haplotypes(self):
+        for H, minor, expected in ((100, 4, 1), (100, 5, 2), (5001, 5, 1), (5001, 6, 2)):
+            G = np.zeros((8, H + 1000), np.uint8)
+            G[0, H - minor : H] = 1
+            G[0, H:] = 255
+            result = fitWindow(G)
+            self.assertEqual(result["stats"]["K"], expected)
+            self.assertTrue(np.all(result["sizes"] >= max(5, int(np.ceil(0.001 * H)))))
+            self.assertTrue(np.all(result["labels"][H:] == 255))
+        G = np.zeros((8, 5001), np.uint8)
+        G[0, -5:] = 1
+        self.assertEqual(fitWindow(G, min_freq=0)["stats"]["K"], 2)
+        with self.assertRaisesRegex(ValueError, "exceeds the observed"):
+            fitWindow(np.zeros((8, 4), np.uint8))
+
+    def test_lambda_boundary_and_exact_pattern_shortcut(self):
+        for B, alpha, K in ((16, 0.0625, 2), (17, 0.0625, 1), (129, 0, 2)):
+            G = np.zeros((B, 10), np.uint8)
+            G[0, 5:] = 1
+            result = self.checkReference(G, alpha=alpha)
+            self.assertEqual(result["stats"]["K"], K)
+            self.assertEqual(result["stats"]["exact"], K == 2)
+            if K == 2:
+                np.testing.assert_array_equal(result["medians"][result["labels"]].T, G)
+                self.checkFlip(G, np.ones(B, np.uint8), alpha=alpha)
+            limited = self.checkReference(G, alpha=alpha, K_max=1)
+            self.assertFalse(limited["stats"]["exact"])
+            if alpha == 0:
+                np.testing.assert_array_equal(fitWindow(G)["labels"], result["labels"])
+
+    def test_furthest_pattern_takes_priority_over_count(self):
+        values = np.array([0, 3, 255])
+        X = ((values[:, None] >> np.arange(8)) & 1).astype(np.uint8)
+        G = np.repeat(X, [100, 30, 5], axis=0).T.copy()
+        result = self.checkReference(G, K_max=2)
+        np.testing.assert_array_equal(result["medians"], X[[0, 2]])
+        np.testing.assert_array_equal(result["sizes"], [130, 5])
+        self.assertEqual(np.count_nonzero(G != result["medians"][result["labels"]].T), 60)
+
+    def test_rare_seed_can_form_a_supported_cluster(self):
+        values = np.array([0, 127, 255])
+        X = ((values[:, None] >> np.arange(8)) & 1).astype(np.uint8)
+        G = np.repeat(X, [30, 4, 1], axis=0).T.copy()
+        result = self.checkReference(G, K_max=2)
+        np.testing.assert_array_equal(result["medians"], X[[0, 1]])
+        np.testing.assert_array_equal(result["sizes"], [30, 5])
+        self.assertEqual(np.count_nonzero(G != result["medians"][result["labels"]].T), 1)
 
     def test_limits_and_input_validation(self):
         G = np.random.default_rng(44).integers(0, 2, (8, 100), dtype=np.uint8)
@@ -213,7 +259,8 @@ class PackedClusteringTests(unittest.TestCase):
             {"K_max": 256},
             {"alpha": float("nan")},
             {"min_mac": 101},
-            {"min_freq": 0},
+            {"min_mac": 2**65},
+            {"min_freq": -0.1},
             {"n_iter": 0},
         ):
             with self.assertRaises(ValueError):

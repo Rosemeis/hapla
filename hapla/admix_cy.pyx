@@ -1,11 +1,13 @@
-# cython: language_level=3, boundscheck=False, wraparound=False, initializedcheck=False, cdivision=True
+# cython: language_level=3
+# cython: boundscheck=False, wraparound=False, initializedcheck=False
+# cython: cdivision=True
 """Categorical ancestry updates, constraints, and likelihoods."""
 
 __author__ = "Jonas Meisner"
 
 from cython.parallel import prange
 import numpy as np
-from libc.math cimport INFINITY, fabs, fmax, fmaxf, fmin, fminf, isfinite, log, sqrtf
+from libc.math cimport INFINITY, fabs, fmax, fmaxf, fmin, fminf, isfinite, log, sqrt, sqrtf
 from libc.stdint cimport uint8_t, uint32_t
 
 ctypedef uint8_t u8
@@ -17,16 +19,19 @@ cdef f64 PRO_MIN = 1e-5
 cdef f64 ACC_MIN = 1.0
 cdef f64 ACC_MAX = 100.0
 cdef f32 FLT_MIN = 1e-5
-cdef f32 FLT_MAX = 1.0 - (1e-5)
+cdef f32 FLT_MAX = 1.0 - 1e-5
+
+
+##### Probability constraints
 
 
 ### Bound the quasi-Newton step
-cdef inline f64 _clamp2(f64 a) noexcept nogil:
+cdef inline f64 _clampStep(f64 a) noexcept nogil:
     return fmax(ACC_MIN, fmin(a, ACC_MAX))
 
 
 ### Keep ALS probabilities within the supported bounds
-cdef inline f32 _clamp3(f32 a) noexcept nogil:
+cdef inline f32 _clampProb(f32 a) noexcept nogil:
     return fmaxf(FLT_MIN, fminf(a, FLT_MAX))
 
 
@@ -61,49 +66,24 @@ cdef inline void _simplex(f64* x, Py_ssize_t n, Py_ssize_t stride) noexcept nogi
         x[j*stride] = x[j*stride]*scale if x[j*stride] > 0.0 else PRO_MIN
 
 
-### Estimate inverse individual allele frequency
-cdef inline f64 _computeH(
-        const f64* p,
-        const f64* q,
-        const Py_ssize_t K
-    ) noexcept nogil:
-    cdef:
-        size_t k
-        f64 h = 0.0
-    for k in range(K):
-        h += p[k] * q[k]
-    return 1.0 / h
+##### EM and quasi-Newton kernels
 
 
 ### Estimate individual allele frequency
-cdef inline f64 _computeL(
-        const f64* p,
-        const f64* q,
-        const Py_ssize_t K
-    ) noexcept nogil:
-    cdef:
-        size_t k
-        f64 h = 0.0
+cdef inline f64 _prob(const f64* p, const f64* q, Py_ssize_t K) noexcept nogil:
+    cdef size_t k
+    cdef f64 h = 0.0
     for k in range(K):
         h += p[k] * q[k]
-    return log(h)
+    return h
 
 
-### Outer loop accelerated update for Q
-cdef inline void _outerAccelQ(
-        const f64* q,
-        f64* q_new,
-        f64* q_tmp,
-        const f64 S,
-        const Py_ssize_t K
-    ) noexcept nogil:
-    cdef:
-        size_t k
-        f64 a, b
+### Update one Q simplex and clear its counts
+cdef inline void _updateQ(const f64* q, f64* q_new, f64* q_tmp,
+                          f64 S, Py_ssize_t K) noexcept nogil:
+    cdef size_t k
     for k in range(K):
-        a = q[k] * q_tmp[k] * S
-        b = a
-        q_new[k] = b
+        q_new[k] = q[k] * q_tmp[k] * S
         q_tmp[k] = 0.0
     _simplex(q_new, K, 1)
 
@@ -122,7 +102,7 @@ cdef void _norm(const f64* a, const f64* b, const f64* c,
 
 
 ### Estimate the QN factor in a fixed reduction order
-cdef f64 _qnC(const f64* a, const f64* b, const f64* c, Py_ssize_t I) noexcept nogil:
+cdef f64 _qn(const f64* a, const f64* b, const f64* c, Py_ssize_t I) noexcept nogil:
     cdef Py_ssize_t j, B = min(64, I)
     cdef f64 x[64]
     cdef f64 y[64]
@@ -132,7 +112,7 @@ cdef f64 _qnC(const f64* a, const f64* b, const f64* c, Py_ssize_t I) noexcept n
     for j in range(B):
         s += x[j]
         t += y[j]
-    return _clamp2(-s/t) if s > 0 and t < 0 else 1.0
+    return _clampStep(-s/t) if s > 0 and t < 0 else 1.0
 
 
 ### Accumulate selected windows within one fixed norm partition
@@ -163,12 +143,12 @@ cdef f64 _qnBatch(const f64* a, const f64* b, const f64* c,
     for j in range(B):
         s += x[j]
         t += y[j]
-    return _clamp2(-s/t) if s > 0 and t < 0 else 1.0
+    return _clampStep(-s/t) if s > 0 and t < 0 else 1.0
 
 
 ### Estimate QN jump in P without temporary allocation
-cdef inline void _computeP(f64* P0, const f64* P1, const f64* P2,
-                           f64 c1, f64 c2, Py_ssize_t B, Py_ssize_t K) noexcept nogil:
+cdef inline void _jumpP(f64* P0, const f64* P1, const f64* P2,
+                        f64 c1, f64 c2, Py_ssize_t B, Py_ssize_t K) noexcept nogil:
     cdef Py_ssize_t c, k
     if B == 0:
         return
@@ -179,73 +159,23 @@ cdef inline void _computeP(f64* P0, const f64* P1, const f64* P2,
 
 
 ### Estimate QN jump in Q
-cdef inline void _computeQ(
-        f64* q0,
-        const f64* q1,
-        const f64* q2,
-        const f64 c1,
-        const f64 c2,
-        const Py_ssize_t K
-    ) noexcept nogil:
-    cdef:
-        size_t k
-        f64 a, b
+cdef inline void _jumpQ(f64* q0, const f64* q1, const f64* q2,
+                        f64 c1, f64 c2, Py_ssize_t K) noexcept nogil:
+    cdef size_t k
     for k in range(K):
-        a = c2 * q1[k] + c1 * q2[k]
-        b = fmax(0.0, a)
-        q0[k] = b
+        q0[k] = fmax(0.0, c2 * q1[k] + c1 * q2[k])
     _simplex(q0, K, 1)
 
 
-### Project P to domain
-cdef inline void _projectP(
-        f32* p,
-        const Py_ssize_t B,
-        const Py_ssize_t K
-    ) noexcept nogil:
-    cdef Py_ssize_t c, k
-    cdef f32 total
-    for k in range(K):
-        total = 0.0
-        for c in range(B):
-            p[c*K+k] = _clamp3(p[c*K+k])
-            total += p[c*K+k]
-        for c in range(B):
-            p[c*K+k] /= total
-
-
-### Project Q to domain
-cdef inline void _projectQ(
-        f32* q,
-        const Py_ssize_t K
-    ) noexcept nogil:
-    cdef:
-        size_t k
-        f32 sumQ = 0.0
-        f32 a, b
-    for k in range(K):
-        a = q[k]
-        b = _clamp3(a)
-        sumQ += b
-        q[k] = b
-    for k in range(K):
-        q[k] /= sumQ
-
-
-### Compute the squared difference
-cdef inline f32 _computeR(
-        const f32* a,
-        const f32* b,
-        const Py_ssize_t I
-    ) noexcept nogil:
-    cdef:
-        f32 r = 0.0
-        f32 c
-        size_t i
-    for i in range(I):
-        c = a[i] - b[i]
-        r += c * c
-    return r
+### Clip and normalize one ALS simplex, with strided columns for P
+cdef inline void _project(f32* p, Py_ssize_t n, Py_ssize_t stride) noexcept nogil:
+    cdef Py_ssize_t j
+    cdef f32 total = 0.0
+    for j in range(n):
+        p[j*stride] = _clampProb(p[j*stride])
+        total += p[j*stride]
+    for j in range(n):
+        p[j*stride] /= total
 
 
 ### Accumulate a diploid sample and reuse the denominator for matching labels
@@ -255,7 +185,7 @@ cdef inline void _pair(const f64* p, const f64* q, f64* pt, f64* qt,
     cdef Py_ssize_t k
     cdef f64 a = 0.0, b = 0.0
     if first and second and r == s:
-        a = 2.0 * _computeH(&p[r], q, K)
+        a = 2.0 * (1.0 / _prob(&p[r], q, K))
         if pt != NULL:
             for k in range(K):
                 pt[r+k] += q[k] * a
@@ -265,9 +195,9 @@ cdef inline void _pair(const f64* p, const f64* q, f64* pt, f64* qt,
                 qt[k] += p[r+k] * a
         return
     if first:
-        a = _computeH(&p[r], q, K)
+        a = 1.0 / _prob(&p[r], q, K)
     if second:
-        b = a if first and r == s else _computeH(&p[s], q, K)
+        b = a if first and r == s else 1.0 / _prob(&p[s], q, K)
     if first:
         if pt != NULL:
             for k in range(K):
@@ -399,6 +329,9 @@ cpdef void em(const u8[:, ::1] Z, const f64[::1] P, f64[::1] P_new,
                         T[beg+i, k] += qt[b, i, k]
 
 
+##### Leave-one-out updates
+
+
 ### Accumulate unfloored expected counts before excluding each individual's pair
 cdef void _looCounts(const u8* z, const f64* p, const f64* q, f64* out,
                      Py_ssize_t N, Py_ssize_t C, Py_ssize_t K) noexcept nogil:
@@ -408,7 +341,7 @@ cdef void _looCounts(const u8* z, const f64* p, const f64* q, f64* out,
     for h in range(2*N):
         if z[h] != 255:
             r = z[h]*K
-            inv = _computeH(&p[r], &q[(h//2)*K], K)
+            inv = 1.0 / _prob(&p[r], &q[(h//2)*K], K)
             for k in range(K): out[r+k] += p[r+k]*q[(h//2)*K+k]*inv
 
 
@@ -442,8 +375,8 @@ cdef void _looWindow(const u8* z, const f64* p, const f64* counts, const f64* q,
         if n == obs or not (first or second):
             for k in range(K): qt[(i-beg)*K+k] += n
             continue
-        a = _computeH(&p[r*K], &q[i*K], K) if r != 255 else 0
-        b = a if r == s else (_computeH(&p[s*K], &q[i*K], K) if s != 255 else 0)
+        a = 1.0 / _prob(&p[r*K], &q[i*K], K) if r != 255 else 0
+        b = a if r == s else (1.0 / _prob(&p[s*K], &q[i*K], K) if s != 255 else 0)
         scale = mass/(obs-n)
         fast = True
         # Only the two observed rows are needed when no probability floor binds
@@ -474,8 +407,8 @@ cdef void _looWindow(const u8* z, const f64* p, const f64* counts, const f64* q,
             for k in range(K):
                 f[k] = tmp[r*K+k] if r != 255 else 1
                 g[k] = tmp[s*K+k] if s != 255 else 1
-        a = _computeH(f, &q[i*K], K) if first else 0
-        b = _computeH(g, &q[i*K], K) if second else 0
+        a = 1.0 / _prob(f, &q[i*K], K) if first else 0
+        b = 1.0 / _prob(g, &q[i*K], K) if second else 0
         for k in range(K):
             if r != 255: qt[(i-beg)*K+k] += f[k]*a if first else 1
             if s != 255: qt[(i-beg)*K+k] += g[k]*b if second else 1
@@ -529,6 +462,9 @@ def loo(const u8[:, ::1] Z, const f64[::1] P, f64[::1] P_new,
             for k in range(K): _simplex(&P_new[l+k], k_vec[w], K)
 
 
+##### Label validation and counts
+
+
 ### Count observed haplotypes in sample tiles without a window-by-sample mask
 def observedCounts(const u8[:, ::1] Z, const u32[::1] rows=None):
     cdef Py_ssize_t N = Z.shape[1]//2, W = Z.shape[0] if rows is None else rows.shape[0]
@@ -563,106 +499,69 @@ cpdef Py_ssize_t validateLabels(const u8[:, ::1] Z, const u32[::1] k_vec):
     return count
 
 
-### Accelerated jump for P (QN)
-cpdef void jumpP(
-        f64[::1] P0,
-        f64[::1] P1,
-        f64[::1] P2,
-        const u32[::1] k_vec,
-        const u32[::1] c_vec,
-        const Py_ssize_t K
-    ) noexcept nogil:
-    cdef:
-        Py_ssize_t M = P0.shape[0]
-        Py_ssize_t W = k_vec.shape[0]
-        Py_ssize_t B
-        size_t l, w
-        f64 c1, c2
-    c1 = _qnC(&P0[0], &P1[0], &P2[0], M)
-    c2 = 1.0 - c1
-    for w in prange(W, schedule='guided'):
-        l = c_vec[w]
-        B = k_vec[w]
-        _computeP(&P0[l], &P1[l], &P2[l], c1, c2, B, K)
+##### Parameter updates
 
 
-### Batch accelerated jump for P (QN)
-cpdef void jumpBatchP(
-        f64[::1] P0,
-        const f64[::1] P1,
-        const f64[::1] P2,
-        const u32[::1] k_vec,
-        const u32[::1] c_vec,
-        const u32[::1] s_bat,
-        const Py_ssize_t K
-    ) noexcept nogil:
-    cdef:
-        Py_ssize_t W = s_bat.shape[0]
-        Py_ssize_t B
-        size_t l, r, w
-        f64 c1, c2
-    c1 = _qnBatch(&P0[0], &P1[0], &P2[0], &k_vec[0], &c_vec[0], &s_bat[0], W, K)
+### Damp a fixed-point proposal and measure its accepted parameter change
+def damp(const f64[::1] old, f64[::1] new):
+    cdef Py_ssize_t j, n = old.shape[0]
+    cdef f64 d, total = 0
+    if new.shape[0] != n:
+        raise ValueError("Parameter dimensions differ")
+    with nogil:
+        for j in range(n):
+            d = 0.5 * (new[j] - old[j])
+            new[j] = old[j] + d
+            total += d*d
+    return sqrt(total/n) if n else 0.0
+
+
+### Accelerated jump for all or selected windows, preserving each norm's reduction order
+cpdef void jumpP(f64[::1] P0, const f64[::1] P1, const f64[::1] P2,
+                 const u32[::1] k_vec, const u32[::1] c_vec, Py_ssize_t K,
+                 const u32[::1] rows=None) noexcept nogil:
+    cdef Py_ssize_t W = k_vec.shape[0] if rows is None else rows.shape[0], l, r, w
+    cdef f64 c1, c2
+    if rows is None:
+        c1 = _qn(&P0[0], &P1[0], &P2[0], P0.shape[0])
+    else:
+        c1 = _qnBatch(&P0[0], &P1[0], &P2[0], &k_vec[0], &c_vec[0], &rows[0], W, K)
     c2 = 1.0 - c1
     for w in prange(W, schedule='guided'):
-        r = s_bat[w]
+        r = w if rows is None else rows[w]
         l = c_vec[r]
-        B = k_vec[r]
-        _computeP(&P0[l], &P1[l], &P2[l], c1, c2, B, K)
+        _jumpP(&P0[l], &P1[l], &P2[l], c1, c2, k_vec[r], K)
 
 
-### Accelerated update Q
-cpdef void accelQ(
-        const f64[:, ::1] Q,
-        f64[:, ::1] Q_new,
-        f64[:, ::1] Q_tmp,
-        const Py_ssize_t W
-    ) noexcept nogil:
-    cdef:
-        Py_ssize_t N = Q.shape[0]
-        Py_ssize_t K = Q.shape[1]
-        size_t i
-        f64 S = 1.0 / <f64>(W << 1)
-    for i in prange(N, schedule='guided'):
-        _outerAccelQ(&Q[i, 0], &Q_new[i, 0], &Q_tmp[i, 0], S, K)
-
-
-### Accelerated update Q with observed assignment counts
-cpdef void accelQMiss(
-        const f64[:, ::1] Q,
-        f64[:, ::1] Q_new,
-        f64[:, ::1] Q_tmp,
-        const u32[::1] q_obs
-    ) noexcept nogil:
-    cdef:
-        Py_ssize_t N = Q.shape[0]
-        Py_ssize_t K = Q.shape[1]
-        size_t i, k
-        f64 S
-    for i in prange(N, schedule='guided'):
-        if q_obs[i] > 0:
-            S = 1.0 / <f64>q_obs[i]
-            _outerAccelQ(&Q[i, 0], &Q_new[i, 0], &Q_tmp[i, 0], S, K)
-        else:
-            for k in range(K):
-                Q_new[i, k] = Q[i, k]
-                Q_tmp[i, k] = 0.0
+### Update Q with a separate fast path for fully observed data
+cpdef void accelQ(const f64[:, ::1] Q, f64[:, ::1] Q_new, f64[:, ::1] Q_tmp,
+                  Py_ssize_t W, const u32[::1] obs=None) noexcept nogil:
+    cdef Py_ssize_t N = Q.shape[0], K = Q.shape[1], i, k
+    cdef f64 S
+    if obs is None:
+        S = 1.0 / <f64>(W << 1)
+        for i in prange(N, schedule='guided'):
+            _updateQ(&Q[i, 0], &Q_new[i, 0], &Q_tmp[i, 0], S, K)
+    else:
+        for i in prange(N, schedule='guided'):
+            if obs[i] > 0:
+                S = 1.0 / <f64>obs[i]
+                _updateQ(&Q[i, 0], &Q_new[i, 0], &Q_tmp[i, 0], S, K)
+            else:
+                for k in range(K):
+                    Q_new[i, k] = Q[i, k]
+                    Q_tmp[i, k] = 0.0
 
 
 ### Accelerated jump for Q (QN)
-cpdef void jumpQ(
-        f64[:, ::1] Q0,
-        const f64[:, ::1] Q1,
-        const f64[:, ::1] Q2
-    ) noexcept nogil:
-    cdef:
-        Py_ssize_t N = Q0.shape[0]
-        Py_ssize_t K = Q0.shape[1]
-        size_t i
-        f64 c1, c2
-    c1 = _qnC(&Q0[0, 0], &Q1[0, 0], &Q2[0, 0], N * K)
+cpdef void jumpQ(f64[:, ::1] Q0, const f64[:, ::1] Q1,
+                 const f64[:, ::1] Q2) noexcept nogil:
+    cdef Py_ssize_t N = Q0.shape[0], K = Q0.shape[1], i
+    cdef f64 c1, c2
+    c1 = _qn(&Q0[0, 0], &Q1[0, 0], &Q2[0, 0], N * K)
     c2 = 1.0 - c1
     for i in prange(N, schedule='guided'):
-        _computeQ(&Q0[i, 0], &Q1[i, 0], &Q2[i, 0], c1, c2, K)
+        _jumpQ(&Q0[i, 0], &Q1[i, 0], &Q2[i, 0], c1, c2, K)
 
 
 ### Normalize P and Q once after initialization
@@ -682,6 +581,9 @@ cpdef void createQ(f64[:, ::1] Q) noexcept nogil:
         _simplex(&Q[i, 0], Q.shape[1], 1)
 
 
+##### Likelihoods
+
+
 ### Score one window in a fixed order, reusing homozygous probabilities
 cdef f64 _likelihood(width mode, const u8* z, const f64* p, const f64* q,
                       Py_ssize_t N, Py_ssize_t K, bint missing) noexcept nogil:
@@ -694,13 +596,13 @@ cdef f64 _likelihood(width mode, const u8* z, const f64* p, const f64* q,
     for i in range(N):
         r, s = z[2*i]*K, z[2*i+1]*K
         if not missing or z[2*i] != 255:
-            value = _computeL(&p[r], &q[i*K], K)
+            value = log(_prob(&p[r], &q[i*K], K))
             total += value
             if r == s and (not missing or z[2*i+1] != 255):
                 total += value
                 continue
         if not missing or z[2*i+1] != 255:
-            total += _computeL(&p[s], &q[i*K], K)
+            total += log(_prob(&p[s], &q[i*K], K))
     return total
 
 
@@ -758,45 +660,34 @@ cpdef f64 priorScore(const f64[::1] P, const f64[::1] pool,
     return mass * value
 
 
-### Projection function for P (f32)
-cpdef void projectP(
-        f32[:, ::1] P,
-        const u32[::1] k_vec,
-        const u32[::1] c_vec
-    ) noexcept nogil:
-    cdef:
-        Py_ssize_t W = k_vec.shape[0]
-        Py_ssize_t K = P.shape[1]
-        Py_ssize_t B
-        size_t l, w
-    for w in prange(W, schedule='guided'):
-        l = c_vec[w]
-        B = k_vec[w]
-        _projectP(&P[l, 0], B, K)
+##### Initialization and reference frequencies
 
 
-### Projection function for Q (f32)
-cpdef void projectQ(
-        f32[:, ::1] Q
-    ) noexcept nogil:
-    cdef:
-        Py_ssize_t N = Q.shape[0]
-        Py_ssize_t K = Q.shape[1]
-        size_t i
-    for i in prange(N, schedule='guided'):
-        _projectQ(&Q[i, 0], K)
+### Normalize ALS cluster frequencies
+cpdef void projectP(f32[:, ::1] P, const u32[::1] k_vec,
+                    const u32[::1] c_vec) noexcept nogil:
+    cdef Py_ssize_t K = P.shape[1], w, k
+    for w in prange(k_vec.shape[0], schedule='guided'):
+        for k in range(K):
+            _project(&P[c_vec[w], k], k_vec[w], K)
+
+
+### Normalize ALS ancestry proportions
+cpdef void projectQ(f32[:, ::1] Q) noexcept nogil:
+    cdef Py_ssize_t i
+    for i in prange(Q.shape[0], schedule='guided'):
+        _project(&Q[i, 0], Q.shape[1], 1)
 
 
 ### Root-mean square error between two Q matrices
-cpdef f32 rmseQ(
-        f32[:, ::1] A,
-        f32[:, ::1] B
-    ) noexcept nogil:
-    cdef:
-        Py_ssize_t N = A.shape[0]
-        Py_ssize_t K = A.shape[1]
-        f32 r
-    r = _computeR(&A[0, 0], &B[0, 0], N * K)
+cpdef f32 rmseQ(f32[:, ::1] A, f32[:, ::1] B) noexcept nogil:
+    cdef Py_ssize_t N = A.shape[0], K = A.shape[1], i
+    cdef const f32* a = &A[0, 0]
+    cdef const f32* b = &B[0, 0]
+    cdef f32 r = 0.0, c
+    for i in range(N*K):
+        c = a[i] - b[i]
+        r += c*c
     return sqrtf(r / (<f32>(N) * <f32>(K)))
 
 
@@ -817,40 +708,23 @@ cpdef void superP(const u8[:, ::1] Z, f64[:, ::1] P,
 
 
 ### Update Q in supervised mode
-cpdef void superQ(
-        f64[:, ::1] Q,
-        const u8[::1] y
-    ) noexcept nogil:
-    cdef:
-        Py_ssize_t K = Q.shape[1]
-        Py_ssize_t N = Q.shape[0]
-        size_t i, k
-    for i in prange(N, schedule='guided'):
+cpdef void superQ(f64[:, ::1] Q, const u8[::1] y) noexcept nogil:
+    cdef Py_ssize_t K = Q.shape[1], i, k
+    for i in prange(Q.shape[0], schedule='guided'):
         if y[i] > 0:
             for k in range(K):
                 Q[i, k] = 1.0 - (K-1)*PRO_MIN if k == y[i]-1 else PRO_MIN
 
 
 ### Check haplotype cluster frequencies input
-cpdef void checkP(
-        f64[::1] P,
-        f64[:, ::1] p_sum,
-        const u32[::1] k_vec,
-        const u32[::1] c_vec,
-        const Py_ssize_t K
-    ) noexcept nogil:
-    cdef:
-        Py_ssize_t W = k_vec.shape[0]
-        Py_ssize_t B
-        f64* p
-        size_t c, k, l, w
-    for w in prange(W, schedule='guided'):
+cpdef void checkP(f64[::1] P, f64[:, ::1] p_sum, const u32[::1] k_vec,
+                  const u32[::1] c_vec, Py_ssize_t K) noexcept nogil:
+    cdef Py_ssize_t c, k, l, w
+    for w in prange(k_vec.shape[0], schedule='guided'):
         l = c_vec[w]
-        B = k_vec[w]
-        for c in range(B):
-            p = &P[l + c * K]
+        for c in range(k_vec[w]):
             for k in range(K):
-                p_sum[w, k] += p[k]
+                p_sum[w, k] += P[l+c*K+k]
 
 
 ### Normalize accepted reference frequencies without another full-sized array

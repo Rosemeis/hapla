@@ -70,7 +70,7 @@ class SharedInputTests(TemporaryTests):
         calls = ("0|0", "0|1", "1|1")
         writeVcf(vcf, [("1", i + 1, calls) for i in range(32)])
         ref = self.root / "ref"
-        command("cluster", "--vcf", vcf, "--size", 8, "--out", ref)
+        command("cluster", "--vcf", vcf, "--size", 8, "--min-mac", 1, "--out", ref)
 
         # Repeating the same chromosome doubles the data, with identical sample order
         from hapla.formats import MAGIC
@@ -147,8 +147,7 @@ class OwnershipTests(TemporaryTests):
         src = Reader(pth)
         self.assertFalse(src.finished)
         self.assertTrue(src.htslib_version)
-        self.assertTrue(src.htslib_features)
-        for key in ("finished", "htslib_version", "htslib_features"):
+        for key in ("finished", "htslib_version"):
             with self.assertRaises(AttributeError):
                 setattr(src, key, None)
         src.close()

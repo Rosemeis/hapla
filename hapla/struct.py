@@ -2,9 +2,9 @@
 
 __author__ = "Jonas Meisner"
 
-import json
 from contextlib import ExitStack
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from time import perf_counter
 
 from hapla.runtime import (
@@ -114,7 +114,23 @@ def product(data, p, a, L, chunk, *, Q=None, rng=None):
     return H
 
 
-### Use QR for stable subspace iterations and solve only the small final problem
+### Build a shared randomized subspace for PCA and ancestry initialization
+def subspace(data, p, a, L, chunk, power, rng):
+    import numpy as np
+
+    Q, _ = np.linalg.qr(product(data, p, a, L, chunk, rng=rng), mode="reduced")
+    shift = 0.0
+    for _ in range(power):
+        H = product(data, p, a, L, chunk, Q=np.ascontiguousarray(Q))
+        H -= shift * Q
+        Q, R = np.linalg.qr(H, mode="reduced")
+        low = np.linalg.svd(R, compute_uv=False)[-1]
+        if low > shift:
+            shift = 0.5 * (low + shift)
+    return np.ascontiguousarray(Q)
+
+
+### Solve the small final PCA problem within the estimated subspace
 def pca(data, p, K, chunk, power, seed, v=None):
     import numpy as np
 
@@ -132,19 +148,9 @@ def pca(data, p, K, chunk, power, seed, v=None):
         raise ValueError(
             "PCA components must fit the centered sample and variable-cluster dimensions"
         )
-    rng = np.random.default_rng(seed)
-    Q, _ = np.linalg.qr(product(data, p, a, L, chunk, rng=rng), mode="reduced")
-    shift = 0.0
-    for it in range(power):
-        H = product(data, p, a, L, chunk, Q=np.ascontiguousarray(Q))
-        H -= shift * Q
-        Q, R = np.linalg.qr(H, mode="reduced")
-        low = np.linalg.svd(R, compute_uv=False)[-1]
-        if low > shift:
-            shift = 0.5 * (low + shift)
+    Q = subspace(data, p, a, L, chunk, power, np.random.default_rng(seed))
 
     # Accumulate (X Q)' (X Q) without storing all cluster loadings
-    Q = np.ascontiguousarray(Q)
     T, sums = np.zeros((L, L)), Q.sum(axis=0)
     for Z, c, s, obs in blocks(data, chunk):
         A = np.empty((int(c[-1]), L))
@@ -215,7 +221,7 @@ def grm(data, p, chunk, center=True, tile=None, info=None):
             tmp = T[: (end - beg) * end].reshape(end - beg, end)
             np.dot(X[:, beg:end].T, X[:, :end], out=tmp)
             cy.addGram(tmp, G, beg)
-    scale = cy.normalizeGram(G, den, np.zeros(N), center)
+    scale = cy.normalizeGram(G, den, N, center)
     if info is not None:
         info.update(
             frequency_sum=den,
@@ -241,14 +247,14 @@ def writeLoadings(pth, data, p, a, V, S, chunk):
 
 
 ### Write numeric PC columns directly, with optional sample identifiers
-def writeVectors(pth, V, ids, raw, dup):
+def writeVectors(pth, V, ids, raw, dup, label="PC"):
     import numpy as np
 
     if raw:
         np.savetxt(pth, V, fmt="%.10g")
         return
     with Path(pth).open("w", buffering=1024**2) as dst:
-        dst.write("#FID\tIID\t" + "\t".join(f"PC{k + 1}" for k in range(V.shape[1])) + "\n")
+        dst.write("#FID\tIID\t" + "\t".join(f"{label}{k + 1}" for k in range(V.shape[1])) + "\n")
         for name, row in zip(ids, V):
             dst.write(
                 f"{name if dup else '0'}\t{name}\t" + "\t".join(f"{v:.10g}" for v in row) + "\n"
@@ -257,10 +263,24 @@ def writeVectors(pth, V, ids, raw, dup):
 
 ### Run requested analyses with one mapped, validated input set
 def main(args):
+    hsm = args.hsm or args.hsm_svd is not None
     if (args.clusters is None) == (args.filelist is None):
         raise ValueError("Provide exactly one of --clusters or --filelist")
-    if not args.grm and args.pca is None and args.projection is None:
-        raise ValueError("Select --grm, --pca, or --projection")
+    if not args.grm and args.pca is None and args.projection is None and not hsm:
+        raise ValueError("Select --grm, --pca, --projection, --hsm, or --hsm-svd")
+    if args.grm_no_center and not args.grm:
+        raise ValueError("--grm-no-center requires --grm")
+    if hsm:
+        if args.grm or args.pca is not None or args.projection is not None or args.loadings:
+            raise ValueError("HSM is a separate analysis from PCA, GRM, and projection")
+        if (
+            (args.hsm_svd is not None and args.hsm_svd < 1)
+            or args.hsm_matches < 1
+            or args.hsm_gap < 1
+        ):
+            raise ValueError("Sharing components, matches, and gap must be positive")
+    elif args.hsm_sqrt or args.hsm_matches != 16 or args.hsm_gap != 1000000:
+        raise ValueError("Sharing options require --hsm or --hsm-svd")
     if args.threads < 1 or args.chunk < 1 or args.power < 1 or args.seed < 0:
         raise ValueError(
             "Threads, chunk size, and power must be positive. Seed must be nonnegative"
@@ -271,7 +291,7 @@ def main(args):
         raise ValueError("--loadings requires --pca")
     if args.projection == "":
         raise ValueError("Projection prefix must not be empty")
-    configureThreads(args.threads, blas=args.threads if args.grm else 1)
+    configureThreads(args.threads, blas=args.threads if args.grm or args.hsm else 1)
     import numpy as np
 
     from hapla.formats import readMetadata
@@ -281,8 +301,10 @@ def main(args):
     printHeader("struct", args.threads)
     print("Reading clusters.", flush=True)
     paths, ids, k, sizes = readMetadata(args.clusters, args.filelist)
+    if args.hsm_svd is not None and args.hsm_svd >= len(ids):
+        raise ValueError("Sharing components must be between one and samples minus one")
     M = int(k.sum(dtype=np.int64))
-    data, p = readData(paths, k, sizes, len(ids), freq=args.grm or args.pca is not None)
+    data, p = readData(paths, k, sizes, len(ids), freq=args.grm or args.pca is not None or hsm)
     keys = featureKeys(paths, k, sizes) if args.loadings or args.projection else None
     if args.projection:
         checkModel(args.projection, keys)
@@ -299,15 +321,30 @@ def main(args):
     print(f"Data size: {len(ids):,} samples, {len(k):,} windows, {M:,} clusters", flush=True)
     printMissing(stats["missing_assignments"], 2 * len(ids) * len(k))
     sfxs = [".log"]
-    if args.grm:
-        sfxs += [".grm.bin", ".grm.N.bin", ".grm.id", ".grm.meta.json"]
     stale = (".loadings", ".freqs", ".pca.json") if args.pca is not None else ()
+    if args.grm:
+        sfxs += [".grm.bin", ".grm.N.bin", ".grm.id"]
+        stale += (".grm.meta.json",)
     if args.pca is not None:
         sfxs += [".eigenvecs", ".eigenvals"]
         if args.loadings:
             sfxs += [".loadings", ".freqs", ".pca.json"]
     if args.projection is not None:
         sfxs += [".project.eigenvecs"]
+    if hsm:
+        sfxs += [".hsm.coverage"]
+        stale = (
+            ".hsm.json",
+            ".hsm.grm.bin",
+            ".hsm.grm.id",
+            ".hsm.grm.N.bin",
+            ".hsm.eigenvecs",
+            ".hsm.eigenvals",
+        )
+        if args.hsm:
+            sfxs += [".hsm.grm.bin", ".hsm.grm.id"]
+        if args.hsm_svd is not None:
+            sfxs += [".hsm.eigenvecs", ".hsm.eigenvals"]
     inputs = [f"{pth}{s}" for pth in paths for s in (".bca", ".win", ".ids")]
     inputs += [args.filelist, *[f"{pth}.ref.json" for pth in paths]]
     if args.projection:
@@ -316,6 +353,69 @@ def main(args):
         ]
     with ExitStack() as stack:
         out = stageOutputs(stack, args.out, sfxs, inputs, stale=stale)
+        if hsm:
+            from hapla import sharing
+
+            tick = perf_counter()
+            print("\nComputing HSM.", flush=True)
+            print("Distance: Mb (physical distance proxy)", flush=True)
+            print(f"Transform: {'sqrt' if args.hsm_sqrt else 'linear'}", flush=True)
+            with TemporaryDirectory(prefix="hapla-hsm-") as tmp:
+                cache, cov, info = sharing.build(
+                    paths,
+                    data,
+                    p,
+                    ids,
+                    tmp,
+                    args.hsm_matches,
+                    args.hsm_gap,
+                    args.threads,
+                    args.seed,
+                    root=args.hsm_sqrt,
+                    transpose=args.hsm_svd is not None,
+                )
+                step = perf_counter()
+                mean, ss = sharing.moments(cache)
+                scale = (len(ids) - 1) / ss
+                info["normalization_seconds"] = perf_counter() - step
+                if args.hsm:
+                    step = perf_counter()
+                    sharing.grm(out[".hsm.grm.bin"], cache, mean, ss)
+                    with out[".hsm.grm.id"].open("w") as dst:
+                        dst.writelines(f"{s if args.duplicate_fid else '0'}\t{s}\n" for s in ids)
+                    info["matrix_seconds"] = perf_counter() - step
+                    printTiming("HSM matrix complete.", info["matrix_seconds"])
+                if args.hsm_svd is not None:
+                    step = perf_counter()
+                    V, S = sharing.pca(cache, args.hsm_svd, args.power, args.seed)
+                    writeVectors(out[".hsm.eigenvecs"], V, ids, args.raw, args.duplicate_fid, "HC")
+                    np.savetxt(out[".hsm.eigenvals"], S * S * scale, fmt="%.10g")
+                    info["svd_seconds"] = perf_counter() - step
+                    printTiming("HSM components complete.", info["svd_seconds"])
+                del cache
+            with out[".hsm.coverage"].open("w") as dst:
+                dst.write("#IID\tLENGTH\tFRACTION\n")
+                for name, val in zip(ids, cov):
+                    dst.write(f"{name}\t{val:.10g}\t{val / info['available_length']:.10g}\n")
+            info.update(
+                method="set_maximal_cluster_sharing",
+                tied_donors=args.hsm_matches,
+                max_gap_bp=args.hsm_gap,
+                samples=len(ids),
+                profile_transform="sqrt" if args.hsm_sqrt else "linear",
+                normalization="centered_sharing_profile_gram_with_trace_N_minus_one",
+                profile_sum_squares=ss,
+                gower_scale=scale,
+                matrix_exported=args.hsm,
+                matrix_format="GCTA_lower_triangle_float32_le" if args.hsm else None,
+                snp_counts_available=False,
+                components=args.hsm_svd,
+                component_scaling="unit_norm_eigenvectors" if args.hsm_svd is not None else None,
+                projection_supported=False,
+            )
+            stats["hsm"] = info
+            stats["hsm_seconds"] = perf_counter() - tick
+            printTiming("HSM complete.", stats["hsm_seconds"])
         if args.grm:
             tick = perf_counter()
             print("\nComputing GRM.", flush=True)
@@ -333,7 +433,7 @@ def main(args):
                 missingness="haplotype_mean_imputation",
                 count_is_pairwise_observed=False,
             )
-            G, den = grm(data, p, args.chunk, not args.no_centering, info=info)
+            G, den = grm(data, p, args.chunk, not args.grm_no_center, info=info)
             with out[".grm.bin"].open("wb") as dst, out[".grm.N.bin"].open("wb") as cnt:
                 for beg in range(0, len(G), 262144):
                     n = min(262144, len(G) - beg)
@@ -341,7 +441,6 @@ def main(args):
                     cnt.write(np.full(n, count, dtype=np.float32))
             with out[".grm.id"].open("w") as dst:
                 dst.writelines(f"{s if args.duplicate_fid else '0'}\t{s}\n" for s in ids)
-            out[".grm.meta.json"].write_text(json.dumps(info, indent=2) + "\n")
             stats["grm"] = info
             stats["grm_seconds"] = perf_counter() - tick
             printTiming("GRM complete.", stats["grm_seconds"])

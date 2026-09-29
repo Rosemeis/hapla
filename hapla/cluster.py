@@ -2,7 +2,6 @@
 
 __author__ = "Jonas Meisner"
 
-import math
 from contextlib import ExitStack
 from functools import partial
 from hashlib import sha256
@@ -36,11 +35,11 @@ def checkArgs(args):
         raise ValueError("--length must be positive")
     if args.step is not None and (args.size is None or not 1 <= args.step <= args.size):
         raise ValueError("--step requires --size and must lie between 1 and the window size")
-    if not math.isfinite(args.lmbda) or not 0 < args.lmbda < 1:
-        raise ValueError("--lmbda must lie strictly between 0 and 1")
-    if not math.isfinite(args.min_freq) or not 0 < args.min_freq < 1:
-        raise ValueError("--min-freq must lie strictly between 0 and 1")
-    if args.min_mac is not None and args.min_mac < 1:
+    if not 0 <= args.lmbda < 1:
+        raise ValueError("--lmbda must be in [0, 1)")
+    if not 0 <= args.min_freq < 1:
+        raise ValueError("--min-freq must be in [0, 1)")
+    if args.min_mac < 1:
         raise ValueError("--min-mac must be positive")
     if not 1 <= args.max_clusters <= 255:
         raise ValueError(
@@ -57,7 +56,7 @@ def fitBatch(batch, opt, medians, missing):
     from hapla import packed_cy
 
     out = []
-    for meta, G, miss, _ in batch:
+    for meta, G, miss in batch:
         try:
             if miss and missing == "error":
                 raise ValueError("Missing GT encountered with --missing error")
@@ -83,7 +82,7 @@ def fitBatch(batch, opt, medians, missing):
 def main(args):
     checkArgs(args)
     nt, nio = threadPlan(args.threads, args.io_threads)
-    from hapla.formats import FORMAT_VERSION, openOutputs, outputSuffixes, writeWindow
+    from hapla.formats import openOutputs, outputSuffixes, writeWindow
     from hapla.identity import fileHash, writeIdentity
     from hapla.windows import (
         createBuffer,
@@ -110,9 +109,7 @@ def main(args):
         missing_assignments=0,
         all_missing_windows=0,
         capped_windows=0,
-        growth_passes=0,
-        pruning_passes=0,
-        distance_pairs=0,
+        exact_windows=0,
     )
     size = (
         f"{args.size:,}"
@@ -145,7 +142,7 @@ def main(args):
             files = openOutputs(io, out, src.samples, args.duplicate_fid)
             site_id, fit_key = sha256(), sha256()
 
-            def sites(eof):
+            def sites(_):
                 site_id.update(src.sites)
                 if args.medians:
                     files[".sites"].write(src.sites)
@@ -163,9 +160,7 @@ def main(args):
                 stats["missing_assignments"] += info["missing"]
                 stats["all_missing_windows"] += K == 0
                 stats["capped_windows"] += info["capped"]
-                stats["growth_passes"] += info["growth_passes"]
-                stats["pruning_passes"] += info["prune_passes"]
-                stats["distance_pairs"] += info["distance_pairs"]
+                stats["exact_windows"] += info["exact"]
                 writeWindow(files, res["window"], res["labels"], K, stats["windows"])
                 if args.medians:
                     files[".bcm"].write(res["medians"])
@@ -179,7 +174,7 @@ def main(args):
                 workers=nt,
                 par=args.threads > 1,
                 b_buf=mem // 2,
-                size_of=lambda batch: sum(G.nbytes for _, G, _, _ in batch),
+                size_of=lambda batch: sum(G.nbytes for _, G, _ in batch),
             )
         if not stats["windows"]:
             raise ValueError("No windows were produced. Check the input and window/tail settings")
@@ -197,8 +192,6 @@ def main(args):
             batch_windows=n,
             io_threads=nio,
             htslib_version=src.htslib_version,
-            htslib_features=src.htslib_features,
-            format_version=FORMAT_VERSION,
         )
         writeLog(out[".log"], "cluster", args, stats)
         commitOutputs(args.out, out)

@@ -151,20 +151,12 @@ def logValue(val):
 
 ### Write readable statistics and compact iteration tables
 def logRows(data, pad="  "):
-    skip = {
-        "growth_passes",
-        "pruning_passes",
-        "distance_pairs",
-        "htslib_features",
-        "format_version",
-    }
     empty = {
         "missing_assignments",
         "all_missing_windows",
         "capped_windows",
         "empty_windows",
         "unobserved_samples",
-        "unphased_sample_windows",
         "excluded_windows",
         "phase_corrections",
         "recoveries",
@@ -179,11 +171,12 @@ def logRows(data, pad="  "):
         "q": "Q",
         "pca": "PCA",
         "grm": "GRM",
+        "hsm": "HSM",
         "loglike": "log-like",
         "loo": "LOO",
     }
     for key, val in data.items():
-        if key in skip or val is None or (isinstance(val, list) and not val):
+        if val is None or (isinstance(val, list) and not val):
             continue
         if key in empty and not val:
             continue
@@ -267,7 +260,7 @@ def headerNotes(text):
 
 
 ### Capture startup diagnostics before launching any window workers
-def openReader(stack, path, threads, phased=True):
+def openReader(stack, path, threads):
     from hapla.vcf_cy import Reader
 
     # HTSlib has no per-reader log callback. Restore stderr even on header failure.
@@ -277,7 +270,7 @@ def openReader(stack, path, threads, phased=True):
         fd = os.dup(2)
         try:
             os.dup2(tmp.fileno(), 2)
-            src = stack.enter_context(Reader(path, threads, phased=phased, save=True))
+            src = stack.enter_context(Reader(path, threads, save=True))
         finally:
             os.dup2(fd, 2)
             os.close(fd)

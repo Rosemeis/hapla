@@ -54,7 +54,7 @@ def checkArgs(args):
         and args.min_length > args.max_length
     ):
         raise ValueError("Minimum window length exceeds maximum length")
-    if args.quantile is not None and (not isfinite(args.quantile) or not 0 < args.quantile < 1):
+    if args.quantile is not None and not 0 < args.quantile < 1:
         raise ValueError("Window length quantile must lie strictly between zero and one")
     if args.quantile is not None and (args.min_length is not None or args.max_length is not None):
         raise ValueError("Choose either a quantile or explicit window length bounds")
@@ -207,7 +207,7 @@ def refine(data, P, Q, alpha, args):
     from hapla import fatash_cy as cy
 
     if args.loo:
-        from hapla.shared_cy import damp
+        from hapla.admix_cy import damp
 
     tick = perf_counter()
     K = Q.shape[1]

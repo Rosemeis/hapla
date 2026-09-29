@@ -44,20 +44,12 @@ class ReaderTests(TemporaryTests):
             dtype=np.uint8,
         )
         for path in (vcf, bcf):
-            for phased in (True, False):
-                G = np.empty_like(expected)
-                pos, rid, absent = (
-                    np.empty(9, np.int64),
-                    np.empty(9, np.int32),
-                    np.empty(9, np.uint8),
-                )
-                phase = None if phased else np.empty((9, 33), np.uint8)
-                with Reader(path, phased=phased) as reader:
-                    self.assertEqual(reader.readInto(G, pos, rid, absent, phase), 9)
-                np.testing.assert_array_equal(G, expected)
-                np.testing.assert_array_equal(absent, np.any(expected == 255, axis=1))
-                if phase is not None:
-                    self.assertFalse(np.any(phase))
+            G = np.empty_like(expected)
+            pos, rid, absent = (np.empty(9, np.int64), np.empty(9, np.int32), np.empty(9, np.uint8))
+            with Reader(path) as reader:
+                self.assertEqual(reader.readInto(G, pos, rid, absent), 9)
+            np.testing.assert_array_equal(G, expected)
+            np.testing.assert_array_equal(absent, np.any(expected == 255, axis=1))
 
     def read(self, path, capacity=2):
         rows, positions = [], []
@@ -157,10 +149,9 @@ class WindowTests(TemporaryTests):
                 self.assertEqual(fillBuffer(buffer, 1), 2)
                 self.assertEqual(reader.variants, 2)
                 windows = list(method(buffer, *arguments))
-                self.assertEqual([len(G) for _, G, _, _ in windows], [8, 8, 4])
+                self.assertEqual([len(G) for _, G, _ in windows], [8, 8, 4])
                 np.testing.assert_array_equal(
-                    np.concatenate([G for _, G, _, _ in windows]),
-                    np.tile([0, 0, 0, 1, 1, 1], (20, 1)),
+                    np.concatenate([G for _, G, _ in windows]), np.tile([0, 0, 0, 1, 1, 1], (20, 1))
                 )
 
     def windows(self, count, method, *args, chrom_boundary=None, **kwargs):
@@ -178,7 +169,7 @@ class WindowTests(TemporaryTests):
         )
         with Reader(path) as reader:
             buffer = createBuffer(reader.readInto, reader.samples, reader.contigs, (6 + 13) * 40)
-            return [(meta[0], meta[1], len(G)) for meta, G, _, _ in method(buffer, *args, **kwargs)]
+            return [(meta[0], meta[1], len(G)) for meta, G, _ in method(buffer, *args, **kwargs)]
 
     def test_fixed_tails_overlap_and_small_inputs(self):
         self.assertEqual(
@@ -251,13 +242,15 @@ class FormatAndPipelineTests(TemporaryTests):
             ("cluster", "--prune"),
             ("cluster", "--memory"),
             ("predict", "--memory"),
+            ("predict", "--phase-mode"),
+            ("predict", "--bfile"),
         ):
             result = command(subcommand, flag, success=False)
             self.assertEqual(result.returncode, 2)
             self.assertIn(f"unrecognized arguments: {flag}", result.stderr)
 
-    def test_retired_native_modules_are_not_available(self):
-        for name in ("hapla.cluster_cy", "hapla.memory_cy"):
+    def test_retired_modules_are_not_available(self):
+        for name in ("hapla.cluster_cy", "hapla.memory_cy", "hapla.shared_cy", "hapla.plink"):
             self.assertIsNone(importlib.util.find_spec(name), name)
 
     def test_parallel_streaming_and_optional_outputs(self):
@@ -281,6 +274,8 @@ class FormatAndPipelineTests(TemporaryTests):
                 16,
                 "--step",
                 8,
+                "--min-mac",
+                1,
                 "--medians",
                 "--plink",
                 "--buffer-mb",
@@ -425,12 +420,28 @@ class FormatAndPipelineTests(TemporaryTests):
         for suffix in (".bca", ".win"):
             self.assertEqual(Path(f"{prefix}{suffix}").read_bytes(), b"old" + suffix.encode())
 
-    def test_new_medians_predict_roundtrip(self):
+    def test_default_lambda_and_medians_predict_roundtrip(self):
         vcf, bcf = self.root / "predict.vcf", self.root / "predict.bcf"
-        writeVcf(vcf, [("1", i + 1, ("0|0", "0|1", "1|1")) for i in range(35)])
+        rows = [("1", i + 1, ("0|0",) * 3) for i in range(35)]
+        rows[16] = ("1", 17, ("0|0", "0|1", "1|1"))
+        writeVcf(vcf, rows)
         toBcf(vcf, bcf, index=True)
         reference, target = self.root / "reference", self.root / "target"
-        command("cluster", "--bcf", bcf, "--size", 16, "--step", 8, "--medians", "--out", reference)
+        command(
+            "cluster",
+            "--bcf",
+            bcf,
+            "--size",
+            32,
+            "--step",
+            16,
+            "--min-mac",
+            1,
+            "--medians",
+            "--out",
+            reference,
+        )
+        np.testing.assert_array_equal(np.loadtxt(f"{reference}.win", usecols=5), [2, 2])
         command("predict", "--bcf", bcf, "--ref", reference, "--out", target)
         self.assertEqual(Path(f"{reference}.bca").read_bytes(), Path(f"{target}.bca").read_bytes())
 
@@ -441,7 +452,9 @@ class FormatAndPipelineTests(TemporaryTests):
             admix = self.root / f"admix{missing}"
             calls = (".|0" if missing else "0|0", "0|1", "1|1")
             writeVcf(vcf, [("1", i + 1, calls) for i in range(32)])
-            command("cluster", "--vcf", vcf, "--size", 8, "--medians", "--out", prefix)
+            command(
+                "cluster", "--vcf", vcf, "--size", 8, "--min-mac", 1, "--medians", "--out", prefix
+            )
             command(
                 "admix",
                 "--clusters",
@@ -499,7 +512,9 @@ class FormatAndPipelineTests(TemporaryTests):
         rows = [("1", i + 1, ("0|0", "0|1", "1|1")) for i in range(16)]
         writeVcf(vcf, rows)
         toBcf(vcf, bcf, index=True)
-        command("cluster", "--bcf", bcf, "--size", 8, "--medians", "--out", reference)
+        command(
+            "cluster", "--bcf", bcf, "--size", 8, "--min-mac", 1, "--medians", "--out", reference
+        )
         query_vcf, query_bcf = self.root / "query.vcf", self.root / "query.bcf"
         rows[10] = ("1", 11, ("0|0", ".|1", "1|1"))
         writeVcf(query_vcf, rows)
@@ -514,6 +529,7 @@ class FormatAndPipelineTests(TemporaryTests):
 
         # Two clusters per window, one byte per PLINK variant, second sample is missing.
         bed = Path(f"{target}.bed").read_bytes()[3:]
+        self.assertEqual(len(bed), 4)
         self.assertTrue(all((byte >> 2) & 3 == 1 for byte in bed[2:]))
 
     def test_all_missing_windows_are_written_and_mapped(self):
