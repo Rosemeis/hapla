@@ -47,15 +47,21 @@ def chromosomes(paths, data, p):
 
 
 ### Bound genomic cells at gaps and constant windows
-def geometry(rows, info, gap):
+def geometry(rows, info, gap, gmap=None):
     bp = np.array([(r[1], r[2]) for r in rows], dtype=np.float64)
     if not np.isfinite(bp).all():
         raise ValueError("Sharing window coordinates must be finite")
     if np.any(bp[1:, 0] <= bp[:-1, 1]):
         raise ValueError("Sharing requires ordered, nonoverlapping windows")
-    g = bp / 1e6
     cut = np.r_[True, (bp[1:, 0] - bp[:-1, 1] > gap) | ~info[:-1] | ~info[1:]]
-    x = g.mean(axis=1)
+    if gmap is None:
+        g = bp / 1e6
+        x = g.mean(axis=1)
+    else:
+        from hapla.maps import coordinates
+
+        pos = coordinates(rows, gmap)
+        g, x = pos[:, [0, 2]], pos[:, 1].copy()
     mid = 0.5 * (x[:-1] + x[1:])
     left, right = g[:, 0].copy(), g[:, 1].copy()
     left[1:] = np.where(cut[1:], left[1:], mid)
@@ -166,6 +172,7 @@ def build(
     *,
     root=False,
     transpose=True,
+    gmap=None,
 ):
     if matches < 1 or gap < 1:
         raise ValueError("Sharing match count and gap must be positive")
@@ -175,14 +182,16 @@ def build(
     bins = min(32, (len(ids) + 127) // 128)
     order = sorted(range(len(ids)), key=lambda i: sha256(f"{seed}:{ids[i]}".encode()).digest())
     inv = np.array([(2 * i + h) for i in order for h in (0, 1)], dtype=np.int64)
-    rank = np.argsort(inv).astype(np.int64)
+    rank = np.empty(H, np.int64)
+    rank[inv] = np.arange(H)
     jobs, span = [], 0.0
     tick = perf_counter()
     for n, (_, rows, parts, info) in enumerate(chromosomes(paths, data, p)):
         path = Path(tmp) / str(n)
         path.mkdir()
-        x, left, right, cut = geometry(rows, info, gap)
-        if not np.any(info):
+        x, left, right, cut = geometry(rows, info, gap, gmap)
+        length = 2 * np.sum((right - left)[info])
+        if length <= 0:
             continue
         Z = parts[0]
         if len(parts) > 1:
@@ -193,7 +202,7 @@ def build(
                 off += len(part)
         if not cy.variable(Z):
             continue
-        span += 2 * np.sum((right - left)[info])
+        span += length
         jobs.append((path, Z, info.astype(np.uint8), cut, x, left, right))
 
     if span <= 0:
@@ -215,7 +224,7 @@ def build(
         matches=sum(r[1] for r in runs),
         capped_matches=sum(r[2] for r in runs),
         index_seconds=perf_counter() - tick,
-        distance_unit="Mb (physical distance proxy)",
+        distance_unit="Morgans" if gmap is not None else "Mb (physical distance proxy)",
         available_length=float(span),
     )
     printTiming("Matching complete.", info["index_seconds"])

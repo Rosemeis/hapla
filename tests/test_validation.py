@@ -59,13 +59,23 @@ class CodebaseContracts(TemporaryTests):
             res = command(
                 "admix", "--clusters", ref, "--K", 3, "--keep", keep, "--random-init", success=False
             )
-            self.assertIn("Keep file", res.stderr)
+            self.assertIn("Sample list", res.stderr)
         files = self.root / "files"
         files.write_text(str(ref) + "\n")
         res = command("admix", "--clusters", ref, "--filelist", files, "--K", 3, success=False)
         self.assertIn("exactly one", res.stderr)
         res = command("admix", "--clusters", ref, "--K", 3, "--prefix", "../bad", success=False)
         self.assertIn("filename", res.stderr)
+
+        # Invalid labels must be rejected even in samples excluded by --keep.
+        Z = np.zeros((4, 18), np.uint8)
+        Z[1, 16] = 2
+        ref = writeClusters(self.root, "invalid", Z, np.arange(5) * 2)
+        keep.write_text("s0\n")
+        res = command(
+            "admix", "--clusters", ref, "--K", 3, "--keep", keep, "--random-init", success=False
+        )
+        self.assertIn("cluster range", res.stderr)
 
     def test_filelist_cannot_be_overwritten_by_statistical_commands(self):
         rng = np.random.default_rng(17)

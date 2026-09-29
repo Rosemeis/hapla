@@ -7,7 +7,6 @@ from pathlib import Path
 import numpy as np
 
 MAX_CLUSTERS = 255
-FORMAT_VERSION = 1
 MAGIC = b"HAPLA\x01\r\n"
 
 
@@ -69,9 +68,9 @@ def sampleIndices(ids, pth, *, ordered=False):
     keep = readIds(pth)
     index = {s: i for i, s in enumerate(ids)}
     if len(np.unique(keep)) != len(keep):
-        raise ValueError("Keep file contains duplicate sample IDs")
+        raise ValueError("Sample list contains duplicate IDs")
     if any(s not in index for s in keep):
-        raise ValueError("Keep file contains sample IDs absent from the input")
+        raise ValueError("Sample list contains IDs absent from the input")
     idx = np.array([index[s] for s in keep], dtype=np.uint32)
     return idx if ordered else np.sort(idx)
 
@@ -102,7 +101,6 @@ def readHeader(handle):
             f"Not a Hapla 1.x file: {handle.name}. Analyses from versions before 1.0.0 "
             "are incompatible. Rerun clustering and downstream analyses with Hapla 1.0.0+."
         )
-    return FORMAT_VERSION
 
 
 ### Map assignments after checking their header and exact payload dimensions

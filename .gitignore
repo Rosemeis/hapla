@@ -71,6 +71,7 @@ venv/
 *.grm.meta.json
 *.path
 *.prob
+*.date
 *.bhat
 *.chat
 *.corres

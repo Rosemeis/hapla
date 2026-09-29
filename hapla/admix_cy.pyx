@@ -480,8 +480,8 @@ def observedCounts(const u8[:, ::1] Z, const u32[::1] rows=None):
 
 
 ### Validate mapped labels without allocating chromosome-sized boolean arrays
-cpdef Py_ssize_t validateLabels(const u8[:, ::1] Z, const u32[::1] k_vec):
-    cdef Py_ssize_t w, i, count = 0
+cpdef void validateLabels(const u8[:, ::1] Z, const u32[::1] k_vec):
+    cdef Py_ssize_t w, i
     cdef int bad = 0
     if Z.shape[0] != k_vec.shape[0] or Z.shape[1] == 0 or Z.shape[1] % 2:
         raise ValueError("Invalid assignment dimensions")
@@ -490,13 +490,9 @@ cpdef Py_ssize_t validateLabels(const u8[:, ::1] Z, const u32[::1] k_vec):
             raise ValueError("Admixture requires 0..255 clusters per window")
     for w in prange(Z.shape[0], nogil=True, schedule='static'):
         for i in range(Z.shape[1]):
-            if Z[w, i] == 255:
-                count += 1
-            elif Z[w, i] >= k_vec[w]:
-                bad |= 1
+            bad |= (Z[w, i] != 255) & (Z[w, i] >= k_vec[w])
     if bad:
         raise ValueError("Observed assignment is outside its window's cluster range")
-    return count
 
 
 ##### Parameter updates

@@ -279,7 +279,7 @@ def main(args):
             or args.hsm_gap < 1
         ):
             raise ValueError("Sharing components, matches, and gap must be positive")
-    elif args.hsm_sqrt or args.hsm_matches != 16 or args.hsm_gap != 1000000:
+    elif args.map or args.hsm_sqrt or args.hsm_matches != 16 or args.hsm_gap != 1000000:
         raise ValueError("Sharing options require --hsm or --hsm-svd")
     if args.threads < 1 or args.chunk < 1 or args.power < 1 or args.seed < 0:
         raise ValueError(
@@ -346,16 +346,23 @@ def main(args):
         if args.hsm_svd is not None:
             sfxs += [".hsm.vec", ".hsm.val"]
     inputs = [f"{pth}{s}" for pth in paths for s in (".bca", ".win", ".ids")]
-    inputs += [args.filelist, *[f"{pth}.ref" for pth in paths]]
+    inputs += [args.filelist, args.map, *[f"{pth}.ref" for pth in paths]]
     if args.projection:
         inputs += [f"{args.projection}{s}" for s in (".freq", ".load", ".val", ".pca")]
     with ExitStack() as stack:
         out = stageOutputs(stack, args.out, sfxs, inputs, stale=stale)
         if hsm:
             from hapla import sharing
+            from hapla.maps import readMap
 
+            gmap = readMap(args.map) if args.map else None
             print("\nComputing HSM.", flush=True)
-            print("Distance: Mb (physical distance proxy)", flush=True)
+            print(
+                "Distance: Morgans (genetic map)"
+                if gmap is not None
+                else "Distance: Mb (physical distance proxy)",
+                flush=True,
+            )
             print(f"Transform: {'sqrt' if args.hsm_sqrt else 'linear'}", flush=True)
             with TemporaryDirectory(prefix="hapla-hsm-") as tmp:
                 cache, cov, info = sharing.build(
@@ -370,6 +377,7 @@ def main(args):
                     args.seed,
                     root=args.hsm_sqrt,
                     transpose=args.hsm_svd is not None,
+                    gmap=gmap,
                 )
                 step = perf_counter()
                 mean, ss = sharing.moments(cache)

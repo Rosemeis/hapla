@@ -15,7 +15,7 @@ import numpy as np
 from hapla.vcf_cy import Reader
 from helpers import TemporaryTests, command, toBcf, writeVcf
 
-from hapla.formats import FORMAT_VERSION, MAGIC, readHeader
+from hapla.formats import MAGIC, readHeader
 from hapla.runtime import commitOutputs, stageOutputs, threadPlan
 from hapla.struct import readData, scale
 from hapla.windows import createBuffer, fillBuffer, fixedWindows, physicalWindows, predefinedWindows
@@ -304,7 +304,8 @@ class FormatAndPipelineTests(TemporaryTests):
                 suffix,
             )
         with Path(f"{prefixes[0]}.bca").open("rb") as handle:
-            self.assertEqual(readHeader(handle), FORMAT_VERSION)
+            readHeader(handle)
+            self.assertEqual(handle.tell(), len(MAGIC))
 
     def test_bcf_allele_recoding_preserves_clusters_and_reference_prediction(self):
         rng = np.random.default_rng(952)

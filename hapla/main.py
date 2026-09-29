@@ -102,6 +102,10 @@ def main():
         sub.add_argument(
             "--loo", action="store_true", help="Exclude each individual's P counts when updating Q"
         )
+    for sub in (pca, lai):
+        sub.add_argument(
+            "--map", metavar="FILE", help="Genetic map with chromosome, bp, cumulative cM"
+        )
 
     # hapla cluster
     clu.add_argument("-f", "--size", type=int, metavar="INT", help="Use fixed sized windows")
@@ -359,6 +363,25 @@ def main():
     )
     lai.add_argument(
         "--prefix", default="chr", metavar="OUTPUT", help="Prefix for multiple path files"
+    )
+    date = lai.add_mutually_exclusive_group()
+    date.add_argument(
+        "--dating", action="store_true", help="Fit one admixture time with supplied P/Q and --map"
+    )
+    date.add_argument(
+        "--time", type=float, metavar="FLOAT", help="Fixed admixture time in generations with --map"
+    )
+    lai.add_argument(
+        "--date-samples", metavar="FILE", help="Sample IDs for dating, one per line (all)"
+    )
+    lai.add_argument("--date-min", type=float, default=1, help="Minimum date in generations (1)")
+    lai.add_argument(
+        "--date-max", type=float, default=500, help="Maximum date in generations (500)"
+    )
+    lai.add_argument(
+        "--date-jackknife",
+        action="store_true",
+        help="Estimate date uncertainty by leaving out each chromosome",
     )
     fit = lai.add_mutually_exclusive_group()
     fit.add_argument("--baum-welch", action="store_true", help="Fit P/Q without regularization")
