@@ -224,56 +224,29 @@ merging is not supported. The log records normalization, counts, dimensions, and
 
 ```sh
 hapla struct --clusters chr{1..22} --hsm-svd 20 --threads 8 --out result
-hapla struct --clusters chr{1..22} --hsm --hsm-svd 20 --threads 8 --out result
-hapla struct --clusters chr{1..22} --hsm-svd 20 --hsm-sqrt --threads 8 --out result
+hapla struct --clusters chr{1..22} --hsm --hsm-svd 20 --hsm-sqrt --threads 8 --out result
 ```
 
-HSM requires consistent phase across ordered, nonoverlapping windows. A categorical
-PBWT finds set-maximal label matches, with segment weights following
-[PBWTpaint](https://doi.org/10.1038/s41467-025-57601-3). Matches exclude both haplotypes
-of the same individual. Ties use sample priorities controlled by `--seed`.
-Increase `--hsm-matches` to check sensitivity to the cap. Matches are not verified IBD.
+HSM compares matching cluster-label runs across phased, ordered, nonoverlapping
+windows. Matches exclude the individual's own haplotypes and use
+[PBWTpaint](https://doi.org/10.1038/s41467-025-57601-3) weights with physical distance
+in Mb. Missing labels, constant windows, chromosome boundaries, and large gaps break
+matches. Samples without matched coverage are rejected.
 
-Weights multiply distances to both match boundaries, then normalize across matches
-at each covered window. Genomic cells meet halfway between window centres and stop
-at chromosome boundaries, constant windows, and large gaps. Missing labels break
-matches. Unmatched windows contribute no sharing or coverage. Samples with no
-coverage are rejected. Complete chromosomes with identical diploid haplotype pairs
-across all samples are excluded, allowing whole-chromosome phase swaps.
+Profiles are combined across chromosomes, normalized by matched coverage, and
+centred. Linear profiles are the default. `--hsm-sqrt` applies square roots before
+centering for both outputs.
 
-Distances and window lengths use Mb as a physical-distance proxy.
+- `--hsm-svd K` writes unit-norm `.hsm.eigenvecs` and kernel `.hsm.eigenvals`.
+  Multiply eigenvectors by `sqrt(eigenvalue)` for kernel PCA scores.
+- `--hsm` writes the full PSD kernel with trace `N - 1`, up to rounding, as GCTA
+  float32 `.hsm.grm.bin` and `.hsm.grm.id`. No SNP-count file is written.
 
-Profiles sum across chromosomes, divide by total matched coverage, and centre each
-column. Linear profiles are the default. `--hsm-sqrt` takes elementwise square roots
-after normalization and before centering, for both matrix and SVD output.
-Randomized SVD uses the combined sparse profiles without a dense sample-by-sample matrix. Matches,
-profiles, and SVD transposes use temporary storage under `$TMPDIR` or the system
-temporary directory. Cache size grows with matches and sharing links, which can
-become dense. Matching runs across chromosomes in parallel. Painting and products
-also use multiple threads.
-
-`--hsm` writes `.hsm.grm.bin` and `.hsm.grm.id`. The kernel is
-`G = (N - 1) B B' / sum(B²)`, where B contains the centred sharing profiles after the
-selected transformation.
-It is PSD with trace `N - 1`, up to float32 rounding. Export uses the full kernel,
-independently of the requested components, with bounded row buffers. Dense kernel
-calculation costs O(N³) work and the packed file uses `2N(N + 1)` bytes.
-Entries are little-endian float32 in lower-triangle row order, including the diagonal.
-Use `result.hsm` as the GCTA GRM prefix. No `.grm.N.bin` is written because sharing
-has no per-pair SNP count. GCTA supports omitting it for analyses that do not use
-SNP counts. SNP-count-weighted merging is not supported.
-
-`--hsm-svd` writes unit-norm eigenvectors `U` to `.hsm.eigenvecs` and corresponding
-kernel eigenvalues to `.hsm.eigenvals`. Weighting is left to the researcher.
-Multiply columns by `sqrt(eigenvalue)` for kernel PCA scores, or by
-`sqrt(eigenvalue / gower_scale)` for profile SVD scores `UΣ`.
-The log records `Gower scale`, the profile transform, and normalization.
-Both flags share one matching pass and write `.hsm.coverage`.
-Coverage reports matched length and its fraction across both haplotypes.
-HSM requires centering and runs separately from PCA, GRM, loadings, and projection.
-Ancestry initialization is unchanged. See [HSM.md](HSM.md) for the math.
-This kernel needs separate validation for heritability estimation. Check chromosome
-reproducibility and sensitivity to relatives, sampling, missingness, and phase errors.
+Both flags share one matching pass. `.hsm.coverage` reports matched lengths and
+fractions. The log records the transformation and `Gower scale`. SVD uses sparse
+profiles and temporary storage. Full matrix export requires quadratic disk space.
+HSM runs separately from PCA, GRM, and projection. Matches are not verified IBD,
+and heritability use needs separate validation.
 
 ## hapla admix
 
