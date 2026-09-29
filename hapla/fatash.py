@@ -5,6 +5,7 @@ __author__ = "Jonas Meisner"
 from contextlib import ExitStack
 from math import isfinite
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from time import perf_counter
 
 from hapla.runtime import (
@@ -35,13 +36,39 @@ def checkArgs(args):
         raise ValueError("Use increasing alpha exponents and 1..100000 alpha values")
     if args.viterbi and args.save_posteriors:
         raise ValueError("--save-posteriors requires posterior decoding")
+    if bool(args.map) != (args.dating or args.time is not None):
+        raise ValueError("Use --map with either --dating or --time")
+    if args.time is not None and (not isfinite(args.time) or args.time <= 0):
+        raise ValueError("Time must be finite and positive")
+    if args.map and (
+        args.alpha is not None
+        or args.simple
+        or args.block != 1
+        or (args.alpha_min, args.alpha_max, args.alpha_num) != (4, 9, 5)
+    ):
+        raise ValueError(
+            "Genetic transitions require --block 1 without alpha or simplified transitions"
+        )
+    if args.dating and (args.baum_welch or args.loo or args.medians):
+        raise ValueError(
+            "Dating uses supplied P/Q and hard cluster emissions without Baum-Welch or LOO"
+        )
+    if (
+        not all(isfinite(v) and v > 0 for v in (args.date_min, args.date_max))
+        or args.date_min >= args.date_max
+    ):
+        raise ValueError("Date bounds must be finite, positive, and increasing")
+    if not args.dating and (
+        args.date_samples or args.date_jackknife or args.date_min != 1 or args.date_max != 500
+    ):
+        raise ValueError("Date options require --dating")
     if args.loo and args.fixed_model:
         raise ValueError("--loo requires P/Q refinement, not --fixed-model")
     if args.iter < 1 or not all(
         isfinite(v) and v >= 0 for v in (args.tole, args.p_prior, args.q_prior)
     ):
         raise ValueError("Use positive HMM iterations and finite nonnegative tolerance and priors")
-    if not args.fixed_model and (args.medians or args.block != 1 or args.simple):
+    if not (args.fixed_model or args.dating) and (args.medians or args.block != 1 or args.simple):
         raise ValueError(
             "HMM fitting requires hard cluster emissions, --block 1, and standard transitions. Use --fixed-model for --medians, --block, or --simple"
         )
@@ -63,12 +90,9 @@ def checkArgs(args):
 
 
 ### Keep HMM chains and smoothing blocks inside chromosomes
-def readWindows(pfx, counts, args):
+def readWindows(rows, counts, args):
     import numpy as np
 
-    from hapla.formats import readWindows as readRows
-
-    rows = readRows(pfx)
     if len(rows) != len(counts):
         raise ValueError("Window metadata and cluster counts differ")
     regions, lengths, seen = [], [], set()
@@ -179,7 +203,7 @@ def haplotypes(Z, size):
 
 
 ### Recompute bounded posterior batches to remove each individual's P counts
-def looQ(Z, c, use, regions, size, table, base, counts, Q, alpha, mass):
+def looQ(Z, c, use, regions, size, table, base, counts, Q, alpha, mass, dist=None):
     import numpy as np
 
     from hapla import fatash_cy as cy
@@ -190,18 +214,19 @@ def looQ(Z, c, use, regions, size, table, base, counts, Q, alpha, mass):
     for i, j, z in haplotypes(Z, size):
         q = np.repeat(Q[i // 2 : j // 2], 2, axis=0)
         for beg, end in regions:
+            step = dist[beg:end] if dist is not None else None
             E = cy.emissions(z, table, c, use, K, beg, end)
-            G, C, L = cy.posterior(E, q, alpha)
+            G, C, L = cy.posterior(E, q, alpha, dist=step)
             cy.looEmissions(z, G, E, q, base, counts, total, c, use, beg, end, mass)
             del G, C, L
-            G, C, L = cy.posterior(E, q, alpha, resets=True)
+            G, C, L = cy.posterior(E, q, alpha, resets=True, dist=step)
             out[i // 2 : j // 2] += C.reshape(-1, 2, K).sum(axis=1)
             del E, G, C, L
     return out
 
 
 ### Fit window frequencies and one individual Q across all chromosome chains
-def refine(data, P, Q, alpha, args):
+def refine(data, P, Q, alpha, args, dist=None):
     import numpy as np
 
     from hapla import fatash_cy as cy
@@ -226,7 +251,8 @@ def refine(data, P, Q, alpha, args):
         nextP = []
         countQ = None if finish else np.zeros_like(Q)
         ll, prior = 0.0, cy.penalty(baseQ.ravel(), Q.ravel(), tq)
-        for (Z, c, use, regions, size), p, base in zip(data, P, baseP):
+        for f, ((Z, c, use, regions, size), p, base) in enumerate(zip(data, P, baseP)):
+            d = dist[f] if dist is not None else None
             prior += cy.penalty(base, p, tp)
             table = cy.emissionTable(p, c, K)
             countP = None if finish else np.zeros_like(p)
@@ -234,9 +260,10 @@ def refine(data, P, Q, alpha, args):
             for i, j, z in haplotypes(Z, size):
                 q = np.repeat(Q[i // 2 : j // 2], 2, axis=0)
                 for beg, end in regions:
+                    step = d[beg:end] if d is not None else None
                     E = cy.emissions(z, table, c, use, K, beg, end)
                     G, C, L = cy.posterior(
-                        E, q, alpha, resets=not finish and not args.loo, score=finish
+                        E, q, alpha, resets=not finish and not args.loo, score=finish, dist=step
                     )
                     ll += float(L.mean(axis=1).sum())
                     if not finish:
@@ -245,13 +272,13 @@ def refine(data, P, Q, alpha, args):
                             total = cy.looTotals(countP, c, K)
                             cy.looEmissions(z, G, E, q, base, countP, total, c, use, beg, end, tp)
                             del G, C, L, total
-                            G, C, L = cy.posterior(E, q, alpha, resets=True)
+                            G, C, L = cy.posterior(E, q, alpha, resets=True, dist=step)
                         if not args.loo or one:
                             countQ[i // 2 : j // 2] += C.reshape(-1, 2, K).sum(axis=1)
                     del E, G, C, L
             if not finish:
                 if args.loo and not one:
-                    countQ += looQ(Z, c, use, regions, size, table, base, countP, Q, alpha, tp)
+                    countQ += looQ(Z, c, use, regions, size, table, base, countP, Q, alpha, tp, d)
                 nextP.append(cy.refineP(base, countP, c, K, tp))
         obj = ll + prior
         gain = obj - history[-1]["objective"] if history else None
@@ -327,7 +354,7 @@ def refine(data, P, Q, alpha, args):
 
 
 ### Decode batches and write haplotypes in sample order without a full posterior cube
-def decode(Z, table, Q, c, use, regions, size, alpha, args, path, prob):
+def decode(Z, table, Q, c, use, regions, size, alpha, args, path, prob, dist=None):
     import numpy as np
 
     from hapla import fatash_cy as cy
@@ -341,12 +368,15 @@ def decode(Z, table, Q, c, use, regions, size, alpha, args, path, prob):
             D = np.empty_like(z)
             probs = np.empty(z.shape) if conf else None
             for beg, end in regions:
+                step = dist[beg:end] if dist is not None else None
                 E = cy.emissions(z, table, c, use, K, beg, end, args.block)
                 if args.viterbi:
-                    d = cy.viterbi(E, q, alpha, args.simple)
+                    d = cy.viterbi(E, q, alpha, args.simple, dist=step)
                     p = None
                 else:
-                    d, p, L = cy.posteriorDecode(E, q, alpha, args.simple, conf is not None)
+                    d, p, L = cy.posteriorDecode(
+                        E, q, alpha, args.simple, conf is not None, dist=step
+                    )
                     if conf is None:
                         p = None
                     ll += float(L.mean(axis=1).sum())
@@ -374,7 +404,8 @@ def decode(Z, table, Q, c, use, regions, size, alpha, args, path, prob):
             if conf:
                 cy.writeRows(conf.fileno(), P=probs)
             del D, probs, z
-    return dict(phase_corrections=n_fix, mean_alpha_log_likelihood=None if args.viterbi else ll)
+    key = "log_likelihood" if dist is not None else "mean_alpha_log_likelihood"
+    return dict(phase_corrections=n_fix, **{key: None if args.viterbi else ll})
 
 
 ### Validate inputs, estimate priors, and publish the complete result set atomically
@@ -385,6 +416,7 @@ def main(args):
 
     from hapla import fatash_cy as cy
     from hapla.formats import MAGIC, checkQIds, readHeader, readMetadata, readPaths
+    from hapla.formats import readWindows as readRows
     from hapla.struct import readData
 
     tick = perf_counter()
@@ -397,12 +429,13 @@ def main(args):
     q_ids = checkQIds(args.qfile, ids)
     Q = readQ(args.qfile, len(ids))
     K, N = Q.shape[1], 2 * len(Q)
-    with np.errstate(over="ignore", under="ignore"):
-        alpha = (
-            np.array([args.alpha])
-            if args.alpha is not None
-            else np.logspace(-args.alpha_max, -args.alpha_min, args.alpha_num)
-        )
+    if args.map:
+        alpha = np.array([args.time if args.time is not None else 1.0])
+    elif args.alpha is not None:
+        alpha = np.array([args.alpha])
+    else:
+        with np.errstate(over="ignore", under="ignore"):
+            alpha = np.logspace(-args.alpha_max, -args.alpha_min, args.alpha_num)
     if not np.all(np.isfinite(alpha)) or np.any(alpha <= 0):
         raise ValueError("Alpha exponents produce nonfinite or zero rates")
     stems = [f".{args.prefix}{i + 1}" if len(paths) > 1 else "" for i in range(len(paths))]
@@ -412,9 +445,20 @@ def main(args):
     stale = [f"{s}.prob" for s in stems]
     if args.save_posteriors:
         sfxs += stale
+    stale.append(".date")
+    if args.dating:
+        sfxs.append(".date")
     if len(paths) == 1:
         stale.append(".plist")
-    inputs = [args.filelist, args.pfilelist, args.qfile, q_ids, *pfiles] + [
+    inputs = [
+        args.filelist,
+        args.pfilelist,
+        args.qfile,
+        q_ids,
+        args.map,
+        args.date_samples,
+        *pfiles,
+    ] + [
         f"{p}{s}"
         for p in paths
         for s in ((".bca", ".ids", ".win", ".blk") if args.medians else (".bca", ".ids", ".win"))
@@ -425,11 +469,22 @@ def main(args):
         ancestries=K,
         threads=args.threads,
         alpha=alpha.tolist(),
-        ensemble="Viterbi plurality" if args.viterbi else "mean posterior",
+        decoding="Viterbi" if args.viterbi else "posterior",
+        ensemble=("Viterbi plurality" if args.viterbi else "mean posterior")
+        if len(alpha) > 1
+        else None,
         files=[],
     )
     print(f"Data size: {len(ids):,} samples, {len(counts):,} windows, {K:,} ancestries", flush=True)
-    offset, data, P = 0, [], []
+    offset, data, P, chroms = 0, [], [], []
+    dist, gmap = None, None
+    if args.map:
+        from hapla.maps import distances, readMap
+
+        gmap, dist = readMap(args.map), []
+        stats.pop("alpha")
+        stats.update(map=str(args.map), distance_unit="Morgans")
+        print("Distance: Morgans (genetic map)", flush=True)
     with ExitStack() as stack:
         out = stageOutputs(stack, args.out, sfxs, inputs, stale=stale)
         for pfx, pfile, W in zip(paths, pfiles, sizes):
@@ -438,7 +493,12 @@ def main(args):
             offset += W
             mapped, _ = readData([pfx], k, [W], len(ids), freq=False)
             Z, c, obs = mapped[0]
-            regions, use = readWindows(pfx, k, args)
+            rows = readRows(pfx)
+            regions, use = readWindows(rows, k, args)
+            if args.dating:
+                chroms.append([rows[beg][0] for beg, _ in regions])
+            if dist is not None:
+                dist.append(distances(rows, regions, gmap))
             size = batchSize(N, W, regions, K, len(alpha), args, decode=args.fixed_model)
             data.append((Z, c, use, regions, size))
             P.append(readP(pfile, c, K))
@@ -452,8 +512,19 @@ def main(args):
                     missing_assignments=int((N - obs).sum()) if obs is not None else 0,
                 )
             )
+        del gmap, rows, mapped, obs
         printMissing(sum(row["missing_assignments"] for row in stats["files"]), N * len(counts))
-        if args.fixed_model:
+        if args.dating:
+            from hapla.dating import fit, writeDate
+
+            print("\nDating with supplied P/Q:", flush=True)
+            with TemporaryDirectory(prefix="hapla-date-") as tmp:
+                stats["dating"] = fit(data, P, Q, chroms, ids, dist, args, tmp)
+            alpha = np.array([stats["dating"]["generations"]])
+            writeDate(out[".date"], stats["dating"])
+        if args.map:
+            stats["generations"] = float(alpha[0])
+        if args.fixed_model or args.dating:
             stats["fit"] = dict(mode="fixed", iterations=0, stop="fixed_model")
             print("\nFixed model.", flush=True)
         else:
@@ -461,12 +532,12 @@ def main(args):
             if args.loo:
                 mode = "LOO refinement" if args.baum_welch else "Regularized LOO refinement"
             print(f"\n{mode}:", flush=True)
-            P, Q, stats["fit"] = refine(data, P, Q, alpha, args)
+            P, Q, stats["fit"] = refine(data, P, Q, alpha, args, dist)
         np.savetxt(out[".Q"], Q, fmt="%.10g")
         np.savetxt(out[".ids"], ids, fmt="%s")
         if len(paths) > 1:
             out[".plist"].write_text("".join(f"{Path(args.out).absolute()}{s}.P\n" for s in stems))
-        mode = "Viterbi" if args.viterbi else "Mean posterior"
+        mode = "Viterbi" if args.viterbi else ("Mean posterior" if len(alpha) > 1 else "Posterior")
         print(f"\n{mode} decoding:", flush=True)
         for index, (pfx, stem, (Z, c, use, regions, size), p) in enumerate(
             zip(paths, stems, data, P)
@@ -502,6 +573,7 @@ def main(args):
                     args,
                     out[f"{stem}.path"],
                     out.get(f"{stem}.prob"),
+                    dist[index] if dist is not None else None,
                 )
             )
             stats["files"][index]["seconds"] = perf_counter() - start

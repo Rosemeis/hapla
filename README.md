@@ -202,6 +202,7 @@ The haplotype sharing matrix (`--hsm`) uses phased matches across windows.
 | `--hsm-sqrt` | Off | Square-root sharing profiles before centering |
 | `--hsm-matches INT` | `16` | Maximum tied haplotypes per maximal sharing match |
 | `--hsm-gap INT` | `1000000` | Break sharing runs across gaps larger than this many bp |
+| `--map FILE` | — | Genetic map for HSM weights and covered lengths |
 | `--grm` | Off | Estimate the GRM |
 | `--projection PREFIX` | — | Project onto a saved PCA model |
 | `--loadings` | Off | Save loadings, frequencies, and PCA identity metadata |
@@ -234,8 +235,10 @@ hapla struct --clusters chr{1..22} --hsm --hsm-svd 20 --hsm-sqrt --threads 8 --o
 HSM compares matching cluster-label runs across phased, ordered, nonoverlapping
 windows. Matches exclude the individual's own haplotypes and use
 [PBWTpaint](https://doi.org/10.1038/s41467-025-57601-3) weights with physical distance
-in Mb. Missing labels, constant windows, chromosome boundaries, and large gaps break
-matches. Samples without matched coverage are rejected.
+in Mb, or genetic distance in Morgans with `--map`. The map changes both match
+weights and window lengths. `--hsm-gap` remains in bp. Missing labels, constant
+windows, chromosome boundaries, and large gaps break matches. Samples without
+matched coverage are rejected.
 
 Profiles are combined across chromosomes, normalized by matched coverage, and
 centred. Linear profiles are the default. `--hsm-sqrt` applies square roots before
@@ -331,6 +334,13 @@ Chains reset at chromosome boundaries.
 | `--tole FLOAT` | `1e-5` | Objective improvement per observation, or parameter RMSE with `--loo` |
 | `--p-prior FLOAT` | `10` | P pseudocount mass per window and ancestry |
 | `--q-prior FLOAT` | `10` | Q pseudocount mass per individual |
+| `--map FILE` | — | Genetic map, requires `--dating` or `--time` |
+| `--time FLOAT` | — | Fixed admixture time in generations |
+| `--dating` | Off | Fit one time using supplied P/Q, then decode |
+| `--date-samples FILE` | All | Sample IDs used for dating, one per line |
+| `--date-min FLOAT` | `1` | Lower search bound in generations |
+| `--date-max FLOAT` | `500` | Upper search bound in generations |
+| `--date-jackknife` | Off | Leave out each chromosome for approximate date uncertainty |
 | `--alpha FLOAT` | — | Single transition rate per HMM block |
 | `--alpha-min INT` | `4` | Lower negative-log10 exponent of the alpha ensemble |
 | `--alpha-max INT` | `9` | Upper negative-log10 exponent of the alpha ensemble |
@@ -392,7 +402,57 @@ Outputs include `.Q`, `.P`, `.ids`, `.path`, and `.log`. `.path` has one row per
 haplotype and one column per window, with zero-based ancestry labels.
 `--save-posteriors` adds `.prob`. Multiple inputs use `.chr1.P`, `.chr1.path`,
 etc. and a `.plist`. Reuse the same alpha and decoding options with saved
-P/Q and `--fixed-model` to reproduce an analysis.
+P/Q and `--fixed-model` to reproduce an analysis. With a map, reuse `--map` and
+the fitted `--time` instead of alpha.
+
+### Genetic distances and dating
+
+Both `struct` and `fatash` interpolate the supplied map internally. Use the
+same genome build as the clusters, with increasing bp and nondecreasing cM.
+The whitespace-separated map contains all required chromosomes:
+
+```text
+CHR BP CM
+1 100 0
+1 1000000 1.2
+2 100 0
+2 1000000 0.9
+```
+
+The header is optional. Headered SHAPEIT `pos chr cM` and chromosome-labelled
+HapMap columns are also accepted, including `.gz` files. `chr1` and `1` match.
+Linear interpolation covers window endpoints and midpoints. Coordinates outside
+map coverage are rejected. Flat intervals retain zero genetic distance.
+
+With `--map`, FATASH uses `T = exp(-t d) I + (1 - exp(-t d)) Q` for adjacent
+window midpoints, where `d` is in Morgans. `--time` fixes `t` while retaining
+the selected P/Q refinement mode. Genetic transitions require `--block 1`
+and replace the alpha ensemble. They cannot use `--alpha` or `--simple`.
+
+```bash
+hapla fatash --clusters chr{1..22} --pfile fit.chr{1..22}.P --qfile fit.Q \
+    --map genetic.map --dating --date-samples admixed.ids --out dated
+hapla fatash --clusters chr{1..22} --pfile fit.chr{1..22}.P --qfile fit.Q \
+    --map genetic.map --time 20 --fixed-model --out paths
+hapla struct --clusters chr{1..22} --map genetic.map --hsm-svd 20 --out sharing
+```
+
+Dating holds input P/Q fixed and fits one shared single-pulse time for the
+selected cohort. It integrates over ancestry paths, without counting decoded
+switches. All samples are decoded afterwards. Use a cohort with a common
+admixture history. `--dating` cannot use `--baum-welch`, `--loo`, or `--medians`.
+
+`.date` records generations, search status, and likelihood. A grid followed by
+bounded refinement checks the best region in log time. Flat likelihoods are
+rejected and boundary estimates are labelled. `--date-jackknife` requires at
+least three chromosomes and adds approximate 95% limits conditional on input
+P/Q. Limits are omitted when a replicate is flat or hits a search bound.
+
+Likelihood passes score cached chromosome labels directly, with two state
+vectors per worker. Jackknifing adds a fit per chromosome. Maps and transition
+tables are outside the batch memory budget. Residual LD, phasing errors, and
+incorrect P/Q can bias the effective HMM date. Simulation calibration is needed
+before interpreting it as a historical admixture event.
 
 ## hapla eval
 

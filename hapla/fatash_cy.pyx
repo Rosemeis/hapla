@@ -192,6 +192,23 @@ def _arguments(E, Q, alpha):
     return np.ascontiguousarray(Q/sums[:, None]), np.ascontiguousarray(alpha)
 
 
+### Precompute one genetic transition per window, including exact zero distances
+def _steps(dist, alpha, W, simple):
+    if dist is None:
+        return None
+    d = np.asarray(dist, dtype=np.float64)
+    if simple or len(alpha) != 1:
+        raise ValueError("Genetic distances require one time and standard transitions")
+    if d.shape != (W,) or not np.isfinite(d).all() or np.any(d < 0):
+        raise ValueError("Genetic distances must be finite, nonnegative, and match the windows")
+    with np.errstate(over="ignore", divide="ignore"):
+        a = alpha[0]*d
+        if not np.isfinite(a).all():
+            raise ValueError("Time times genetic distance must be finite")
+        s = -np.expm1(-a)
+        return np.column_stack((a, np.exp(-a), s, np.log(s)))
+
+
 ### Rescale emissions once per haplotype and use log recursion for extreme ranges
 cdef int _prepare(const f64* E, f64* S, f64* shift, const f64* q,
                   Py_ssize_t W, Py_ssize_t K, f64 amin) noexcept nogil:
@@ -218,16 +235,25 @@ cdef int _prepare(const f64* E, f64* S, f64* shift, const f64* q,
 ### Scaled forward/backward: T = exp(-alpha) I + (1-exp(-alpha)) q 1'
 cdef f64 _fbProb(const f64* E, const f64* shift, f64* scale, f64* F, f64* work,
                    const f64* q, f64* G, f64* count, Py_ssize_t W,
-                   Py_ssize_t K, f64 alpha, f64 weight) noexcept nogil:
+                   Py_ssize_t K, f64 alpha, f64 weight, const f64* steps) noexcept nogil:
     cdef Py_ssize_t w, k
     cdef f64 e = exp(-alpha), s = -expm1(-alpha), norm, total, ll = 0, prod = 1, value
     cdef f64* beta = work
     cdef f64* v = work+K
     for w in range(W):
         norm = 0
-        for k in range(K):
-            F[w*K+k] = E[w*K+k]*(q[k] if w == 0 else e*F[(w-1)*K+k]+s*q[k])
-            norm += F[w*K+k]
+        if steps == NULL:
+            for k in range(K):
+                F[w*K+k] = E[w*K+k]*(q[k] if w == 0 else e*F[(w-1)*K+k]+s*q[k])
+                norm += F[w*K+k]
+        else:
+            e, s = steps[4*w+1], steps[4*w+2]
+            for k in range(K):
+                value = q[k] if w == 0 else e*F[(w-1)*K+k]+s*q[k]
+                F[w*K+k] = E[w*K+k]*value
+                if value > 0 and E[w*K+k] > 0 and F[w*K+k] < 1e-200:
+                    return -INFINITY
+                norm += F[w*K+k]
         if norm <= 0: return -INFINITY
         ll += shift[w]
 
@@ -248,6 +274,8 @@ cdef f64 _fbProb(const f64* E, const f64* shift, f64* scale, f64* F, f64* work,
             if count != NULL and w == 0: count[k] += weight*value
             v[k] = E[w*K+k]*beta[k]
         if w:
+            if steps != NULL:
+                e, s = steps[4*w+1], steps[4*w+2]
             total = 0
             for k in range(K): total += q[k]*v[k]
             norm = 1.0/scale[w]
@@ -263,7 +291,7 @@ cdef f64 _fbProb(const f64* E, const f64* shift, f64* scale, f64* F, f64* work,
 ### Logarithmic fallback and normalized simplified transitions, still O(W K)
 cdef f64 _fbLog(const f64* E, f64* shift, f64* F, f64* work, const f64* q,
                   f64* G, f64* count, Py_ssize_t W, Py_ssize_t K,
-                  f64 alpha, f64 weight, bint simple) noexcept nogil:
+                  f64 alpha, f64 weight, bint simple, const f64* steps) noexcept nogil:
     cdef Py_ssize_t w, k
     cdef f64 ls = log(-expm1(-alpha)), norm, total = 0, ll = 0, value
     cdef f64* beta = work
@@ -275,6 +303,8 @@ cdef f64 _fbLog(const f64* E, f64* shift, f64* F, f64* work, const f64* q,
         lq[k] = log(q[k]) if q[k] > 0 else -INFINITY
         den[k] = _add(-alpha, ls+log1p(-q[k])) if simple else 0
     for w in range(W):
+        if steps != NULL:
+            alpha, ls = steps[4*w], steps[4*w+3]
         if simple and w:
             for k in range(K): v[k] = F[(w-1)*K+k]-den[k]
             _exclude(v, ex, K)
@@ -301,6 +331,8 @@ cdef f64 _fbLog(const f64* E, f64* shift, f64* F, f64* work, const f64* q,
             G[w*K+k] += weight*value
             if count != NULL and w == 0: count[k] += weight*value
         if w:
+            if steps != NULL:
+                alpha, ls = steps[4*w], steps[4*w+3]
             if count != NULL:
                 # Reuse the forward scale and posterior normalizer for reset counts.
                 norm += shift[w]
@@ -319,7 +351,7 @@ cdef f64 _fbLog(const f64* E, f64* shift, f64* F, f64* work, const f64* q,
 
 ### Share posterior inference while keeping decoding scratch bounded per thread
 cdef _posterior(const f64[:, :, ::1] E, Q, alpha, bint simple, bint resets,
-                bint score, bint decode, bint confidence):
+                bint score, bint decode, bint confidence, dist):
     if score and resets:
         raise ValueError("Reset counts require posterior decoding")
     if simple and resets:
@@ -330,7 +362,11 @@ cdef _posterior(const f64[:, :, ::1] E, Q, alpha, bint simple, bint resets,
     cdef Py_ssize_t N = E.shape[0], W = E.shape[1], K = E.shape[2], A = len(alpha)
     cdef Py_ssize_t nt = min(N, omp.omp_get_max_threads()), i, a, t, w, k, dst
     cdef int mode, bad = 0
-    cdef f64 amin = min(alpha), value, best
+    cdef f64[:, ::1] step = _steps(dist, alpha, W, simple)
+    cdef const f64* steps = &step[0, 0] if step is not None else NULL
+    positive = np.asarray(step)[1:, 0] if step is not None else alpha
+    positive = positive[positive > 0]
+    cdef f64 amin = positive.min() if len(positive) else 1, value, best
     cdef f64* count
     cdef f64* g
     cdef f64[:, :, ::1] G = (np.empty((0, 0, 0)) if score else
@@ -357,11 +393,14 @@ cdef _posterior(const f64[:, :, ::1] E, Q, alpha, bint simple, bint resets,
         for a in range(A):
             if mode or simple:
                 value = _fbLog(&E[i, 0, 0], &shift[t, 0], &F[t, 0], &tmp[t, 0], &q[i, 0],
-                                g, count, W, K, rates[a], 1.0/A, simple)
+                                g, count, W, K, rates[a], 1.0/A, simple, steps)
             else:
                 value = _fbProb(&S[t, 0], &shift[t, 0], &scale[t, 0] if not score else NULL,
                                  &F[t, 0], &tmp[t, 0], &q[i, 0],
-                                 g, count, W, K, rates[a], 1.0/A)
+                                 g, count, W, K, rates[a], 1.0/A, steps)
+                if steps != NULL and not isfinite(value):
+                    value = _fbLog(&E[i, 0, 0], &shift[t, 0], &F[t, 0], &tmp[t, 0], &q[i, 0],
+                                    g, count, W, K, rates[a], 1.0/A, False, steps)
             ll[i, a] = value
             if not isfinite(value): bad |= 1
         if decode:
@@ -382,13 +421,13 @@ cdef _posterior(const f64[:, :, ::1] E, Q, alpha, bint simple, bint resets,
 
 
 ### Average ancestry posteriors and reset counts across alpha values
-def posterior(const f64[:, :, ::1] E, Q, alpha, bint simple=False, bint resets=False, bint score=False):
-    return _posterior(E, Q, alpha, simple, resets, score, False, False)
+def posterior(const f64[:, :, ::1] E, Q, alpha, bint simple=False, bint resets=False, bint score=False, dist=None):
+    return _posterior(E, Q, alpha, simple, resets, score, False, False, dist)
 
 
 ### Decode the mean posterior from bounded per-thread scratch
-def posteriorDecode(const f64[:, :, ::1] E, Q, alpha, bint simple=False, bint confidence=False):
-    return _posterior(E, Q, alpha, simple, False, False, True, confidence)
+def posteriorDecode(const f64[:, :, ::1] E, Q, alpha, bint simple=False, bint confidence=False, dist=None):
+    return _posterior(E, Q, alpha, simple, False, False, True, confidence, dist)
 
 
 ##### Viterbi decoding
@@ -438,7 +477,7 @@ cdef f64 _viterbiSmall(const f64* E, const f64* q, u8* path, u8* prev,
 ### Viterbi needs only the two best predecessors and one traceback byte per state
 cdef f64 _viterbi(const f64* E, const f64* q, u8* path, u8* prev,
                    f64* work, Py_ssize_t W, Py_ssize_t K, f64 alpha,
-                   bint simple) noexcept nogil:
+                   bint simple, const f64* steps) noexcept nogil:
     cdef Py_ssize_t w, k, first, second = 0, src, dst
     cdef f64 ls = log(-expm1(-alpha)), best, runner = -INFINITY, stay, jump, norm, score = 0
     cdef f64* v = work
@@ -446,7 +485,7 @@ cdef f64 _viterbi(const f64* E, const f64* q, u8* path, u8* prev,
     cdef f64* diag = work+2*K
     cdef f64* off = work+3*K
     cdef f64* den = work+4*K
-    if K <= 8 and not simple:
+    if K <= 8 and not simple and steps == NULL:
         return _viterbiSmall(E, q, path, prev, work, W, K, alpha)
     for k in range(K):
         off[k] = ls+log(q[k]) if q[k] > 0 else -INFINITY
@@ -454,7 +493,13 @@ cdef f64 _viterbi(const f64* E, const f64* q, u8* path, u8* prev,
         diag[k] = -alpha-den[k] if simple else _add(-alpha, off[k])
         if E[k] != E[k] or E[k] == INFINITY: return -INFINITY
         v[k] = E[k]+(log(q[k]) if q[k] > 0 else -INFINITY)
+        if steps != NULL: den[k] = log(q[k]) if q[k] > 0 else -INFINITY
     for w in range(1, W):
+        if steps != NULL:
+            alpha, ls = steps[4*w], steps[4*w+3]
+            for k in range(K):
+                off[k] = ls+den[k]
+                diag[k] = _add(-alpha, off[k])
         first, best = 0, v[0]
         if simple:
             first, second, best, runner = 0, 0, -INFINITY, -INFINITY
@@ -492,12 +537,14 @@ cdef f64 _viterbi(const f64* E, const f64* q, u8* path, u8* prev,
 
 
 ### Decode exact paths per alpha and use plurality for an ensemble
-def viterbi(const f64[:, :, ::1] E, Q, alpha, bint simple=False):
+def viterbi(const f64[:, :, ::1] E, Q, alpha, bint simple=False, dist=None):
     Q, alpha = _arguments(np.asarray(E), Q, alpha)
     cdef const f64[:, ::1] q = Q
     cdef const f64[::1] rates = alpha
     cdef Py_ssize_t N = E.shape[0], W = E.shape[1], K = E.shape[2], A = len(alpha)
     cdef Py_ssize_t nt = min(N, omp.omp_get_max_threads()), i, a, t, w, k, dst
+    cdef f64[:, ::1] step = _steps(dist, alpha, W, simple)
+    cdef const f64* steps = &step[0, 0] if step is not None else NULL
     cdef int bad = 0
     cdef f64 value
     cdef u8[:, ::1] D = np.empty((N, W), np.uint8)
@@ -509,7 +556,7 @@ def viterbi(const f64[:, :, ::1] E, Q, alpha, bint simple=False):
         t = threadid()
         for a in range(A):
             value = _viterbi(&E[i, 0, 0], &q[i, 0], &path[t, 0], &I[t, 0],
-                             &tmp[t, 0], W, K, rates[a], simple)
+                             &tmp[t, 0], W, K, rates[a], simple, steps)
             if not isfinite(value):
                 bad |= 1
                 continue
@@ -525,6 +572,96 @@ def viterbi(const f64[:, :, ::1] E, Q, alpha, bint simple=False):
                 for k in range(K): votes[t, w*K+k] = 0
     if bad: raise ValueError("No supported HMM path for an observed haplotype")
     return np.asarray(D)
+
+
+##### Date likelihood
+
+
+### Score labels directly with two state vectors and a log-space fallback
+cdef f64 _mapForward(const u8* z, const f64* p, const i64* c,
+                       const u8* use, const f64* q, const f64* step, f64* work,
+                       Py_ssize_t W, Py_ssize_t K,
+                       bint logs) noexcept nogil:
+    cdef Py_ssize_t w, k, a
+    cdef f64* f = work
+    cdef f64* v = work+K
+    cdef f64 lq[255]
+    cdef f64 norm, value, ll = 0, prod = 1, e, s
+    for k in range(K):
+        f[k] = q[k]
+        if logs:
+            lq[k] = log(q[k]) if q[k] > 0 else -INFINITY
+            f[k] = lq[k]
+    for w in range(W):
+        a = z[w]
+        if use[w] and a != 255:
+            if a >= c[w+1]-c[w]: return -INFINITY
+            a = (c[w]+a)*K
+        else:
+            a = -1
+        if logs:
+            e, s = step[4*w], step[4*w+3]
+            for k in range(K):
+                value = f[k] if w == 0 else _add(-e+f[k], s+lq[k])
+                v[k] = value+(log(p[a+k]) if a >= 0 else 0)
+            norm = _sum(v, K)
+            if norm == -INFINITY: return norm
+            ll += norm
+            for k in range(K): f[k] = v[k]-norm
+        else:
+            e, s = step[4*w+1], step[4*w+2]
+            norm = 0
+            for k in range(K):
+                value = f[k] if w == 0 else e*f[k]+s*q[k]
+                v[k] = value*(p[a+k] if a >= 0 else 1)
+                if value > 0 and (a < 0 or p[a+k] > 0) and v[k] < 1e-200:
+                    return -INFINITY
+                norm += v[k]
+            if norm <= 0: return -INFINITY
+            prod *= norm
+            if prod < 1e-100:
+                ll += log(prod)
+                prod = 1
+            for k in range(K): f[k] = v[k]/norm
+    return ll if logs else ll+log(prod)
+
+
+### Score one date with mapped labels and two state vectors per worker
+def mapScore(const u8[:, ::1] Z, const f64[::1] P, const i64[::1] c,
+             const u8[::1] use, Q, dist, f64 time):
+    cdef Py_ssize_t N = Z.shape[0], W = Z.shape[1], K, nt, i, t
+    if dist is None:
+        raise ValueError("Dating requires genetic distances")
+    Q = np.asarray(Q, dtype=np.float64)
+    if Q.ndim != 2 or Q.shape[0] != N or N < 1:
+        raise ValueError("Date proportions do not match haplotypes")
+    K = Q.shape[1]
+    Q, alpha = _arguments(Q[:, None], Q, time)
+    if W < 1 or c.shape[0] != W+1 or use.shape[0] != W:
+        raise ValueError("Invalid date window dimensions")
+    if c[0] != 0 or c[W]*K != P.shape[0] or np.any(np.diff(c) < 0):
+        raise ValueError("Invalid date frequency dimensions")
+    if not np.isfinite(P).all() or np.any(np.asarray(P) < 0):
+        raise ValueError("Date frequencies must be finite and nonnegative")
+    nt = min(N, omp.omp_get_max_threads())
+    cdef const f64[:, ::1] q = Q
+    cdef f64[:, ::1] step = _steps(dist, alpha, W, False)
+    cdef const f64* p = &P[0] if P.shape[0] else NULL
+    cdef f64[:, ::1] work = np.empty((nt, 2*K))
+    cdef f64[::1] ll = np.empty(N)
+    cdef int bad = 0
+    cdef f64 value
+    for i in prange(N, nogil=True, schedule='static', num_threads=nt):
+        t = threadid()
+        value = _mapForward(&Z[i, 0], p, &c[0], &use[0], &q[i, 0],
+                              &step[0, 0], &work[t, 0], W, K, False)
+        if not isfinite(value):
+            value = _mapForward(&Z[i, 0], p, &c[0], &use[0], &q[i, 0],
+                                  &step[0, 0], &work[t, 0], W, K, True)
+        ll[i] = value
+        if not isfinite(value): bad |= 1
+    if bad: raise ValueError("No supported HMM path for dating")
+    return np.asarray(ll)
 
 
 ##### Parameter refinement
