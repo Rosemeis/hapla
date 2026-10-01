@@ -18,9 +18,9 @@ def main():
     # Shared options
     cmds = {
         name: subs.add_parser(name)
-        for name in ("cluster", "predict", "struct", "admix", "fatash", "eval")
+        for name in ("cluster", "predict", "struct", "admix", "fatash", "deconv", "eval")
     }
-    clu, pre, pca, adm, lai, eva = cmds.values()
+    clu, pre, pca, adm, lai, dec, eva = cmds.values()
     for name, sub in cmds.items():
         sub.add_argument("--version", action="version", version=f"v{__version__}")
         sub.add_argument(
@@ -33,7 +33,7 @@ def main():
             metavar="OUTPUT",
             help="Output prefix",
         )
-    for sub in (pca, adm, lai, eva):
+    for sub in (pca, adm, lai, dec, eva):
         sub.add_argument(
             "-f",
             "--filelist",
@@ -94,6 +94,13 @@ def main():
             help="Number of power iterations to perform (11)",
         )
         sub.add_argument("--seed", type=int, default=42, metavar="INT", help="Random seed (42)")
+    adm.add_argument(
+        "--snp-vcf",
+        "--bcf",
+        dest="snp_vcf",
+        metavar="FILE",
+        help="Append phased biallelic SNPs, weighted to one row per cluster window",
+    )
     for sub in (lai, eva):
         sub.add_argument(
             "-q", "--qfile", metavar="FILE", help="Path to file with ancestry proportions"
@@ -418,6 +425,64 @@ def main():
     )
     lai.add_argument(
         "--simple", action="store_true", help="Use column-normalized simplified HMM transitions"
+    )
+
+    # hapla deconv
+    dec.add_argument(
+        "--path-filelist",
+        metavar="FILE",
+        help="One local-ancestry path file per cluster input, in input order",
+    )
+    dec.add_argument(
+        "--support-filelist",
+        metavar="FILE",
+        help="One call-support file per cluster input, in input order",
+    )
+    dec.add_argument("--K", type=int, metavar="INT", help="Number of ancestry labels")
+    dec.add_argument(
+        "--format",
+        choices=("clusters", "bcf", "both"),
+        default="clusters",
+        help="Write ancestry-expanded cluster assignments, masked BCFs, or both (clusters)",
+    )
+    dec.add_argument(
+        "--bcf-filelist",
+        metavar="FILE",
+        help="One phased VCF/BCF per cluster input, in input order; required for BCF output",
+    )
+    dec.add_argument(
+        "--min-call-support",
+        type=float,
+        metavar="FLOAT",
+        help="Mask decoded calls below this support value",
+    )
+    dec.add_argument(
+        "--min-tract-windows",
+        type=int,
+        metavar="INT",
+        help="Mask retained ancestry tracts shorter than this many windows",
+    )
+    dec.add_argument(
+        "--homozygous-only",
+        action="store_true",
+        help="Retain a window only when both haplotypes have the same ancestry call",
+    )
+    dec.add_argument(
+        "--min-fraction",
+        type=float,
+        default=0.05,
+        metavar="FLOAT",
+        help="Drop ancestry copies with less retained data (0.05)",
+    )
+    dec.add_argument(
+        "--include-original",
+        action="store_true",
+        help="Retain the unmasked original samples before ancestry copies",
+    )
+    dec.add_argument(
+        "--save-filtered-paths",
+        action="store_true",
+        help="Save the filtered ancestry paths used for deconvolution",
     )
 
     # hapla eval

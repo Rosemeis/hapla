@@ -353,7 +353,7 @@ Chains reset at chromosome boundaries.
 | `--medians` | Off | Use `.blk` cluster scores in emissions |
 | `--simple` | Off | Use simplified column-normalized transitions |
 | `--viterbi` | Off | Decode the most probable path for each alpha |
-| `--save-posteriors` | Off | Save confidence for the mean-posterior calls |
+| `--save-posteriors` | Off | Save call support for the mean-posterior calls |
 | `--phase-correct [INT]` | Off | Correct reciprocal switches up to INT windows apart, default 0 when set |
 | `--prefix TEXT` | `chr` | Label for numbered chromosome outputs |
 
@@ -453,6 +453,47 @@ vectors per worker. Jackknifing adds a fit per chromosome. Maps and transition
 tables are outside the batch memory budget. Residual LD, phasing errors, and
 incorrect P/Q can bias the effective HMM date. Simulation calibration is needed
 before interpreting it as a historical admixture event.
+
+## hapla deconv
+
+Expand decoded local-ancestry paths into one ancestry-specific copy per
+individual and ancestry. The command reads the same ordered cluster inputs used
+by `fatash`, plus a matching list of `.path` files. It can write expanded Hapla
+cluster bundles for downstream `admix`, `struct`, or `eval`, masked phased BCFs
+for SNP-based analyses, or both. The input genotype files must be the phased,
+biallelic files from which the matching cluster assignments were made.
+
+```bash
+printf '%s\n' lai.chr{1..22}.path > paths.txt
+printf '%s\n' input.chr{1..22}.bcf > genotypes.txt
+hapla deconv --clusters chr{1..22} --path-filelist paths.txt --K 4 \
+    --format both --bcf-filelist genotypes.txt --include-original \
+    --min-call-support 0.95 --min-tract-windows 6 --out deconv/lai
+```
+
+Cluster output is written as `<out>.<input-suffix>.bca`, `.ids`, `.win`, and
+`.ref.json`; `<out>.filelist` lists those prefixes in input order. BCF output
+uses matching `<out>.<input-suffix>.bcf` files and `<out>.bcfs` lists them.
+Each retained copy is named `SAMPLE_K`, where `K` is its zero-based ancestry
+label. `--include-original` retains the unmasked samples before these copies.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--path-filelist FILE` | Required | Ordered decoded-path files |
+| `--K INT` | Required | Number of ancestry labels |
+| `--format clusters\|bcf\|both` | `clusters` | Requested output type |
+| `--bcf-filelist FILE` | — | Ordered phased genotype files for BCF output |
+| `--min-call-support FLOAT` | Off | Mask calls below this decoded-call support |
+| `--min-tract-windows INT` | Off | Mask retained tracts shorter than this length |
+| `--homozygous-only` | Off | Mask windows whose two haplotypes differ in ancestry |
+| `--min-fraction FLOAT` | `0.05` | Drop copies with less retained data |
+| `--include-original` | Off | Include unmasked originals in the output |
+| `--save-filtered-paths` | Off | Write the filtered paths used for output |
+
+Filtering is applied in this order: call support, homozygous-ancestry masking,
+then short-tract masking. A short tract is masked rather than reassigned. Call
+support is useful for conservative masking, but is a decoded-call diagnostic and
+not a calibrated confidence interval.
 
 ## hapla eval
 
