@@ -105,7 +105,9 @@ class DeconvolutionTests(TemporaryTests):
         self.assertNotIn("ID=PP", header)
         header = next(row for row in header.splitlines() if row.startswith("#CHROM")).split("\t")
         s0 = header.index("s0_0")
-        records = subprocess.check_output(["bcftools", "view", "-H", output], text=True).splitlines()
+        records = subprocess.check_output(
+            ["bcftools", "view", "-H", output], text=True
+        ).splitlines()
         records = [row.split("\t") for row in records]
         self.assertEqual(records[0][s0], "0|1")
         self.assertEqual(records[2][s0], ".|.")

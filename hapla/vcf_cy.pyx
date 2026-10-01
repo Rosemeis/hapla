@@ -102,10 +102,13 @@ def writeDeconvBcf(path, out, const int16_t[:, ::1] ancestry,
     cdef object width_obj = np.ascontiguousarray(widths, dtype=np.int64)
     cdef const int64_t[::1] width = width_obj
     cdef bytes src_name = os.fsencode(path), dst_name = os.fsencode(out), sample
-    cdef htsFile *src = NULL, *dst = NULL
-    cdef bcf_hdr_t *src_hdr = NULL, *dst_hdr = NULL
+    cdef htsFile *src = NULL
+    cdef htsFile *dst = NULL
+    cdef bcf_hdr_t *src_hdr = NULL
+    cdef bcf_hdr_t *dst_hdr = NULL
     cdef bcf1_t *record = NULL
-    cdef int32_t *src_gt = NULL, *dst_gt = NULL
+    cdef int32_t *src_gt = NULL
+    cdef int32_t *dst_gt = NULL
     cdef int cap = 0, status = 0, error = 0
     cdef Py_ssize_t N, W, S, out_n, i, j, w = 0, seen = 0, records = 0
     cdef int32_t a, b, k
@@ -117,7 +120,7 @@ def writeDeconvBcf(path, out, const int16_t[:, ::1] ancestry,
     N, W, S = ancestry.shape[0] // 2, ancestry.shape[1], selected.shape[0]
     if not N or len(width) != W or len(copy_ids) != S:
         raise ValueError("Deconvolution inputs have incompatible dimensions")
-    if any(value < 1 for value in width):
+    if np.any(width_obj < 1):
         raise ValueError("Window sizes must be positive")
     if np.any(np.asarray(selected)[:, 0] < 0) or np.any(np.asarray(selected)[:, 0] >= N) or np.any(np.asarray(selected)[:, 1] < 0):
         raise ValueError("Invalid selected-copy indices")
