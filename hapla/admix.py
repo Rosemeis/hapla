@@ -131,16 +131,22 @@ def main(args):
     weights = None
     snp_count = 0
     if snp_vcf is not None:
-        if F != 1:
-            raise ValueError("Weighted SNP input currently requires one cluster prefix")
         from hapla.vcf_cy import Reader
 
-        rows = readWindows(Z_list[0])
         intervals = {}
-        for w, row in enumerate(rows):
-            intervals.setdefault(row[0].removeprefix("chr"), []).append((row[1], row[2], w))
+        offset = 0
+        for pfx, n_win in zip(Z_list, w_vec):
+            rows = readWindows(pfx)
+            if len(rows) != n_win:
+                raise ValueError("Cluster window metadata does not match assignments")
+            for w, row in enumerate(rows):
+                intervals.setdefault(row[0].removeprefix("chr"), []).append(
+                    (row[1], row[2], offset + w)
+                )
+            offset += n_win
         intervals = {
-            chrom: tuple(np.asarray(x) for x in zip(*values)) for chrom, values in intervals.items()
+            chrom: tuple(np.asarray(x) for x in zip(*sorted(values)))
+            for chrom, values in intervals.items()
         }
         with Reader(snp_vcf, max(0, args.threads - 1), phased=True) as src:
             index = {sample: i for i, sample in enumerate(src.samples)}
