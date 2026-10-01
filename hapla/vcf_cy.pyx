@@ -77,17 +77,15 @@ cdef extern from "htslib/vcf.h" nogil:
     int BCF_UN_STR
 
 
-### Detect phase ambiguity in one pass and diagnose invalid rows with scalar code
+### Decode phased INT8 GT and diagnose invalid rows with scalar code
 cdef bint decode8(const int8_t* raw, uint8_t* output, int samples,
-                   uint8_t* missing, uint8_t* phase, bint strict) noexcept nogil:
-    cdef int i, a, b, unph
+                   uint8_t* missing) noexcept nogil:
+    cdef int i, a, b
     cdef unsigned int invalid = 0, absent = 0
     for i in range(samples):
         a, b = raw[2*i], raw[2*i+1]
         invalid |= (a < 0) | (b < 0) | (a > 5) | (b > 5)
-        unph = ((a >> 1) != (b >> 1)) & ((b & 1) == 0)
-        invalid |= unph & strict
-        phase[i] = unph
+        invalid |= ((a >> 1) != (b >> 1)) & ((b & 1) == 0)
         absent |= (a < 2) | (b < 2)
 
         # HTSlib missing 0/1 maps directly to unsigned byte 255.

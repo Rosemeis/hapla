@@ -26,7 +26,10 @@ def emStep(P, Q, Pn, Qn, ctx, rows=None, qo=None, pool=None, prior=0.0, scratch=
     admix_cy.em(Z, P, dst, Q, T, k, c, pt, qt, rows, wo, pool, prior, weights)
     if dst is not Pn:
         Pn[:] = dst
-    admix_cy.accelQ(Q, Qn, T, len(Z) if rows is None else len(rows), qo)
+    if weights is None:
+        admix_cy.accelQ(Q, Qn, T, len(Z) if rows is None else len(rows), qo)
+    else:
+        admix_cy.accelQWeight(Q, Qn, T, qo)
     if y is not None:
         admix_cy.superQ(Qn, y)
 

@@ -549,6 +549,19 @@ cpdef void accelQ(const f64[:, ::1] Q, f64[:, ::1] Q_new, f64[:, ::1] Q_tmp,
                     Q_tmp[i, k] = 0.0
 
 
+### Update Q with weighted observations, such as appended SNP rows
+cpdef void accelQWeight(const f64[:, ::1] Q, f64[:, ::1] Q_new,
+                        f64[:, ::1] Q_tmp, const f64[::1] obs) noexcept nogil:
+    cdef Py_ssize_t N = Q.shape[0], K = Q.shape[1], i, k
+    for i in prange(N, schedule='guided'):
+        if obs[i] > 0:
+            _updateQ(&Q[i, 0], &Q_new[i, 0], &Q_tmp[i, 0], 1.0 / obs[i], K)
+        else:
+            for k in range(K):
+                Q_new[i, k] = Q[i, k]
+                Q_tmp[i, k] = 0.0
+
+
 ### Accelerated jump for Q (QN)
 cpdef void jumpQ(f64[:, ::1] Q0, const f64[:, ::1] Q1,
                  const f64[:, ::1] Q2) noexcept nogil:
