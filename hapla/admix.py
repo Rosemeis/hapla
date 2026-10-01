@@ -148,7 +148,7 @@ def main(args):
             chrom: tuple(np.asarray(x) for x in zip(*sorted(values)))
             for chrom, values in intervals.items()
         }
-        with Reader(snp_vcf, max(0, args.threads - 1), phased=True) as src:
+        with Reader(snp_vcf, max(0, args.threads - 1)) as src:
             index = {sample: i for i, sample in enumerate(src.samples)}
             if any(sample not in index for sample in q_ids):
                 raise ValueError("Cluster samples are missing from the SNP VCF/BCF")
