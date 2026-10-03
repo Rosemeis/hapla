@@ -285,7 +285,9 @@ no observed assignments receive uniform Q unless fixed by supervision.
 
 Supervision and projection are mutually exclusive. Supervised labels must fit
 0..255. Projection requires P rows to match the cluster order and fixes P while
-fitting Q. The default unsupervised initializer uses SVD/ALS. Opt-in P shrinkage
+fitting Q. The default unsupervised initializer uses SVD/ALS. With a SNP BCF/VCF,
+it uses the complete joint cluster/SNP representation with the same per-window
+marker weights as the hybrid likelihood. Opt-in P shrinkage
 uses pooled cluster frequencies within each window and cannot update a fixed
 projection P. With shrinkage, convergence uses the regularized objective while
 the log also records the likelihood. Timings cover each `--check` interval and

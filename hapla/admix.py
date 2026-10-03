@@ -23,6 +23,7 @@ from hapla.runtime import (
 ### hapla admix
 def main(args):
     snp_vcf = getattr(args, "snp_vcf", None)
+    hybrid_init = snp_vcf is not None
     # Check input
     if args.supervised is not None and args.projection is not None:
         raise ValueError("Choose either --supervised or --projection")
@@ -307,10 +308,17 @@ def main(args):
     else:  # SVD/ALS initialization
         print("Computing SVD/ALS estimates.", flush=True)
         ts = time()
-        W_s = f_vec[ceil(F / args.subsampling)] if F > 1 else W
+        # SNP rows are appended after the cluster rows. A cluster-only prefix
+        # would omit them from the SVD basis, so hybrid inputs use the complete
+        # joint representation with the same marker weights as the EM fit.
+        W_s = W if hybrid_init else (f_vec[ceil(F / args.subsampling)] if F > 1 else W)
+        init_weights = np.repeat(weights, k_vec) if hybrid_init else None
+        if init_weights is not None:
+            print("Applying SNP weights to all hybrid SVD/ALS markers.", flush=True)
         try:
             U, S, V = functions.centerSVD(
-                Z, p_vec, c_tmp, W_s, args.K, args.chunk, args.power, rng, w_obs
+                Z, p_vec, c_tmp, W_s, args.K, args.chunk, args.power, rng, w_obs,
+                init_weights
             )
         except ValueError:
             if W_s == W:
@@ -318,18 +326,20 @@ def main(args):
             print("SVD subset lacks rank. Using all windows.", flush=True)
             W_s = W
             U, S, V = functions.centerSVD(
-                Z, p_vec, c_tmp, W_s, args.K, args.chunk, args.power, rng, w_obs
+                Z, p_vec, c_tmp, W_s, args.K, args.chunk, args.power, rng, w_obs,
+                init_weights
             )
         U_r = (
             functions.centerSub(Z, S, V, p_vec, c_tmp, W_s, args.chunk, w_obs) if W_s < W else None
         )
         p = p_vec.astype(np.float32)
         P, Q = functions.factorALS(
-            U, S, V, p[: len(U)], k_vec[:W_s], c_tmp[: W_s + 1], args.als_iter, args.als_tole, rng
+            U, S, V, p[: len(U)], k_vec[:W_s], c_tmp[: W_s + 1], args.als_iter,
+            args.als_tole, rng, None if init_weights is None else init_weights[: len(U)]
         )
         if U_r is not None:
             Y = np.ascontiguousarray(np.concatenate((U, U_r), axis=0) * S)
-            P, Q = functions.alsStep(Y, V, p, k_vec, c_tmp, Q)
+            P, Q = functions.alsStep(Y, V, p, k_vec, c_tmp, Q, weights=init_weights)
             del Y
         del U, U_r, p
         printTiming("SVD/ALS complete.", time() - ts)

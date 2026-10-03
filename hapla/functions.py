@@ -58,7 +58,7 @@ def looStep(P, Q, Pn, Qn, ctx, pool, prior, qo):
 
 
 ### Centered label products for SVD/ALS initialization, without dosage expansion
-def centerSVD(Z, p_vec, c_vec, W, K, chunk, power, rng, obs=None):
+def centerSVD(Z, p_vec, c_vec, W, K, chunk, power, rng, obs=None, weights=None):
     from hapla import struct, struct_cy
 
     N, D, M = Z.shape[1] // 2, K - 1, int(c_vec[W])
@@ -69,7 +69,7 @@ def centerSVD(Z, p_vec, c_vec, W, K, chunk, power, rng, obs=None):
         (Z[:W], c_vec[: W + 1].astype(np.int64), None if obs is None else obs[:W].astype(np.int64))
     ]
     p = p_vec[:M].astype(float)
-    a = np.ones(M)
+    a = np.ones(M) if weights is None else np.sqrt(weights[:M])
     Q = struct.subspace(data, p, a, L, chunk, power, rng)
     A = np.empty((M, L))
     sums = Q.sum(axis=0)
@@ -79,22 +79,26 @@ def centerSVD(Z, p_vec, c_vec, W, K, chunk, power, rng, obs=None):
     rank = np.count_nonzero(S > np.finfo(float).eps * max(M, N) * S[0])
     if rank < D:
         raise ValueError("Insufficient variation for SVD initialization. Use --random-init")
+    U = U[:, :D]
+    if weights is not None:
+        U /= a[:, None]
     return (
-        np.ascontiguousarray(U[:, :D], dtype=np.float32),
+        np.ascontiguousarray(U, dtype=np.float32),
         S[:D].astype(np.float32),
         np.ascontiguousarray(Q @ R[:D].T, dtype=np.float32),
     )
 
 
 ### Update Q from P, or both parameters after initialization
-def alsStep(Y, V, p_vec, k_vec, c_vec, Q, P=None):
+def alsStep(Y, V, p_vec, k_vec, c_vec, Q, P=None, weights=None):
     if Q is not None:
         H = np.dot(Q, np.linalg.pinv(np.dot(Q.T, Q)))
         P = np.dot(Y, np.dot(V.T, H), out=P)
         P *= 0.5
         P += np.outer(p_vec, np.sum(H, axis=0))
         admix_cy.projectP(P, k_vec, c_vec)
-    H = np.dot(P, np.linalg.pinv(np.dot(P.T, P)))
+    H = P if weights is None else P * weights.astype(P.dtype, copy=False)[:, None]
+    H = np.dot(H, np.linalg.pinv(np.dot(P.T, H)))
     Q = 0.5 * np.dot(V, np.dot(Y.T, H))
     H *= p_vec[:, None]
     Q += H.sum(axis=0)
@@ -103,17 +107,17 @@ def alsStep(Y, V, p_vec, k_vec, c_vec, Q, P=None):
 
 
 ### Alternating least square (ALS) for initializing Q and P
-def factorALS(U, S, V, p_vec, k_vec, c_vec, iter, tole, rng):
+def factorALS(U, S, V, p_vec, k_vec, c_vec, iter, tole, rng, weights=None):
     M, K = U.shape[0], len(S) + 1
     Y = np.ascontiguousarray(U * S)
     P = rng.random(size=(M, K), dtype=np.float32)
     admix_cy.projectP(P, k_vec, c_vec)
-    P, Q = alsStep(Y, V, p_vec, k_vec, c_vec, None, P)
+    P, Q = alsStep(Y, V, p_vec, k_vec, c_vec, None, P, weights)
     Q0 = np.copy(Q)
 
     # Perform ALS iterations
     for _ in range(iter):
-        P, Q = alsStep(Y, V, p_vec, k_vec, c_vec, Q, P)
+        P, Q = alsStep(Y, V, p_vec, k_vec, c_vec, Q, P, weights)
 
         # Check convergence
         if admix_cy.rmseQ(Q, Q0) < tole:
