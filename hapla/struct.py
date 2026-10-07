@@ -185,8 +185,9 @@ def project(data, p, U, vals, chunk):
     a = scale(p)
     V = np.zeros((data[0][0].shape[1] // 2, K))
     shift = np.zeros(K)
+    den = np.sqrt(vals * M)
     for Z, c, s, obs in blocks(data, chunk):
-        A = np.ascontiguousarray(U[s] * (a[s, None] / np.sqrt(vals * M)))
+        A = np.ascontiguousarray(U[s] * (a[s, None] / den))
         shift += 2.0 * (p[s] @ A)
         cy.rightProduct(Z, c, A, V, p[s], obs)
     V -= shift

@@ -61,10 +61,10 @@ def centerSVD(Z, p_vec, c_vec, W, K, chunk, power, rng, obs=None):
     L = min(max(D + 10, 20), N - 1, M)
     if D > L:
         raise ValueError("K exceeds the centered SVD dimensions. Use --random-init")
-    data = [
-        (Z[:W], c_vec[: W + 1].astype(np.int64), None if obs is None else obs[:W].astype(np.int64))
-    ]
-    p = p_vec[:M].astype(float)
+    c = np.ascontiguousarray(c_vec[: W + 1], dtype=np.int64)
+    o = None if obs is None else np.ascontiguousarray(obs[:W], dtype=np.int64)
+    data = [(Z[:W], c, o)]
+    p = np.ascontiguousarray(p_vec[:M], dtype=float)
     a = np.ones(M)
     Q = struct.subspace(data, p, a, L, chunk, power, rng)
     A = np.empty((M, L))
@@ -123,18 +123,14 @@ def centerSub(Z, S, V, p_vec, c_vec, W_sub, chunk, obs=None):
     from hapla import struct, struct_cy
 
     beg = int(c_vec[W_sub])
-    p = p_vec[beg:].astype(float)
+    p = np.ascontiguousarray(p_vec[beg:], dtype=float)
     a = np.ones(len(p))
     Q = np.ascontiguousarray(V / S, dtype=float)
     sums = Q.sum(axis=0)
     U = np.empty((len(p), Q.shape[1]), dtype=np.float32)
-    data = [
-        (
-            Z[W_sub:],
-            (c_vec[W_sub:] - beg).astype(np.int64),
-            None if obs is None else obs[W_sub:].astype(np.int64),
-        )
-    ]
+    c = np.ascontiguousarray(c_vec[W_sub:] - beg, dtype=np.int64)
+    o = None if obs is None else np.ascontiguousarray(obs[W_sub:], dtype=np.int64)
+    data = [(Z[W_sub:], c, o)]
     for z, c, s, o in struct.blocks(data, chunk):
         A = np.empty((int(c[-1]), Q.shape[1]))
         struct_cy.leftProduct(z, c, p[s], a[s], Q, sums, A, o)

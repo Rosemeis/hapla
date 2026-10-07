@@ -70,7 +70,8 @@ def checkArgs(args):
         raise ValueError("Use positive HMM iterations and finite nonnegative tolerance and priors")
     if not (args.fixed_model or args.dating) and (args.medians or args.block != 1 or args.simple):
         raise ValueError(
-            "HMM fitting requires hard cluster emissions, --block 1, and standard transitions. Use --fixed-model for --medians, --block, or --simple"
+            "HMM fitting requires hard cluster emissions, --block 1, and standard transitions. "
+            "Use --fixed-model for --medians, --block, or --simple"
         )
     for value in (args.min_length, args.max_length):
         if value is not None and value < 1:
@@ -138,7 +139,8 @@ def readQ(pth, N):
     sums = Q.sum(axis=1)
     if not np.allclose(sums, 1, rtol=0, atol=1e-5):
         raise ValueError("Q rows must sum to one")
-    return Q / sums[:, None]
+    Q /= sums[:, None]
+    return Q
 
 
 ### Read and normalize cluster frequencies within each window and ancestry
@@ -543,8 +545,9 @@ def main(args):
             zip(paths, stems, data, P)
         ):
             start = perf_counter()
+            row = stats["files"][index]
             size = batchSize(N, len(Z), regions, K, len(alpha), args, decode=True)
-            stats["files"][index]["batch_haplotypes"] = size
+            row["batch_haplotypes"] = size
             likes = None
             if args.medians:
                 pth = Path(f"{pfx}.blk")
@@ -560,7 +563,7 @@ def main(args):
                 )
             table = cy.emissionTable(p, c, K, likes)
             np.savetxt(out[f"{stem}.P"], p.reshape(-1, K), fmt="%.10g")
-            stats["files"][index].update(
+            row.update(
                 decode(
                     Z,
                     table,
@@ -576,13 +579,13 @@ def main(args):
                     dist[index] if dist is not None else None,
                 )
             )
-            stats["files"][index]["seconds"] = perf_counter() - start
+            row["seconds"] = perf_counter() - start
             label = (
                 f"File {index + 1:,}/{len(paths):,} decoded."
                 if len(paths) > 1
                 else "Decoding complete."
             )
-            printTiming(label, stats["files"][index]["seconds"])
+            printTiming(label, row["seconds"])
             del table, likes
         stats["elapsed_seconds"] = perf_counter() - tick
         writeLog(out, "fatash", args, stats)

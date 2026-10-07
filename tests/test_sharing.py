@@ -110,6 +110,7 @@ class SharingTests(TemporaryTests):
             d = sharing.profiles([data], cov, self.root / f"profiles{root}", root=root)
             np.testing.assert_allclose(sharing.product(d, Q), B @ Q, atol=1e-13)
             np.testing.assert_allclose(sharing.product(d, Q, True), B.T @ Q, atol=1e-13)
+
             # Chromosome accumulation must normalize once using combined exposure.
             merged = sharing.profiles([data, data], 2 * cov, self.root / f"merged{root}", root=root)
             np.testing.assert_allclose(sharing.product(merged, Q), B @ Q, atol=1e-13)

@@ -463,26 +463,27 @@ def main(args):
 
     # Publish all requested files together after successful calculation
     sfxs = [".Q", ".ids", ".log"]
-    if not args.no_freqs and P1 is not None:
-        sfxs += [f".{args.prefix}{f + 1}.P" for f in range(F)] + [".plist"] if F > 1 else [".P"]
+    p_sfxs = [f".{args.prefix}{f + 1}.P" for f in range(F)] if F > 1 else [".P"]
+    freqs = not args.no_freqs and P1 is not None
+    if freqs:
+        sfxs += p_sfxs + ([".plist"] if F > 1 else [])
     inputs = [f"{p}{s}" for p in Z_list for s in (".bca", ".win", ".ids")]
     inputs += [args.filelist, args.keep, args.supervised, args.projection]
     if args.projection and F > 1:
         inputs += P_list
-    stale = (".P", ".plist") + tuple(f".{args.prefix}{f + 1}.P" for f in range(F) if F > 1)
+    stale = (".P", ".plist") + tuple(p_sfxs if F > 1 else ())
     ts = time()
     with ExitStack() as stack:
         out = stageOutputs(stack, f_out, sfxs, inputs, stale=stale)
         np.savetxt(out[".Q"], Q, fmt="%.10g")
         np.savetxt(out[".ids"], q_ids, fmt="%s")
-        if not args.no_freqs and P1 is not None:
+        if freqs:
             if F > 1:
-                for f in range(F):
+                for f, sfx in enumerate(p_sfxs):
                     part = P[c_vec[f_vec[f]] : c_vec[f_vec[f + 1]]].reshape(-1, args.K)
-                    np.savetxt(out[f".{args.prefix}{f + 1}.P"], part, fmt="%.10g")
-                out[".plist"].write_text(
-                    "".join(f"{Path(f_out).absolute()}.{args.prefix}{f + 1}.P\n" for f in range(F))
-                )
+                    np.savetxt(out[sfx], part, fmt="%.10g")
+                pfx = Path(f_out).absolute()
+                out[".plist"].write_text("".join(f"{pfx}{sfx}\n" for sfx in p_sfxs))
             else:
                 np.savetxt(out[".P"], P.reshape(M, args.K), fmt="%.10g")
         stats.update(output_seconds=time() - ts, elapsed_seconds=time() - start)

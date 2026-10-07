@@ -128,6 +128,12 @@ PLINK output marks the diploid genotype missing if either haplotype is missing.
 | `-f`, `--size INT` | — | Variants per window |
 | `-l`, `--length INT` | — | Physical span in bp, from the first variant through start + span |
 | `-w`, `--windows FILE` | — | Increasing zero-based start indices, beginning at zero |
+| `--adaptive` | Off | Select nonoverlapping variable windows by compression cost |
+| `--min-size INT` | `8` | Minimum adaptive window size, except span limits or tails |
+| `--max-size INT` | `64` | Maximum adaptive window size |
+| `--max-length INT` | `100000` | Maximum adaptive physical span in bp |
+| `--map FILE` | — | Genetic map for adaptive window spans |
+| `--max-cm FLOAT` | `0.1` with a map | Maximum adaptive genetic span in cM, requires `--map` |
 | `-s`, `--step INT` | Window size | Step for overlapping `--size` windows |
 | `-p`, `--lmbda FLOAT` | `0` | Hamming-distance growth threshold as a window fraction, zero allows any mismatch |
 | `--min-freq FLOAT` | `0.001` | Minimum cluster frequency among observed haplotypes, combined with `--min-mac` |
@@ -140,6 +146,21 @@ PLINK output marks the diploid genotype missing if either haplotype is missing.
 
 For overlapping windows, a short tail is added only if it covers new variants.
 A `--windows` file may end with the genotype record count as an EOF marker.
+`--adaptive` fits candidate blocks of up to 64 variants and compares them with
+recursive halves, down to 8 variants by default. Physical span is limited to
+100,000 bp, with a further 0.1 cM limit when `--map` is supplied. Span limits
+and chromosome tails can produce shorter windows. All variants are retained.
+Adaptive size and span options require `--adaptive`, which cannot
+use `--size`, `--length`, `--windows`, `--step`, or `--tail drop`.
+Selection balances median dictionaries, assignments, reconstruction differences,
+and boundaries. Observed alleles in incomplete haplotypes contribute literal
+bits, so additional missing-window loss has a cost rather than being discarded.
+Equal costs favor more usable alleles, then fewer windows.
+This is a compression proxy, not an automatic biological optimum.
+Variable windows change regional weighting in downstream analyses. Use map-aware
+FATASH transitions when a genetic map is available. Prediction reuses the saved
+boundaries.
+
 The fitter deduplicates haplotypes and grows binary medians using XOR/popcount
 Hamming distances. Each step selects the single furthest pattern from its nearest
 median, breaking ties by pattern count and canonical allele order. Seeds require
@@ -407,7 +428,7 @@ the fitted `--time` instead of alpha.
 
 ### Genetic distances and dating
 
-Both `struct` and `fatash` interpolate the supplied map internally. Use the
+`cluster`, `struct`, and `fatash` interpolate the supplied map internally. Use the
 same genome build as the clusters, with increasing bp and nondecreasing cM.
 The whitespace-separated map contains all required chromosomes:
 
