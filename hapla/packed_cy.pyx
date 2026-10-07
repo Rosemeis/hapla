@@ -9,7 +9,7 @@ import math
 import numpy as np
 
 from libc.stdint cimport uint8_t, uint32_t, uint64_t
-from libc.math cimport log
+from libc.math cimport lgamma, log, log2
 from libc.string cimport memset
 
 ctypedef uint8_t u8
@@ -25,18 +25,22 @@ cdef extern from *:
     static inline unsigned hapla_popcount(unsigned long long value) {
         return (unsigned)__builtin_popcountll(value);
     }
+    static inline unsigned hapla_ctz(unsigned long long value) {
+        return (unsigned)__builtin_ctzll(value);
+    }
     """
     unsigned hapla_popcount(unsigned long long) noexcept nogil
+    unsigned hapla_ctz(unsigned long long) noexcept nogil
 
 
 ##### Packed distances
 
 
 ### Count differing bits across words, stopping above the best distance
-cdef inline u32 _distance(const u64* a, const u64* b, Py_ssize_t count,
-                          u32 best) noexcept nogil:
-    cdef Py_ssize_t q
-    cdef u32 d = 0
+cdef inline u32 _distance(const u64* a, const u64* b, Py_ssize_t count, u32 best) noexcept nogil:
+    cdef:
+        Py_ssize_t q
+        u32 d = 0
     for q in range(count):
         d += hapla_popcount(a[q] ^ b[q])
         if d > best:
@@ -45,8 +49,13 @@ cdef inline u32 _distance(const u64* a, const u64* b, Py_ssize_t count,
 
 
 ### Use one popcount for windows that fit in a word
-cdef inline u32 distance(words mode, const u64* a, const u64* b, Py_ssize_t count,
-                         u32 best) noexcept nogil:
+cdef inline u32 distance(
+    words mode,
+    const u64* a,
+    const u64* b,
+    Py_ssize_t count,
+    u32 best,
+) noexcept nogil:
     if words is u8:
         return hapla_popcount(a[0] ^ b[0])
     else:
@@ -54,13 +63,18 @@ cdef inline u32 distance(words mode, const u64* a, const u64* b, Py_ssize_t coun
 
 
 ### Stably sort observed indices by reversed-SNP order
-cdef void radixOrder(const u64[:, ::1] X_pack, u32[::1] order,
-                      u32[::1] tmp, Py_ssize_t bits) noexcept nogil:
-    cdef Py_ssize_t cnt[256]
-    cdef Py_ssize_t off[256]
-    cdef Py_ssize_t i, bit, q, shift, bucket, total, count, H = order.shape[0]
-    cdef u32* src = &order[0]
-    cdef u32* dst = &tmp[0]
+cdef void radixOrder(
+    const u64[:, ::1] X_pack,
+    u32[::1] order,
+    u32[::1] tmp,
+    Py_ssize_t bits,
+) noexcept nogil:
+    cdef:
+        Py_ssize_t[256] cnt
+        Py_ssize_t[256] off
+        Py_ssize_t i, bit, q, shift, bucket, total, count, H = order.shape[0]
+        u32* src = &order[0]
+        u32* dst = &tmp[0]
     for bit in range(0, bits, 8):
         q, shift = bit >> 6, bit & 63
         for bucket in range(256):
@@ -89,17 +103,84 @@ cdef void radixOrder(const u64[:, ::1] X_pack, u32[::1] order,
 ##### Clustering
 
 
-### Move weighted allele counts between clusters
-cdef void moveCounts(const u64* x, u64[:, ::1] C, u64[::1] n,
-                      int old, int dst, u64 weight, Py_ssize_t B) noexcept nogil:
-    cdef Py_ssize_t j
-    cdef u64 value
+### Pack an adaptive search block once, retaining missing bits for its children
+def packWindow(const u8[:, ::1] G, bint missing):
+    cdef:
+        Py_ssize_t B = G.shape[0], H = G.shape[1], Q = (B + 63) >> 6
+        Py_ssize_t j, h
+        u8 value
+        bint bad = False
+    if B <= 0 or H <= 0 or B >= 2**32 - 1 or H >= 2**32:
+        raise ValueError("A window must have positive dimensions below uint32 limits")
+    cdef:
+        u64[:, ::1] X = np.zeros((H, Q), dtype=np.uint64)
+        u64[:, ::1] M = np.zeros((H if missing else 0, Q if missing else 0), dtype=np.uint64)
+    with nogil:
+        for j in range(B):
+            for h in range(H):
+                value = G[j, h]
+                if value <= 1:
+                    X[h, j >> 6] |= <u64>value << (j & 63)
+                elif missing and value == 255:
+                    M[h, j >> 6] |= <u64>1 << (j & 63)
+                else:
+                    bad = True
+    if bad:
+        raise ValueError(
+            "Expected binary GT (or 255 for missing). Complete-data flag must be valid"
+        )
+    return np.asarray(X), np.asarray(M), B
+
+
+### Count complete haplotypes from a packed missing mask without scanning GT again
+def observedWindow(const u64[:, ::1] M, Py_ssize_t beg, Py_ssize_t end):
+    cdef:
+        Py_ssize_t h, q, first = beg >> 6, last = (end - 1) >> 6, count = 0
+        u64 word, low = <u64>-1 << (beg & 63)
+        u64 high = (<u64>1 << (end & 63)) - 1 if end & 63 else <u64>-1
+        bint full
+    if beg < 0 or end <= beg or end > M.shape[1] * 64:
+        raise ValueError("Invalid packed missing-mask interval")
+    with nogil:
+        for h in range(M.shape[0]):
+            full = True
+            for q in range(first, last + 1):
+                word = M[h, q]
+                if q == first:
+                    word &= low
+                if q == last:
+                    word &= high
+                if word:
+                    full = False
+                    break
+            count += full
+    return count
+
+
+### Move counts only at set alleles in the canonical packed haplotype
+cdef void moveCounts(
+    const u64* x,
+    u64[:, ::1] C,
+    u64[::1] n,
+    int old,
+    int dst,
+    u64 weight,
+    Py_ssize_t B,
+) noexcept nogil:
+    cdef:
+        Py_ssize_t j, q, Q = (B + 63) >> 6
+        u64 value, tail = (<u64>1 << (B & 63)) - 1 if B & 63 else <u64>-1
     n[old] -= weight
     n[dst] += weight
-    for j in range(B):
-        value = weight * ((x[j >> 6] >> (j & 63)) & 1)
-        C[old, j] -= value
-        C[dst, j] += value
+    for q in range(Q):
+        value = x[q]
+        if q == Q - 1:
+            value &= tail
+        while value:
+            j = (q << 6) + hapla_ctz(value)
+            C[old, j] -= weight
+            C[dst, j] += weight
+            value &= value - 1
 
 
 ### Resolve growth ties by canonical reversed-SNP order, independently of deduplication
@@ -112,15 +193,30 @@ cdef inline bint precedes(const u64* a, const u64* b, Py_ssize_t Q) noexcept nog
 
 
 ### Reuse unchanged distances and update only moved haplotypes
-cdef void assign(words mode, const u64[:, ::1] X, const u64[::1] w_vec, u64[:, ::1] R,
-                u64[:, ::1] R_old, u8[::1] a_old, u8[::1] active,
-                u32[::1] c_idx, u8[::1] dirty, u32[::1] z, u32[::1] d_vec,
-                u64[:, ::1] C, u64[::1] n, int slots, Py_ssize_t B,
-                bint cached) noexcept nogil:
-    cdef Py_ssize_t i, q, Q = X.shape[1], U = X.shape[0]
-    cdef int k, index, changed = 0, dst, old
-    cdef u32 best, d
-    cdef bint full
+cdef void assign(
+    words mode,
+    const u64[:, ::1] X,
+    const u64[::1] w_vec,
+    u64[:, ::1] R,
+    u64[:, ::1] R_old,
+    u8[::1] a_old,
+    u8[::1] active,
+    u32[::1] c_idx,
+    u8[::1] dirty,
+    u8[::1] moved,
+    u32[::1] z,
+    u32[::1] d_vec,
+    u64[:, ::1] C,
+    u64[::1] n,
+    int slots,
+    Py_ssize_t B,
+    bint cached,
+) noexcept nogil:
+    cdef:
+        Py_ssize_t i, q, Q = X.shape[1], U = X.shape[0]
+        int k, index, changed = 0, dst, old
+        u32 best, d
+        bint full
     for k in range(slots):
         dirty[k] = active[k] and not a_old[k]
         if active[k]:
@@ -144,18 +240,30 @@ cdef void assign(words mode, const u64[:, ::1] X, const u64[::1] w_vec, u64[:, :
                     best, dst = d, k
         if old != dst:
             moveCounts(&X[i, 0], C, n, old, dst, w_vec[i], B)
+            moved[old] = moved[dst] = 1
             z[i] = dst
         d_vec[i] = best
 
 
-### Update strict-majority medians and retire empty clusters
-cdef bint medians(u64[:, ::1] R, const u64[:, ::1] C, const u64[::1] n,
-                  u8[::1] active, int slots, Py_ssize_t B) noexcept nogil:
-    cdef int k
-    cdef Py_ssize_t j, q, stop, Q = R.shape[1]
-    cdef u64 word
-    cdef bint changed = False
+### Update medians only where counts moved, and retire empty clusters
+cdef bint medians(
+    u64[:, ::1] R,
+    const u64[:, ::1] C,
+    const u64[::1] n,
+    u8[::1] active,
+    u8[::1] moved,
+    int slots,
+    Py_ssize_t B,
+) noexcept nogil:
+    cdef:
+        int k
+        Py_ssize_t j, q, stop, Q = R.shape[1]
+        u64 word
+        bint changed = False
     for k in range(slots):
+        if not moved[k]:
+            continue
+        moved[k] = 0
         if active[k] and n[k] == 0:
             active[k] = 0
             changed = True
@@ -172,8 +280,12 @@ cdef bint medians(u64[:, ::1] R, const u64[:, ::1] C, const u64[::1] n,
 
 
 ### Select the furthest pattern, breaking ties by count and canonical order
-cdef Py_ssize_t furthest(const u64[:, ::1] X, const u64[::1] w,
-                         const u32[::1] d, u32 limit) noexcept nogil:
+cdef Py_ssize_t furthest(
+    const u64[:, ::1] X,
+    const u64[::1] w,
+    const u32[::1] d,
+    u32 limit,
+) noexcept nogil:
     cdef Py_ssize_t i, best = -1
     for i in range(X.shape[0]):
         if d[i] < limit:
@@ -181,21 +293,38 @@ cdef Py_ssize_t furthest(const u64[:, ::1] X, const u64[::1] w,
         if best < 0 or d[i] > d[best]:
             best = i
         elif d[i] == d[best]:
-            if w[i] > w[best] or (w[i] == w[best] and
-                    precedes(&X[i, 0], &X[best, 0], X.shape[1])):
+            if w[i] > w[best] or (
+                w[i] == w[best] and precedes(&X[i, 0], &X[best, 0], X.shape[1])
+            ):
                 best = i
     return best
 
 
 ### Remove unsupported clusters one at a time and refine their assignments
-cdef bint prune(words mode, const u64[:, ::1] X, const u64[::1] w,
-                 u64[:, ::1] R, u64[:, ::1] R_old, u8[::1] a_old, u8[::1] active,
-                 u32[::1] c_idx, u8[::1] dirty, u32[::1] z, u32[::1] d,
-                 u64[:, ::1] C, u64[::1] n, int slots, Py_ssize_t B, int limit,
-                 u64 minimum) noexcept nogil:
-    cdef int it, k, small
-    cdef u64 low
-    cdef bint changed
+cdef bint prune(
+    words mode,
+    const u64[:, ::1] X,
+    const u64[::1] w,
+    u64[:, ::1] R,
+    u64[:, ::1] R_old,
+    u8[::1] a_old,
+    u8[::1] active,
+    u32[::1] c_idx,
+    u8[::1] dirty,
+    u8[::1] moved,
+    u32[::1] z,
+    u32[::1] d,
+    u64[:, ::1] C,
+    u64[::1] n,
+    int slots,
+    Py_ssize_t B,
+    int limit,
+    u64 minimum,
+) noexcept nogil:
+    cdef:
+        int it, k, small
+        u64 low
+        bint changed
     for it in range(limit):
         small, low = -1, <u64>-1
         for k in range(slots):
@@ -205,9 +334,10 @@ cdef bint prune(words mode, const u64[:, ::1] X, const u64[::1] w,
             active[small] = 0
         elif it == 0:
             return True
-        assign(mode, X, w, R, R_old, a_old, active, c_idx, dirty,
-               z, d, C, n, slots, B, True)
-        changed = medians(R, C, n, active, slots, B)
+        assign(
+            mode, X, w, R, R_old, a_old, active, c_idx, dirty, moved, z, d, C, n, slots, B, True
+        )
+        changed = medians(R, C, n, active, moved, slots, B)
         low = minimum
         for k in range(slots):
             if active[k]:
@@ -218,17 +348,27 @@ cdef bint prune(words mode, const u64[:, ::1] X, const u64[::1] w,
 
 
 ### Deduplicate observed haplotypes, grow medians, and prune to convergence
-def fitWindow(const u8[:, ::1] G, double alpha=0, double min_freq=0.001,
-              min_mac=5, int K_max=255, int n_iter=1000,
-              bint missing=True):
+def fitWindow(
+    const u8[:, ::1] G,
+    double alpha = 0,
+    double min_freq = 0.001,
+    min_mac=5,
+    int K_max = 255,
+    int n_iter = 1000,
+    bint missing = True,
+    packed=None,
+    Py_ssize_t offset = 0,
+):
+    """Fit GT directly, or reuse packWindow output for the same unchanged GT block."""
     # Complete windows skip missingness checks inside the clustering kernel
-    cdef Py_ssize_t B = G.shape[0], H = G.shape[1], Q = (B + 63) >> 6
-    cdef Py_ssize_t i, j, q, h, first, prev = -1, U = 0, H_obs, cand
-    cdef int k, slot, it
-    cdef u32 d_lim, value
-    cdef u64 n_min, n_low = <u64>-1
-    cdef bint equal, bad = False, full = True, born, changed, capped = False
-    cdef bint done = False, recode = False
+    cdef:
+        Py_ssize_t B = G.shape[0], H = G.shape[1], Q = (B + 63) >> 6
+        Py_ssize_t i, j, q, h, first, prev = -1, U = 0, H_obs, cand
+        int k, slot, it
+        u32 d_lim, value
+        u64 n_min, n_low = <u64>-1
+        bint equal, bad = False, full = True, born, changed, capped = False
+        bint done = False, recode = False
     if B <= 0 or H <= 0 or B >= 2**32 - 1 or H >= 2**32:
         raise ValueError("A window must have positive dimensions below uint32 limits")
     if not math.isfinite(alpha) or not 0 <= alpha < 1:
@@ -241,45 +381,89 @@ def fitWindow(const u8[:, ::1] G, double alpha=0, double min_freq=0.001,
         raise ValueError("min_mac must be a positive integer")
 
     # Pack variant-major GT once, reserving byte 255 for missing haplotypes
-    cdef u64[:, ::1] X_pack = np.zeros((H, Q), dtype=np.uint64)
-    cdef u8[::1] valid = np.ones(H if missing else 0, dtype=np.uint8)
-    with nogil:
-        if missing:
-            for j in range(B):
-                for h in range(H):
-                    value = G[j, h]
-                    if value == 255:
-                        valid[h] = 0
-                        full = False
-                    elif value <= 1:
-                        X_pack[h, j >> 6] |= <u64>value << (j & 63)
-                    else:
-                        bad = True
+    cdef:
+        u64[:, ::1] X_pack
+        const u64[:, ::1] src, mask
+        Py_ssize_t start = offset >> 6, shift = offset & 63, stop
+        u64 word, tail = (<u64>1 << (B & 63)) - 1 if B & 63 else <u64>-1
+        u8[::1] valid = np.ones(H if missing else 0, dtype=np.uint8)
+    if packed is not None:
+        src, mask, stop = packed
+        if (
+            offset < 0
+            or offset + B > stop
+            or src.shape[0] != H
+            or src.shape[1] != (stop + 63) >> 6
+            or (missing and (mask.shape[0] != H or mask.shape[1] != src.shape[1]))
+        ):
+            raise ValueError("Packed block and window dimensions differ")
+        if offset == 0 and B == stop:
+            X_pack = packed[0]
         else:
-            for j in range(B):
-                for h in range(H):
-                    value = G[j, h]
-                    if value > 1:
-                        bad = True
-                    X_pack[h, j >> 6] |= <u64>(value & 1) << (j & 63)
+            X_pack = np.empty((H, Q), dtype=np.uint64)
+        with nogil:
+            for h in range(H):
+                for q in range(Q):
+                    if offset or B != stop:
+                        word = src[h, start + q] >> shift
+                        if shift and start + q + 1 < src.shape[1]:
+                            word |= src[h, start + q + 1] << (64 - shift)
+                        X_pack[h, q] = word & tail if q == Q - 1 else word
+                    if missing:
+                        word = mask[h, start + q] >> shift
+                        if shift and start + q + 1 < mask.shape[1]:
+                            word |= mask[h, start + q + 1] << (64 - shift)
+                        if q == Q - 1:
+                            word &= tail
+                        if word:
+                            valid[h] = 0
+                            full = False
+    else:
+        X_pack = np.zeros((H, Q), dtype=np.uint64)
+        with nogil:
+            if missing:
+                for j in range(B):
+                    for h in range(H):
+                        value = G[j, h]
+                        if value == 255:
+                            valid[h] = 0
+                            full = False
+                        elif value <= 1:
+                            X_pack[h, j >> 6] |= <u64>value << (j & 63)
+                        else:
+                            bad = True
+            else:
+                for j in range(B):
+                    for h in range(H):
+                        value = G[j, h]
+                        if value > 1:
+                            bad = True
+                        X_pack[h, j >> 6] |= <u64>(value & 1) << (j & 63)
     if bad:
-        raise ValueError("Expected binary GT (or 255 for missing). Complete-data flag must be valid")
+        raise ValueError(
+            "Expected binary GT (or 255 for missing). Complete-data flag must be valid"
+        )
     cdef u8[::1] labels = np.full(H, 255, dtype=np.uint8)
     H_obs = H if full else int(np.count_nonzero(np.asarray(valid)))
     if H_obs == 0:
-        return dict(labels=np.asarray(labels), medians=np.empty((0, B), dtype=np.uint8),
-                    counts=np.empty((0, B), dtype=np.uint64), sizes=np.empty(0, dtype=np.uint64),
-                    stats=dict(missing=H, K=0, capped=False, exact=False))
+        return dict(
+            labels=np.asarray(labels),
+            medians=np.empty((0, B), dtype=np.uint8),
+            counts=np.empty((0, B), dtype=np.uint64),
+            sizes=np.empty(0, dtype=np.uint64),
+            stats=dict(missing=H, K=0, capped=False, exact=False),
+        )
     if min_mac > H_obs:
         raise ValueError("Minimum cluster count exceeds the observed haplotypes in this window")
     n_min = max(int(min_mac), math.ceil(H_obs * min_freq))
 
     # Collapse identical haplotypes and retain an inverse map for output
-    cdef u32[::1] order = np.empty(H_obs, dtype=np.uint32)
-    cdef u32[::1] tmp = np.empty(H_obs, dtype=np.uint32)
-    cdef u64[:, ::1] X = np.empty((H_obs, Q), dtype=np.uint64)
-    cdef u64[::1] w_vec = np.zeros(H_obs, dtype=np.uint64)
-    cdef u32[::1] inverse = np.empty(H, dtype=np.uint32)
+    cdef:
+        u32[::1] order = np.empty(H_obs, dtype=np.uint32)
+        u32[::1] tmp = np.empty(H_obs, dtype=np.uint32)
+        u64[:, ::1] X = np.empty((H_obs, Q), dtype=np.uint64)
+        u64[::1] w_vec = np.zeros(H_obs, dtype=np.uint64)
+        u32[::1] inverse = np.empty(H, dtype=np.uint32)
     with nogil:
         i = 0
         for h in range(H):
@@ -309,15 +493,16 @@ def fitWindow(const u8[:, ::1] G, double alpha=0, double min_freq=0.001,
     # Drop packing/sort temporaries and orient the major allele as zero.
     X_pack = None
     order = tmp = None
-    cdef u64[::1] sums = np.zeros(B, dtype=np.uint64)
-    cdef u64[::1] flip = np.zeros(Q, dtype=np.uint64)
+    cdef:
+        u64[::1] sums = np.zeros(B, dtype=np.uint64)
+        u64[::1] flip = np.zeros(Q, dtype=np.uint64)
     with nogil:
         for i in range(U):
             n_low = min(n_low, w_vec[i])
             for j in range(B):
                 sums[j] += w_vec[i] * ((X[i, j >> 6] >> (j & 63)) & 1)
         for j in range(B):
-            if 2*sums[j] > <u64>H_obs or (2*sums[j] == <u64>H_obs and G[j, first]):
+            if 2 * sums[j] > <u64>H_obs or (2 * sums[j] == <u64>H_obs and G[j, first]):
                 flip[j >> 6] |= <u64>1 << (j & 63)
                 sums[j] = H_obs - sums[j]
                 recode = True
@@ -328,10 +513,11 @@ def fitWindow(const u8[:, ::1] G, double alpha=0, double min_freq=0.001,
 
     # Exact supported patterns attain zero error in the one-mismatch regime.
     d_lim = max(1, math.ceil(alpha * B))
-    cdef u8[:, ::1] exact_R
-    cdef u64[:, ::1] exact_C
-    cdef u64[::1] exact_n
-    cdef u8[::1] mapping
+    cdef:
+        u8[:, ::1] exact_R
+        u64[:, ::1] exact_C
+        u64[::1] exact_n
+        u8[::1] mapping
     if d_lim == 1 and U <= K_max and n_low >= n_min:
         order = np.arange(U, dtype=np.uint32)
         tmp = np.empty(U, dtype=np.uint32)
@@ -348,39 +534,50 @@ def fitWindow(const u8[:, ::1] G, double alpha=0, double min_freq=0.001,
                 for j in range(B):
                     value = ((X[k, j >> 6] ^ flip[j >> 6]) >> (j & 63)) & 1
                     exact_R[i, j] = value
-                    exact_C[i, j] = value*w_vec[k]
+                    exact_C[i, j] = value * w_vec[k]
             for h in range(H):
                 if full or valid[h]:
                     labels[h] = mapping[inverse[h]]
-        return dict(labels=np.asarray(labels), medians=np.asarray(exact_R),
-                    counts=np.asarray(exact_C), sizes=np.asarray(exact_n),
-                    stats=dict(missing=H-H_obs, K=U, capped=False, exact=True))
+        return dict(
+            labels=np.asarray(labels),
+            medians=np.asarray(exact_R),
+            counts=np.asarray(exact_C),
+            sizes=np.asarray(exact_n),
+            stats=dict(missing=H - H_obs, K=U, capped=False, exact=True),
+        )
 
     # Maintain counts and cached assignments across growth and pruning.
-    cdef u64[:, ::1] R = np.zeros((K_max, Q), dtype=np.uint64)
-    cdef u64[:, ::1] R_old = np.zeros((K_max, Q), dtype=np.uint64)
-    cdef u64[:, ::1] C = np.empty((K_max, B), dtype=np.uint64)
-    cdef u64[::1] n = np.zeros(K_max, dtype=np.uint64)
-    cdef u8[::1] active = np.zeros(K_max, dtype=np.uint8)
-    cdef u8[::1] a_old = np.zeros(K_max, dtype=np.uint8)
-    cdef u8[::1] dirty = np.zeros(K_max, dtype=np.uint8)
-    cdef u32[::1] c_idx = np.empty(K_max, dtype=np.uint32)
-    cdef u32[::1] z = np.zeros(U, dtype=np.uint32)
-    cdef u32[::1] d_vec = np.zeros(U, dtype=np.uint32)
-    cdef u8[::1] remap = np.zeros(K_max, dtype=np.uint8)
+    cdef:
+        u64[:, ::1] R = np.zeros((K_max, Q), dtype=np.uint64)
+        u64[:, ::1] R_old = np.zeros((K_max, Q), dtype=np.uint64)
+        u64[:, ::1] C = np.empty((K_max, B), dtype=np.uint64)
+        u64[::1] n = np.zeros(K_max, dtype=np.uint64)
+        u8[::1] active = np.zeros(K_max, dtype=np.uint8)
+        u8[::1] a_old = np.zeros(K_max, dtype=np.uint8)
+        u8[::1] dirty = np.zeros(K_max, dtype=np.uint8)
+        u8[::1] moved = np.zeros(K_max, dtype=np.uint8)
+        u32[::1] c_idx = np.empty(K_max, dtype=np.uint32)
+        u32[::1] z = np.zeros(U, dtype=np.uint32)
+        u32[::1] d_vec = np.zeros(U, dtype=np.uint32)
+        u8[::1] remap = np.zeros(K_max, dtype=np.uint8)
     slot = 1
     active[0] = 1
+    moved[0] = 1
     n[0] = H_obs
     with nogil:
         for j in range(B):
             C[0, j] = sums[j]
         for it in range(n_iter):
             if Q == 1:
-                assign[u8](0, X, w_vec, R, R_old, a_old, active, c_idx,
-                           dirty, z, d_vec, C, n, slot, B, it > 0)
+                assign[u8](
+                    0, X, w_vec, R, R_old, a_old, active, c_idx,
+                    dirty, moved, z, d_vec, C, n, slot, B, it > 0,
+                )
             else:
-                assign[u64](0, X, w_vec, R, R_old, a_old, active, c_idx,
-                            dirty, z, d_vec, C, n, slot, B, it > 0)
+                assign[u64](
+                    0, X, w_vec, R, R_old, a_old, active, c_idx,
+                    dirty, moved, z, d_vec, C, n, slot, B, it > 0,
+                )
             cand = -1
             if slot < K_max:
                 cand = furthest(X, w_vec, d_vec, d_lim)
@@ -391,11 +588,12 @@ def fitWindow(const u8[:, ::1] G, double alpha=0, double min_freq=0.001,
                         break
             born = cand >= 0
             if born:
-                memset(&C[slot, 0], 0, B*sizeof(u64))
+                memset(&C[slot, 0], 0, B * sizeof(u64))
                 moveCounts(&X[cand, 0], C, n, z[cand], slot, w_vec[cand], B)
+                moved[z[cand]] = moved[slot] = 1
                 z[cand], active[slot] = slot, 1
                 slot += 1
-            changed = medians(R, C, n, active, slot, B)
+            changed = medians(R, C, n, active, moved, slot, B)
             if not born and not changed:
                 done = True
                 break
@@ -403,18 +601,23 @@ def fitWindow(const u8[:, ::1] G, double alpha=0, double min_freq=0.001,
         raise RuntimeError(f"Growth did not converge within {n_iter} iterations")
     with nogil:
         if Q == 1:
-            done = prune[u8](0, X, w_vec, R, R_old, a_old, active, c_idx, dirty,
-                             z, d_vec, C, n, slot, B, n_iter, n_min)
+            done = prune[u8](
+                0, X, w_vec, R, R_old, a_old, active, c_idx, dirty, moved,
+                z, d_vec, C, n, slot, B, n_iter, n_min,
+            )
         else:
-            done = prune[u64](0, X, w_vec, R, R_old, a_old, active, c_idx, dirty,
-                              z, d_vec, C, n, slot, B, n_iter, n_min)
+            done = prune[u64](
+                0, X, w_vec, R, R_old, a_old, active, c_idx, dirty, moved,
+                z, d_vec, C, n, slot, B, n_iter, n_min,
+            )
     if not done:
         raise RuntimeError(f"Pruning did not converge within {n_iter} iterations")
 
     keep = np.flatnonzero(np.asarray(active))
-    cdef Py_ssize_t K = len(keep)
-    cdef u8[:, ::1] R_out = np.empty((K, B), dtype=np.uint8)
-    cdef const Py_ssize_t[::1] kept = keep
+    cdef:
+        Py_ssize_t K = len(keep)
+        u8[:, ::1] R_out = np.empty((K, B), dtype=np.uint8)
+        const Py_ssize_t[::1] kept = keep
     with nogil:
         for i in range(K):
             k = kept[i]
@@ -428,9 +631,113 @@ def fitWindow(const u8[:, ::1] G, double alpha=0, double min_freq=0.001,
         for h in range(H):
             if full or valid[h]:
                 labels[h] = remap[z[inverse[h]]]
-    return dict(labels=np.asarray(labels), medians=np.asarray(R_out),
-                counts=np.asarray(C)[keep], sizes=np.asarray(n)[keep],
-                stats=dict(missing=H-H_obs, K=K, capped=bool(capped), exact=False))
+    return dict(
+        labels=np.asarray(labels),
+        medians=np.asarray(R_out),
+        counts=np.asarray(C)[keep],
+        sizes=np.asarray(n)[keep],
+        stats=dict(missing=H - H_obs, K=K, capped=bool(capped), exact=False),
+    )
+
+
+##### Adaptive windows
+
+
+### Encode a positive integer with an Elias gamma code
+cdef inline double gammaBits(u64 n) noexcept nogil:
+    cdef double bits = 1
+    while n > 1:
+        n >>= 1
+        bits += 2
+    return bits
+
+
+### Compute a combinatorial code length without rounding small residual counts
+cdef inline double chooseBits(u64 n, u64 k) noexcept nogil:
+    cdef:
+        u64 j
+        double bits = 0
+    k = min(k, n - k)
+    if k <= 32:
+        for j in range(k):
+            bits += log2(<double>(n - j) / <double>(j + 1))
+        return bits
+    return max(
+        0.0,
+        (lgamma(<double>n + 1) - lgamma(<double>k + 1) - lgamma(<double>(n - k) + 1))
+        * 1.4426950408889634,
+    )
+
+
+### Score a fitted dictionary, assignments, residuals, and incomplete haplotypes
+def windowCost(
+    const u8[:, ::1] G,
+    const u8[::1] labels,
+    const u8[:, ::1] R,
+    const u64[:, ::1] C,
+    const u64[::1] n,
+):
+    cdef:
+        Py_ssize_t B = G.shape[0], H = G.shape[1], K = R.shape[0]
+        Py_ssize_t j, h, k
+        Py_ssize_t[255] obs
+        u64 total = 0, lost = 0, errors, cells
+        u8 z, value
+        double bits = 0, assignments
+        bint bad = False
+    if B <= 0 or H <= 0 or B >= 2**32 - 1 or H >= 2**32:
+        raise ValueError("A window must have positive dimensions below uint32 limits")
+    if (
+        K > 255
+        or labels.shape[0] != H
+        or R.shape[1] != B
+        or C.shape[0] != K
+        or C.shape[1] != B
+        or n.shape[0] != K
+    ):
+        raise ValueError("Window, label, median, and count dimensions differ")
+    with nogil:
+        for k in range(K):
+            obs[k] = 0
+        for h in range(H):
+            z = labels[h]
+            if z == 255:
+                # The missing mask is fixed, so only observed alleles need literal bits
+                for j in range(B):
+                    value = G[j, h]
+                    if value <= 1:
+                        lost += 1
+                    elif value != 255:
+                        bad = True
+            elif z < K:
+                obs[z] += 1
+            else:
+                bad = True
+        for k in range(K):
+            if n[k] == 0 or n[k] != <u64>obs[k]:
+                bad = True
+            total += obs[k]
+            for j in range(B):
+                if C[k, j] > n[k] or R[k, j] > 1:
+                    bad = True
+    if bad:
+        raise ValueError("Invalid cluster labels, medians, counts, or incomplete GT")
+    with nogil:
+        bits = lost + gammaBits(B) + gammaBits(K + 1) + <double>K * B
+        if K:
+            bits += chooseBits(total - 1, K - 1)
+            assignments = lgamma(<double>total + 1)
+            for k in range(K):
+                assignments -= lgamma(<double>n[k] + 1)
+                errors = 0
+                for j in range(B):
+                    errors += n[k] - C[k, j] if R[k, j] else C[k, j]
+                cells = <u64>B * n[k]
+                bits += 1
+                if errors:
+                    bits += log2(<double>cells) + chooseBits(cells, errors)
+            bits += max(0.0, assignments * 1.4426950408889634)
+    return bits, lost
 
 
 ##### Cluster outputs
@@ -439,13 +746,15 @@ def fitWindow(const u8[:, ::1] G, double alpha=0, double min_freq=0.001,
 ### Score medians under clipped within-cluster allele frequencies
 def likelihoods(const u8[:, ::1] R, const u64[:, ::1] C, const u64[::1] n):
     """Bernoulli scores from final, valid counts, with no threaded BLAS calls."""
-    cdef Py_ssize_t K = R.shape[0], B = R.shape[1], a, b, j
-    cdef double p, score
+    cdef:
+        Py_ssize_t K = R.shape[0], B = R.shape[1], a, b, j
+        double p, score
     if C.shape[0] != K or C.shape[1] != B or n.shape[0] != K:
         raise ValueError("Median and count dimensions differ")
-    cdef double[:, ::1] zero = np.empty((K, B), dtype=np.float64)
-    cdef double[:, ::1] one = np.empty((K, B), dtype=np.float64)
-    cdef float[:, ::1] result = np.empty((K, K), dtype=np.float32)
+    cdef:
+        double[:, ::1] zero = np.empty((K, B), dtype=np.float64)
+        double[:, ::1] one = np.empty((K, B), dtype=np.float64)
+        float[:, ::1] result = np.empty((K, K), dtype=np.float32)
     for a in range(K):
         if n[a] == 0:
             raise ValueError("Cannot score an empty cluster")
@@ -472,8 +781,9 @@ def likelihoods(const u8[:, ::1] R, const u64[:, ::1] C, const u64[::1] n):
 ### Encode diploid cluster dosages as SNP-major PLINK rows
 def plinkWindow(const u8[::1] labels, int K):
     """Encode one window in SNP-major BED order. Either missing haplotype => ./.."""
-    cdef Py_ssize_t H = labels.shape[0], N = H >> 1, i, k
-    cdef u8 a, b, dosage, code
+    cdef:
+        Py_ssize_t H = labels.shape[0], N = H >> 1, i, k
+        u8 a, b, dosage, code
     if H % 2 or not 0 <= K <= 255:
         raise ValueError("PLINK output requires diploid samples and 0..255 clusters")
     for i in range(H):
@@ -483,7 +793,7 @@ def plinkWindow(const u8[::1] labels, int K):
     with nogil:
         for k in range(K):
             for i in range(N):
-                a, b = labels[2*i], labels[2*i+1]
+                a, b = labels[2 * i], labels[2 * i + 1]
                 if a == 255 or b == 255:
                     code = 1
                 else:
@@ -497,14 +807,21 @@ def plinkWindow(const u8[::1] labels, int K):
 
 
 ### Compile single-word and multiword scans without a branch inside the distance loop
-cdef void nearest(words mode, const u64[:, ::1] X, const u64[:, ::1] R,
-                   const u8[::1] valid, u8[::1] labels, Py_ssize_t B) noexcept nogil:
-    cdef Py_ssize_t h, k, Q = X.shape[1]
-    cdef u32 best, d
-    cdef u8 dst
+cdef void nearest(
+    words mode,
+    const u64[:, ::1] X,
+    const u64[:, ::1] R,
+    const u8[::1] valid,
+    u8[::1] labels,
+    Py_ssize_t B,
+) noexcept nogil:
+    cdef:
+        Py_ssize_t h, k, Q = X.shape[1]
+        u32 best, d
+        u8 dst
     for h in range(X.shape[0]):
         if valid[h]:
-            best, dst = B+1, 0
+            best, dst = B + 1, 0
             for k in range(R.shape[0]):
                 d = distance(mode, &X[h, 0], &R[k, 0], Q, best)
                 if d <= best:
@@ -513,12 +830,18 @@ cdef void nearest(words mode, const u64[:, ::1] X, const u64[:, ::1] R,
 
 
 ### Reuse exact nearest-median labels for repeated short haplotypes
-cdef void nearestCached(const u64[:, ::1] X, const u64[:, ::1] R,
-                         const u8[::1] valid, u8[::1] labels, u8* cache,
-                         Py_ssize_t B) noexcept nogil:
-    cdef Py_ssize_t h, k, key
-    cdef u32 best, d
-    cdef u8 dst
+cdef void nearestCached(
+    const u64[:, ::1] X,
+    const u64[:, ::1] R,
+    const u8[::1] valid,
+    u8[::1] labels,
+    u8* cache,
+    Py_ssize_t B,
+) noexcept nogil:
+    cdef:
+        Py_ssize_t h, k, key
+        u32 best, d
+        u8 dst
     for h in range(X.shape[0]):
         if valid[h]:
             key = X[h, 0]
@@ -535,9 +858,10 @@ cdef void nearestCached(const u64[:, ::1] X, const u64[:, ::1] R,
 
 ### Skip the lookup when short haplotypes have few repeated patterns
 cdef bint repeatedSample(const u64[:, ::1] X, const u8[::1] valid) noexcept nogil:
-    cdef u64 seen[16]
-    cdef Py_ssize_t i, h, j, n = 0, sampled = 0, H = X.shape[0]
-    cdef bint found
+    cdef:
+        u64[16] seen
+        Py_ssize_t i, h, j, n = 0, sampled = 0, H = X.shape[0]
+        bint found
     for i in range(16):
         h = i * H // 16
         if not valid[h]:
@@ -557,17 +881,19 @@ cdef bint repeatedSample(const u64[:, ::1] X, const u8[::1] valid) noexcept nogi
 ### Assign complete haplotypes to their nearest packed reference median
 def predictHaplotypes(const u8[:, ::1] G, const u8[:, ::1] medians):
     """Exact packed nearest-median assignment. Any missing allele excludes its haplotype."""
-    cdef Py_ssize_t B = G.shape[0], H = G.shape[1], K = medians.shape[0]
-    cdef Py_ssize_t Q = (B + 63) >> 6, j, h, k
-    cdef u8 value
-    cdef bint bad = False
+    cdef:
+        Py_ssize_t B = G.shape[0], H = G.shape[1], K = medians.shape[0]
+        Py_ssize_t Q = (B + 63) >> 6, j, h, k
+        u8 value
+        bint bad = False
     if B < 1 or B >= 2**32 - 1 or H < 1 or medians.shape[1] != B or K > 255:
         raise ValueError("Invalid prediction genotype/median dimensions")
-    cdef u64[:, ::1] X = np.zeros((H, Q), dtype=np.uint64)
-    cdef u64[:, ::1] R = np.zeros((K, Q), dtype=np.uint64)
-    cdef u8[::1] valid = np.ones(H, dtype=np.uint8)
-    cdef u8[::1] labels = np.full(H, 255, dtype=np.uint8)
-    cdef u8 cache[65536]
+    cdef:
+        u64[:, ::1] X = np.zeros((H, Q), dtype=np.uint64)
+        u64[:, ::1] R = np.zeros((K, Q), dtype=np.uint64)
+        u8[::1] valid = np.ones(H, dtype=np.uint8)
+        u8[::1] labels = np.full(H, 255, dtype=np.uint8)
+        u8[65536] cache
     with nogil:
         for j in range(B):
             for h in range(H):

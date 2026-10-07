@@ -22,31 +22,39 @@ ctypedef float f32
 
 ### Add log probabilities, including exact zeros
 cdef inline f64 _add(f64 a, f64 b) noexcept nogil:
-    if a == -INFINITY: return b
-    if b == -INFINITY: return a
-    if a < b: a, b = b, a
-    return a + log1p(exp(b-a))
+    if a == -INFINITY:
+        return b
+    if b == -INFINITY:
+        return a
+    if a < b:
+        a, b = b, a
+    return a + log1p(exp(b - a))
 
 
 ### Sum log probabilities after subtracting their maximum
 cdef f64 _sum(const f64* x, Py_ssize_t K) noexcept nogil:
-    cdef Py_ssize_t k
-    cdef f64 m = x[0], s = 0
-    for k in range(1, K): m = max(m, x[k])
-    if m == -INFINITY: return m
-    for k in range(K): s += exp(x[k]-m)
+    cdef:
+        Py_ssize_t k
+        f64 m = x[0], s = 0
+    for k in range(1, K):
+        m = max(m, x[k])
+    if m == -INFINITY:
+        return m
+    for k in range(K):
+        s += exp(x[k] - m)
     return m + log(s)
 
 
 ### Sum all other states with prefix and suffix passes
 cdef void _exclude(const f64* x, f64* out, Py_ssize_t K) noexcept nogil:
-    cdef Py_ssize_t k
-    cdef f64 s = -INFINITY
+    cdef:
+        Py_ssize_t k
+        f64 s = -INFINITY
     for k in range(K):
         out[k] = s
         s = _add(s, x[k])
     s = -INFINITY
-    for k in range(K-1, -1, -1):
+    for k in range(K - 1, -1, -1):
         out[k] = _add(out[k], s)
         s = _add(s, x[k])
 
@@ -56,120 +64,144 @@ cdef void _exclude(const f64* x, f64* out, Py_ssize_t K) noexcept nogil:
 
 ### Normalize file frequencies after checking each ancestral simplex
 def normalizeP(f64[:, ::1] P, const i64[::1] c):
-    cdef Py_ssize_t W = c.shape[0]-1, K = P.shape[1], w, k, a
-    cdef f64 total
-    cdef int bad = 0
+    cdef:
+        Py_ssize_t W = c.shape[0] - 1, K = P.shape[1], w, k, a
+        f64 total
+        int bad = 0
     if W < 1 or c[0] != 0 or c[W] != P.shape[0] or K < 1:
         raise ValueError("Invalid frequency dimensions")
-    for w in prange(W, nogil=True, schedule='static'):
-        if c[w+1] > c[w]:
+    for w in prange(W, nogil=True, schedule="static"):
+        if c[w + 1] > c[w]:
             for k in range(K):
                 total = 0
-                for a in range(c[w], c[w+1]): total = total + P[a, k]
-                if not isfinite(total) or fabs(total-1) > 1e-5:
+                for a in range(c[w], c[w + 1]):
+                    total = total + P[a, k]
+                if not isfinite(total) or fabs(total - 1) > 1e-5:
                     bad |= 1
                 else:
-                    for a in range(c[w], c[w+1]): P[a, k] /= total
-    if bad: raise ValueError("P must sum to one within each window and ancestry")
+                    for a in range(c[w], c[w + 1]):
+                        P[a, k] /= total
+    if bad:
+        raise ValueError("P must sum to one within each window and ancestry")
 
 
 ### Precompute each cluster's log emission once, including stable soft mixtures
-cdef int _table(const f64* p, const f32* likes, f64* out,
-                Py_ssize_t C, Py_ssize_t K) noexcept nogil:
-    cdef Py_ssize_t a, b, k
-    cdef f64 weights[255]
-    cdef f64 m = 0, total = 0, value, largest, term, sub
+cdef int _table(
+    const f64* p,
+    const f32* likes,
+    f64* out,
+    Py_ssize_t C,
+    Py_ssize_t K,
+) noexcept nogil:
+    cdef:
+        Py_ssize_t a, b, k
+        f64[255] weights
+        f64 m = 0, total = 0, value, largest, term, sub
     for a in range(C):
         if likes != NULL:
             m = -INFINITY
             for b in range(C):
-                value = likes[a*C+b]
-                if value != value or value == INFINITY: return 1
+                value = likes[a * C + b]
+                if value != value or value == INFINITY:
+                    return 1
                 m = max(m, value)
-            if m == -INFINITY: return 1
+            if m == -INFINITY:
+                return 1
             total = 0
             for b in range(C):
-                weights[b] = exp(likes[a*C+b]-m)
+                weights[b] = exp(likes[a * C + b] - m)
                 total += weights[b]
         for k in range(K):
             if likes == NULL:
-                value = p[a*K+k]
+                value = p[a * K + k]
             else:
                 value = 0
-                for b in range(C): value += weights[b]*p[b*K+k]
+                for b in range(C):
+                    value += weights[b] * p[b * K + k]
                 value /= total
             if likes != NULL and value < 1e-200:
                 largest = -INFINITY
                 for b in range(C):
-                    if p[b*K+k] > 0:
-                        term = likes[a*C+b]-m+log(p[b*K+k])
+                    if p[b * K + k] > 0:
+                        term = likes[a * C + b] - m + log(p[b * K + k])
                         largest = max(largest, term)
                 sub = 0
                 if largest != -INFINITY:
                     for b in range(C):
-                        if p[b*K+k] > 0:
-                            sub += exp(likes[a*C+b]-m+log(p[b*K+k])-largest)
-                out[a*K+k] = largest+log(sub)-log(total) if sub > 0 else -INFINITY
+                        if p[b * K + k] > 0:
+                            sub += exp(likes[a * C + b] - m + log(p[b * K + k]) - largest)
+                out[a * K + k] = largest + log(sub) - log(total) if sub > 0 else -INFINITY
             else:
-                out[a*K+k] = log(value) if value > 0 else -INFINITY
+                out[a * K + k] = log(value) if value > 0 else -INFINITY
     return 0
 
 
 ### Build cluster emission tables in parallel across windows
-def emissionTable(const f64[::1] P, const i64[::1] c, Py_ssize_t K,
-                  const f32[::1] likes=None):
-    cdef Py_ssize_t W = c.shape[0]-1, w
-    cdef int bad = 0
-    if W < 1 or not 1 <= K <= 255 or c[0] != 0 or c[W]*K != P.shape[0]:
+def emissionTable(const f64[::1] P, const i64[::1] c, Py_ssize_t K, const f32[::1] likes = None):
+    cdef:
+        Py_ssize_t W = c.shape[0] - 1, w
+        int bad = 0
+    if W < 1 or not 1 <= K <= 255 or c[0] != 0 or c[W] * K != P.shape[0]:
         raise ValueError("Invalid emission table dimensions")
     counts = np.diff(c)
     if np.any((counts < 0) | (counts > 255)):
         raise ValueError("Emission tables require 0..255 clusters per window")
     cdef i64[::1] x = None
     if likes is not None:
-        x = np.r_[0, np.cumsum(counts*counts, dtype=np.int64)]
+        x = np.r_[0, np.cumsum(counts * counts, dtype=np.int64)]
         if likes.shape[0] != x[W]:
             raise ValueError("Median likelihood payload does not match the windows")
     cdef f64[::1] table = np.empty(P.shape[0])
-    for w in prange(W, nogil=True, schedule='static'):
-        if c[w+1] > c[w]:
+    for w in prange(W, nogil=True, schedule="static"):
+        if c[w + 1] > c[w]:
             if likes is None:
-                bad |= _table(&P[c[w]*K], NULL, &table[c[w]*K], c[w+1]-c[w], K)
+                bad |= _table(&P[c[w] * K], NULL, &table[c[w] * K], c[w + 1] - c[w], K)
             else:
-                bad |= _table(&P[c[w]*K], &likes[x[w]], &table[c[w]*K], c[w+1]-c[w], K)
-    if bad: raise ValueError("Each median likelihood row must have finite support and no NaN/+inf")
+                bad |= _table(&P[c[w] * K], &likes[x[w]], &table[c[w] * K], c[w + 1] - c[w], K)
+    if bad:
+        raise ValueError("Each median likelihood row must have finite support and no NaN/+inf")
     return np.asarray(table)
 
 
 ### Gather window emissions and leave missing or excluded assignments neutral
-def emissions(const u8[:, ::1] Z, const f64[::1] table, const i64[::1] c,
-              const u8[::1] use, Py_ssize_t K, Py_ssize_t beg, Py_ssize_t end,
-              Py_ssize_t block=1):
+def emissions(
+    const u8[:, ::1] Z,
+    const f64[::1] table,
+    const i64[::1] c,
+    const u8[::1] use,
+    Py_ssize_t K,
+    Py_ssize_t beg,
+    Py_ssize_t end,
+    Py_ssize_t block = 1,
+):
     cdef Py_ssize_t N = Z.shape[0], W = Z.shape[1], i, w, k, b, z
     if not 0 <= beg < end <= W or block < 1 or not 1 <= K <= 255:
         raise ValueError("Invalid HMM window bounds or block size")
-    if c.shape[0] != W+1 or use.shape[0] != W or table.shape[0] != c[W]*K:
+    if c.shape[0] != W + 1 or use.shape[0] != W or table.shape[0] != c[W] * K:
         raise ValueError("Emission metadata dimensions differ")
     cdef bint direct = block == 1 and N > 1 and omp.omp_get_max_threads() > 1
-    shape = (N, (end-beg+block-1)//block, K)
+    shape = (N, (end - beg + block - 1) // block, K)
     cdef f64[:, :, ::1] E = np.empty(shape) if direct else np.zeros(shape)
     if direct:
         # Fill in parallel. The zero-initialized loop is faster with one thread.
-        for i in prange(N, nogil=True, schedule='static'):
+        for i in prange(N, nogil=True, schedule="static"):
             for w in range(beg, end):
                 z = Z[i, w]
                 if use[w] and z != 255:
-                    b = (c[w]+z)*K
-                    for k in range(K): E[i, w-beg, k] = table[b+k]
+                    b = (c[w] + z) * K
+                    for k in range(K):
+                        E[i, w - beg, k] = table[b + k]
                 else:
-                    for k in range(K): E[i, w-beg, k] = 0
+                    for k in range(K):
+                        E[i, w - beg, k] = 0
     else:
-        for i in prange(N, nogil=True, schedule='static'):
+        for i in prange(N, nogil=True, schedule="static"):
             for w in range(beg, end):
                 z = Z[i, w]
                 if use[w] and z != 255:
-                    b = (w-beg)//block
-                    for k in range(K): E[i, b, k] += table[(c[w]+z)*K+k]
+                    b = (w - beg) // block
+                    for k in range(K):
+                        E[i, b, k] += table[(c[w] + z) * K + k]
     return np.asarray(E)
 
 
@@ -189,7 +221,7 @@ def _arguments(E, Q, alpha):
     alpha = np.atleast_1d(np.asarray(alpha, dtype=np.float64))
     if alpha.ndim != 1 or not len(alpha) or not np.all(np.isfinite(alpha)) or np.any(alpha <= 0):
         raise ValueError("HMM alpha values must be finite and positive")
-    return np.ascontiguousarray(Q/sums[:, None]), np.ascontiguousarray(alpha)
+    return np.ascontiguousarray(Q / sums[:, None]), np.ascontiguousarray(alpha)
 
 
 ### Precompute one genetic transition per window, including exact zero distances
@@ -202,7 +234,7 @@ def _steps(dist, alpha, W, simple):
     if d.shape != (W,) or not np.isfinite(d).all() or np.any(d < 0):
         raise ValueError("Genetic distances must be finite, nonnegative, and match the windows")
     with np.errstate(over="ignore", divide="ignore"):
-        a = alpha[0]*d
+        a = alpha[0] * d
         if not np.isfinite(a).all():
             raise ValueError("Time times genetic distance must be finite")
         s = -np.expm1(-a)
@@ -210,51 +242,80 @@ def _steps(dist, alpha, W, simple):
 
 
 ### Rescale emissions once per haplotype and use log recursion for extreme ranges
-cdef int _prepare(const f64* E, f64* S, f64* shift, const f64* q,
-                  Py_ssize_t W, Py_ssize_t K, f64 amin) noexcept nogil:
-    cdef Py_ssize_t w, k
-    cdef f64 m, lo, value, span = 0, qm = 1
+cdef int _prepare(
+    const f64* E,
+    f64* S,
+    f64* shift,
+    const f64* q,
+    Py_ssize_t W,
+    Py_ssize_t K,
+    f64 amin,
+) noexcept nogil:
+    cdef:
+        Py_ssize_t w, k
+        f64 m, lo, value, span = 0, qm = 1
     for k in range(K):
-        if q[k] > 0: qm = min(qm, q[k])
+        if q[k] > 0:
+            qm = min(qm, q[k])
     for w in range(W):
         m, lo = -INFINITY, INFINITY
         for k in range(K):
-            value = E[w*K+k]
-            if value != value or value == INFINITY: return -1
+            value = E[w * K + k]
+            if value != value or value == INFINITY:
+                return -1
             if q[k] > 0:
                 m = max(m, value)
-                if value != -INFINITY: lo = min(lo, value)
-        if m == -INFINITY: return -1
+                if value != -INFINITY:
+                    lo = min(lo, value)
+        if m == -INFINITY:
+            return -1
         shift[w] = m
-        span = max(span, m-lo)
+        span = max(span, m - lo)
         for k in range(K):
-            S[w*K+k] = exp(E[w*K+k]-m) if q[k] > 0 else 0
+            S[w * K + k] = exp(E[w * K + k] - m) if q[k] > 0 else 0
     return log(qm) + log(-expm1(-amin)) - span < -300
 
 
 ### Scaled forward/backward: T = exp(-alpha) I + (1-exp(-alpha)) q 1'
-cdef f64 _fbProb(const f64* E, const f64* shift, f64* scale, f64* F, f64* work,
-                   const f64* q, f64* G, f64* count, Py_ssize_t W,
-                   Py_ssize_t K, f64 alpha, f64 weight, const f64* steps) noexcept nogil:
-    cdef Py_ssize_t w, k
-    cdef f64 e = exp(-alpha), s = -expm1(-alpha), norm, total, ll = 0, prod = 1, value
-    cdef f64* beta = work
-    cdef f64* v = work+K
+cdef f64 _fbProb(
+    const f64* E,
+    const f64* shift,
+    f64* scale,
+    f64* F,
+    f64* work,
+    const f64* q,
+    f64* G,
+    f64* count,
+    Py_ssize_t W,
+    Py_ssize_t K,
+    f64 alpha,
+    f64 weight,
+    bint first,
+    const f64* steps,
+) noexcept nogil:
+    cdef:
+        Py_ssize_t w, k
+        f64 e = exp(-alpha), s = -expm1(-alpha), norm, total, ll = 0, prod = 1, value
+        f64* beta = work
+        f64* v = work + K
     for w in range(W):
         norm = 0
         if steps == NULL:
             for k in range(K):
-                F[w*K+k] = E[w*K+k]*(q[k] if w == 0 else e*F[(w-1)*K+k]+s*q[k])
-                norm += F[w*K+k]
+                F[w * K + k] = E[w * K + k] * (
+                    q[k] if w == 0 else e * F[(w - 1) * K + k] + s * q[k]
+                )
+                norm += F[w * K + k]
         else:
-            e, s = steps[4*w+1], steps[4*w+2]
+            e, s = steps[4 * w + 1], steps[4 * w + 2]
             for k in range(K):
-                value = q[k] if w == 0 else e*F[(w-1)*K+k]+s*q[k]
-                F[w*K+k] = E[w*K+k]*value
-                if value > 0 and E[w*K+k] > 0 and F[w*K+k] < 1e-200:
+                value = q[k] if w == 0 else e * F[(w - 1) * K + k] + s * q[k]
+                F[w * K + k] = E[w * K + k] * value
+                if value > 0 and E[w * K + k] > 0 and F[w * K + k] < 1e-200:
                     return -INFINITY
-                norm += F[w*K+k]
-        if norm <= 0: return -INFINITY
+                norm += F[w * K + k]
+        if norm <= 0:
+            return -INFINITY
         ll += shift[w]
 
         # _prepare bounds norm above exp(-300), so this product cannot underflow.
@@ -262,125 +323,173 @@ cdef f64 _fbProb(const f64* E, const f64* shift, f64* scale, f64* F, f64* work,
         if prod < 1e-100:
             ll += log(prod)
             prod = 1
-        if scale != NULL: scale[w] = norm
-        for k in range(K): F[w*K+k] /= norm
-    ll += log(prod)
-    if G == NULL: return ll
-    for k in range(K): beta[k] = 1
-    for w in range(W-1, -1, -1):
+        if scale != NULL:
+            scale[w] = norm
         for k in range(K):
-            value = F[w*K+k]*beta[k]
-            G[w*K+k] += weight*value
-            if count != NULL and w == 0: count[k] += weight*value
-            v[k] = E[w*K+k]*beta[k]
+            F[w * K + k] /= norm
+    ll += log(prod)
+    if G == NULL:
+        return ll
+    for k in range(K):
+        beta[k] = 1
+    for w in range(W - 1, -1, -1):
+        for k in range(K):
+            value = F[w * K + k] * beta[k]
+            G[w * K + k] = weight * value if first else G[w * K + k] + weight * value
+            if count != NULL and w == 0:
+                count[k] += weight * value
+            v[k] = E[w * K + k] * beta[k]
         if w:
             if steps != NULL:
-                e, s = steps[4*w+1], steps[4*w+2]
+                e, s = steps[4 * w + 1], steps[4 * w + 2]
             total = 0
-            for k in range(K): total += q[k]*v[k]
-            norm = 1.0/scale[w]
+            for k in range(K):
+                total += q[k] * v[k]
+            norm = 1.0 / scale[w]
             if count != NULL:
                 for k in range(K):
-                    count[k] += weight*s*q[k]*v[k]*norm
-                    beta[k] = (e*v[k]+s*total)*norm
+                    count[k] += weight * s * q[k] * v[k] * norm
+                    beta[k] = (e * v[k] + s * total) * norm
             else:
-                for k in range(K): beta[k] = (e*v[k]+s*total)*norm
+                for k in range(K):
+                    beta[k] = (e * v[k] + s * total) * norm
     return ll
 
 
 ### Logarithmic fallback and normalized simplified transitions, still O(W K)
-cdef f64 _fbLog(const f64* E, f64* shift, f64* F, f64* work, const f64* q,
-                  f64* G, f64* count, Py_ssize_t W, Py_ssize_t K,
-                  f64 alpha, f64 weight, bint simple, const f64* steps) noexcept nogil:
-    cdef Py_ssize_t w, k
-    cdef f64 ls = log(-expm1(-alpha)), norm, total = 0, ll = 0, value
-    cdef f64* beta = work
-    cdef f64* v = work+K
-    cdef f64* ex = work+2*K
-    cdef f64* lq = work+3*K
-    cdef f64* den = work+4*K
+cdef f64 _fbLog(
+    const f64* E,
+    f64* shift,
+    f64* F,
+    f64* work,
+    const f64* q,
+    f64* G,
+    f64* count,
+    Py_ssize_t W,
+    Py_ssize_t K,
+    f64 alpha,
+    f64 weight,
+    bint first,
+    bint simple,
+    const f64* steps,
+) noexcept nogil:
+    cdef:
+        Py_ssize_t w, k
+        f64 ls = log(-expm1(-alpha)), norm, total = 0, ll = 0, value
+        f64* beta = work
+        f64* v = work + K
+        f64* ex = work + 2 * K
+        f64* lq = work + 3 * K
+        f64* den = work + 4 * K
     for k in range(K):
         lq[k] = log(q[k]) if q[k] > 0 else -INFINITY
-        den[k] = _add(-alpha, ls+log1p(-q[k])) if simple else 0
+        den[k] = _add(-alpha, ls + log1p(-q[k])) if simple else 0
     for w in range(W):
         if steps != NULL:
-            alpha, ls = steps[4*w], steps[4*w+3]
+            alpha, ls = steps[4 * w], steps[4 * w + 3]
         if simple and w:
-            for k in range(K): v[k] = F[(w-1)*K+k]-den[k]
+            for k in range(K):
+                v[k] = F[(w - 1) * K + k] - den[k]
             _exclude(v, ex, K)
         for k in range(K):
             if w == 0:
                 value = lq[k]
             elif simple:
-                value = _add(-alpha+v[k], ls+lq[k]+ex[k])
+                value = _add(-alpha + v[k], ls + lq[k] + ex[k])
             else:
-                value = _add(-alpha+F[(w-1)*K+k], ls+lq[k])
-            F[w*K+k] = E[w*K+k]+value
-        norm = _sum(&F[w*K], K)
-        if norm == -INFINITY: return norm
+                value = _add(-alpha + F[(w - 1) * K + k], ls + lq[k])
+            F[w * K + k] = E[w * K + k] + value
+        norm = _sum(&F[w * K], K)
+        if norm == -INFINITY:
+            return norm
         ll += norm
         shift[w] = norm
-        for k in range(K): F[w*K+k] -= norm
-    if G == NULL: return ll
-    for k in range(K): beta[k] = 0
-    for w in range(W-1, -1, -1):
-        for k in range(K): v[k] = F[w*K+k]+beta[k]
+        for k in range(K):
+            F[w * K + k] -= norm
+    if G == NULL:
+        return ll
+    for k in range(K):
+        beta[k] = 0
+    for w in range(W - 1, -1, -1):
+        for k in range(K):
+            v[k] = F[w * K + k] + beta[k]
         norm = _sum(v, K)
         for k in range(K):
-            value = exp(v[k]-norm)
-            G[w*K+k] += weight*value
-            if count != NULL and w == 0: count[k] += weight*value
+            value = exp(v[k] - norm)
+            G[w * K + k] = weight * value if first else G[w * K + k] + weight * value
+            if count != NULL and w == 0:
+                count[k] += weight * value
         if w:
             if steps != NULL:
-                alpha, ls = steps[4*w], steps[4*w+3]
+                alpha, ls = steps[4 * w], steps[4 * w + 3]
             if count != NULL:
                 # Reuse the forward scale and posterior normalizer for reset counts.
                 norm += shift[w]
-                for k in range(K): count[k] += weight*exp(ls+lq[k]+E[w*K+k]+beta[k]-norm)
-            for k in range(K): v[k] = lq[k]+E[w*K+k]+beta[k]
+                for k in range(K):
+                    count[k] += weight * exp(ls + lq[k] + E[w * K + k] + beta[k] - norm)
+            for k in range(K):
+                v[k] = lq[k] + E[w * K + k] + beta[k]
             if simple:
                 _exclude(v, ex, K)
             else:
                 total = _sum(v, K)
             for k in range(K):
-                beta[k] = _add(-alpha+E[w*K+k]+beta[k], ls+(ex[k] if simple else total))-den[k]
+                beta[k] = (
+                    _add(-alpha + E[w * K + k] + beta[k], ls + (ex[k] if simple else total))
+                    - den[k]
+                )
             norm = _sum(beta, K)
-            for k in range(K): beta[k] -= norm
+            for k in range(K):
+                beta[k] -= norm
     return ll
 
 
 ### Share posterior inference while keeping decoding scratch bounded per thread
-cdef _posterior(const f64[:, :, ::1] E, Q, alpha, bint simple, bint resets,
-                bint score, bint decode, bint confidence, dist):
+cdef _posterior(
+    const f64[:, :, ::1] E,
+    Q,
+    alpha,
+    bint simple,
+    bint resets,
+    bint score,
+    bint decode,
+    bint confidence,
+    dist,
+):
     if score and resets:
         raise ValueError("Reset counts require posterior decoding")
     if simple and resets:
         raise ValueError("Q refinement requires the standard refresh transition model")
     Q, alpha = _arguments(np.asarray(E), Q, alpha)
-    cdef const f64[:, ::1] q = Q
-    cdef const f64[::1] rates = alpha
-    cdef Py_ssize_t N = E.shape[0], W = E.shape[1], K = E.shape[2], A = len(alpha)
-    cdef Py_ssize_t nt = min(N, omp.omp_get_max_threads()), i, a, t, w, k, dst
-    cdef int mode, bad = 0
-    cdef f64[:, ::1] step = _steps(dist, alpha, W, simple)
-    cdef const f64* steps = &step[0, 0] if step is not None else NULL
+    cdef:
+        const f64[:, ::1] q = Q
+        const f64[::1] rates = alpha
+        Py_ssize_t N = E.shape[0], W = E.shape[1], K = E.shape[2], A = len(alpha)
+        Py_ssize_t nt = min(N, omp.omp_get_max_threads()), i, a, t, w, k, dst
+        int mode, bad = 0
+        f64[:, ::1] step = _steps(dist, alpha, W, simple)
+        const f64* steps = &step[0, 0] if step is not None else NULL
     positive = np.asarray(step)[1:, 0] if step is not None else alpha
     positive = positive[positive > 0]
-    cdef f64 amin = positive.min() if len(positive) else 1, value, best
-    cdef f64* count
-    cdef f64* g
-    cdef f64[:, :, ::1] G = (np.empty((0, 0, 0)) if score else
-                             np.empty((nt, W, K)) if decode else np.zeros((N, W, K)))
-    cdef u8[:, ::1] D = np.empty((N, W), np.uint8) if decode else None
-    cdef f64[:, ::1] P = (np.empty((N, W)) if confidence else np.empty((0, 0))) if decode else None
-    cdef f64[:, ::1] C = np.zeros((N, K)) if resets else np.empty((0, 0))
-    cdef f64[:, ::1] ll = np.empty((N, A))
-    cdef f64[:, ::1] F = np.empty((nt, W*K))
-    cdef f64[:, ::1] S = np.empty((nt, W*K))
-    cdef f64[:, ::1] shift = np.empty((nt, W))
-    cdef f64[:, ::1] scale = np.empty((nt, W)) if not score else np.empty((0, 0))
-    cdef f64[:, ::1] tmp = np.empty((nt, 5*K))
-    for i in prange(N, nogil=True, schedule='static', num_threads=nt):
+    cdef:
+        f64 amin = positive.min() if len(positive) else 1, value, best
+        f64* count
+        f64* g
+    # The first alpha writes every posterior cell, avoiding a separate zeroing pass.
+    cdef:
+        f64[:, :, ::1] G = (
+            np.empty((0, 0, 0)) if score else np.empty((nt if decode else N, W, K))
+        )
+        u8[:, ::1] D = np.empty((N, W), np.uint8) if decode else None
+        f64[:, ::1] P = (np.empty((N, W)) if confidence else np.empty((0, 0))) if decode else None
+        f64[:, ::1] C = np.zeros((N, K)) if resets else np.empty((0, 0))
+        f64[:, ::1] ll = np.empty((N, A))
+        f64[:, ::1] F = np.empty((nt, W * K))
+        f64[:, ::1] S = np.empty((nt, W * K))
+        f64[:, ::1] shift = np.empty((nt, W))
+        f64[:, ::1] scale = np.empty((nt, W)) if not score else np.empty((0, 0))
+        f64[:, ::1] tmp = np.empty((nt, 5 * K))
+    for i in prange(N, nogil=True, schedule="static", num_threads=nt):
         t = threadid()
         mode = _prepare(&E[i, 0, 0], &S[t, 0], &shift[t, 0], &q[i, 0], W, K, amin)
         if mode < 0:
@@ -388,45 +497,102 @@ cdef _posterior(const f64[:, :, ::1] E, Q, alpha, bint simple, bint resets,
             continue
         count = &C[i, 0] if resets else NULL
         g = NULL if score else &G[t if decode else i, 0, 0]
-        if decode:
-            for w in range(W*K): g[w] = 0
         for a in range(A):
             if mode or simple:
-                value = _fbLog(&E[i, 0, 0], &shift[t, 0], &F[t, 0], &tmp[t, 0], &q[i, 0],
-                                g, count, W, K, rates[a], 1.0/A, simple, steps)
+                value = _fbLog(
+                    &E[i, 0, 0],
+                    &shift[t, 0],
+                    &F[t, 0],
+                    &tmp[t, 0],
+                    &q[i, 0],
+                    g,
+                    count,
+                    W,
+                    K,
+                    rates[a],
+                    1.0 / A,
+                    a == 0,
+                    simple,
+                    steps,
+                )
             else:
-                value = _fbProb(&S[t, 0], &shift[t, 0], &scale[t, 0] if not score else NULL,
-                                 &F[t, 0], &tmp[t, 0], &q[i, 0],
-                                 g, count, W, K, rates[a], 1.0/A, steps)
+                value = _fbProb(
+                    &S[t, 0],
+                    &shift[t, 0],
+                    &scale[t, 0] if not score else NULL,
+                    &F[t, 0],
+                    &tmp[t, 0],
+                    &q[i, 0],
+                    g,
+                    count,
+                    W,
+                    K,
+                    rates[a],
+                    1.0 / A,
+                    a == 0,
+                    steps,
+                )
                 if steps != NULL and not isfinite(value):
-                    value = _fbLog(&E[i, 0, 0], &shift[t, 0], &F[t, 0], &tmp[t, 0], &q[i, 0],
-                                    g, count, W, K, rates[a], 1.0/A, False, steps)
+                    value = _fbLog(
+                        &E[i, 0, 0],
+                        &shift[t, 0],
+                        &F[t, 0],
+                        &tmp[t, 0],
+                        &q[i, 0],
+                        g,
+                        count,
+                        W,
+                        K,
+                        rates[a],
+                        1.0 / A,
+                        a == 0,
+                        False,
+                        steps,
+                    )
             ll[i, a] = value
-            if not isfinite(value): bad |= 1
+            if not isfinite(value):
+                bad |= 1
         if decode:
             for w in range(W):
                 dst = 0
-                best = g[w*K]
+                best = g[w * K]
                 for k in range(1, K):
-                    value = g[w*K+k]
+                    value = g[w * K + k]
                     if value > best:
                         best = value
                         dst = k
                 D[i, w] = dst
-                if confidence: P[i, w] = best
-    if bad: raise ValueError("Nonfinite emissions or no supported HMM path for an observed haplotype")
+                if confidence:
+                    P[i, w] = best
+    if bad:
+        raise ValueError("Nonfinite emissions or no supported HMM path for an observed haplotype")
     if decode:
         return np.asarray(D), np.asarray(P), np.asarray(ll)
     return np.asarray(G), np.asarray(C), np.asarray(ll)
 
 
 ### Average ancestry posteriors and reset counts across alpha values
-def posterior(const f64[:, :, ::1] E, Q, alpha, bint simple=False, bint resets=False, bint score=False, dist=None):
+def posterior(
+    const f64[:, :, ::1] E,
+    Q,
+    alpha,
+    bint simple = False,
+    bint resets = False,
+    bint score = False,
+    dist=None,
+):
     return _posterior(E, Q, alpha, simple, resets, score, False, False, dist)
 
 
 ### Decode the mean posterior from bounded per-thread scratch
-def posteriorDecode(const f64[:, :, ::1] E, Q, alpha, bint simple=False, bint confidence=False, dist=None):
+def posteriorDecode(
+    const f64[:, :, ::1] E,
+    Q,
+    alpha,
+    bint simple = False,
+    bint confidence = False,
+    dist=None,
+):
     return _posterior(E, Q, alpha, simple, False, False, True, confidence, dist)
 
 
@@ -434,143 +600,197 @@ def posteriorDecode(const f64[:, :, ::1] E, Q, alpha, bint simple=False, bint co
 
 
 ### Small state spaces favor a tight dense loop with rolling score vectors
-cdef f64 _viterbiSmall(const f64* E, const f64* q, u8* path, u8* prev,
-                         f64* work, Py_ssize_t W, Py_ssize_t K,
-                         f64 alpha) noexcept nogil:
-    cdef f64 T[64]
-    cdef f64* a = work
-    cdef f64* b = work+K
-    cdef f64 ls = log(-expm1(-alpha)), best, value, norm
-    cdef Py_ssize_t w, k, j, src
+cdef f64 _viterbiSmall(
+    const f64* E,
+    const f64* q,
+    u8* path,
+    u8* prev,
+    f64* work,
+    Py_ssize_t W,
+    Py_ssize_t K,
+    f64 alpha,
+) noexcept nogil:
+    cdef:
+        f64[64] T
+        f64* a = work
+        f64* b = work + K
+        f64 ls = log(-expm1(-alpha)), best, value, norm
+        Py_ssize_t w, k, j, src
     for k in range(K):
-        value = ls+log(q[k]) if q[k] > 0 else -INFINITY
-        for j in range(K): T[k*K+j] = _add(-alpha, value) if k == j else value
-        if E[k] != E[k] or E[k] == INFINITY: return -INFINITY
-        a[k] = E[k]+(log(q[k]) if q[k] > 0 else -INFINITY)
+        value = ls + log(q[k]) if q[k] > 0 else -INFINITY
+        for j in range(K):
+            T[k * K + j] = _add(-alpha, value) if k == j else value
+        if E[k] != E[k] or E[k] == INFINITY:
+            return -INFINITY
+        a[k] = E[k] + (log(q[k]) if q[k] > 0 else -INFINITY)
     for w in range(1, W):
         norm = -INFINITY
         for k in range(K):
-            src, best = 0, a[0]+T[k*K]
+            src, best = 0, a[0] + T[k * K]
             for j in range(1, K):
-                value = a[j]+T[k*K+j]
-                if value > best: src, best = j, value
-            value = E[w*K+k]
-            if value != value or value == INFINITY: return -INFINITY
-            b[k] = best+value
-            prev[w*K+k] = src
+                value = a[j] + T[k * K + j]
+                if value > best:
+                    src, best = j, value
+            value = E[w * K + k]
+            if value != value or value == INFINITY:
+                return -INFINITY
+            b[k] = best + value
+            prev[w * K + k] = src
             norm = max(norm, b[k])
-        if norm == -INFINITY: return norm
+        if norm == -INFINITY:
+            return norm
 
         # Periodic centering avoids growth of accumulated scores. Huge blocks center immediately.
         if w % 64 == 0 or norm < -1e4 or norm > 1e4:
-            for k in range(K): b[k] -= norm
+            for k in range(K):
+                b[k] -= norm
         a, b = b, a
     src, best = 0, a[0]
     for k in range(1, K):
-        if a[k] > best: src, best = k, a[k]
-    if best == -INFINITY: return best
-    path[W-1] = src
-    for w in range(W-2, -1, -1): path[w] = prev[(w+1)*K+path[w+1]]
+        if a[k] > best:
+            src, best = k, a[k]
+    if best == -INFINITY:
+        return best
+    path[W - 1] = src
+    for w in range(W - 2, -1, -1):
+        path[w] = prev[(w + 1) * K + path[w + 1]]
     return best
 
 
 ### Viterbi needs only the two best predecessors and one traceback byte per state
-cdef f64 _viterbi(const f64* E, const f64* q, u8* path, u8* prev,
-                   f64* work, Py_ssize_t W, Py_ssize_t K, f64 alpha,
-                   bint simple, const f64* steps) noexcept nogil:
-    cdef Py_ssize_t w, k, first, second = 0, src, dst
-    cdef f64 ls = log(-expm1(-alpha)), best, runner = -INFINITY, stay, jump, norm, score = 0
-    cdef f64* v = work
-    cdef f64* u = work+K
-    cdef f64* diag = work+2*K
-    cdef f64* off = work+3*K
-    cdef f64* den = work+4*K
+cdef f64 _viterbi(
+    const f64* E,
+    const f64* q,
+    u8* path,
+    u8* prev,
+    f64* work,
+    Py_ssize_t W,
+    Py_ssize_t K,
+    f64 alpha,
+    bint simple,
+    const f64* steps,
+) noexcept nogil:
+    cdef:
+        Py_ssize_t w, k, first, second = 0, src, dst
+        f64 ls = log(-expm1(-alpha)), best, runner = -INFINITY, stay, jump, norm, score = 0
+        f64* v = work
+        f64* u = work + K
+        f64* diag = work + 2 * K
+        f64* off = work + 3 * K
+        f64* den = work + 4 * K
     if K <= 8 and not simple and steps == NULL:
         return _viterbiSmall(E, q, path, prev, work, W, K, alpha)
     for k in range(K):
-        off[k] = ls+log(q[k]) if q[k] > 0 else -INFINITY
-        den[k] = _add(-alpha, ls+log1p(-q[k])) if simple else 0
-        diag[k] = -alpha-den[k] if simple else _add(-alpha, off[k])
-        if E[k] != E[k] or E[k] == INFINITY: return -INFINITY
-        v[k] = E[k]+(log(q[k]) if q[k] > 0 else -INFINITY)
-        if steps != NULL: den[k] = log(q[k]) if q[k] > 0 else -INFINITY
+        off[k] = ls + log(q[k]) if q[k] > 0 else -INFINITY
+        den[k] = _add(-alpha, ls + log1p(-q[k])) if simple else 0
+        diag[k] = -alpha - den[k] if simple else _add(-alpha, off[k])
+        if E[k] != E[k] or E[k] == INFINITY:
+            return -INFINITY
+        v[k] = E[k] + (log(q[k]) if q[k] > 0 else -INFINITY)
+        if steps != NULL:
+            den[k] = log(q[k]) if q[k] > 0 else -INFINITY
     for w in range(1, W):
         if steps != NULL:
-            alpha, ls = steps[4*w], steps[4*w+3]
+            alpha, ls = steps[4 * w], steps[4 * w + 3]
             for k in range(K):
-                off[k] = ls+den[k]
+                off[k] = ls + den[k]
                 diag[k] = _add(-alpha, off[k])
         first, best = 0, v[0]
         if simple:
             first, second, best, runner = 0, 0, -INFINITY, -INFINITY
             for k in range(K):
-                u[k] = v[k]-den[k]
+                u[k] = v[k] - den[k]
                 if u[k] > best:
                     second, runner, first, best = first, best, k, u[k]
                 elif u[k] > runner:
                     second, runner = k, u[k]
         else:
             for k in range(1, K):
-                if v[k] > best: first, best = k, v[k]
+                if v[k] > best:
+                    first, best = k, v[k]
         norm = -INFINITY
         for k in range(K):
             src = second if simple and first == k else first
-            jump = (runner if simple and first == k else best)+off[k]
-            stay = v[k]+diag[k]
+            jump = (runner if simple and first == k else best) + off[k]
+            stay = v[k] + diag[k]
             dst = k
             if jump > stay or (jump == stay and src < k):
                 stay, dst = jump, src
-            prev[w*K+k] = dst
-            if E[w*K+k] != E[w*K+k] or E[w*K+k] == INFINITY: return -INFINITY
-            u[k] = stay+E[w*K+k]
+            prev[w * K + k] = dst
+            if E[w * K + k] != E[w * K + k] or E[w * K + k] == INFINITY:
+                return -INFINITY
+            u[k] = stay + E[w * K + k]
             norm = max(norm, u[k])
-        if norm == -INFINITY: return norm
+        if norm == -INFINITY:
+            return norm
         score += norm
-        for k in range(K): v[k] = u[k]-norm
+        for k in range(K):
+            v[k] = u[k] - norm
     dst, best = 0, v[0]
     for k in range(1, K):
-        if v[k] > best: dst, best = k, v[k]
-    if best == -INFINITY: return best
-    path[W-1] = dst
-    for w in range(W-2, -1, -1): path[w] = prev[(w+1)*K+path[w+1]]
-    return score+best
+        if v[k] > best:
+            dst, best = k, v[k]
+    if best == -INFINITY:
+        return best
+    path[W - 1] = dst
+    for w in range(W - 2, -1, -1):
+        path[w] = prev[(w + 1) * K + path[w + 1]]
+    return score + best
 
 
 ### Decode exact paths per alpha and use plurality for an ensemble
-def viterbi(const f64[:, :, ::1] E, Q, alpha, bint simple=False, dist=None):
+def viterbi(const f64[:, :, ::1] E, Q, alpha, bint simple = False, dist=None):
     Q, alpha = _arguments(np.asarray(E), Q, alpha)
-    cdef const f64[:, ::1] q = Q
-    cdef const f64[::1] rates = alpha
-    cdef Py_ssize_t N = E.shape[0], W = E.shape[1], K = E.shape[2], A = len(alpha)
-    cdef Py_ssize_t nt = min(N, omp.omp_get_max_threads()), i, a, t, w, k, dst
-    cdef f64[:, ::1] step = _steps(dist, alpha, W, simple)
-    cdef const f64* steps = &step[0, 0] if step is not None else NULL
-    cdef int bad = 0
-    cdef f64 value
-    cdef u8[:, ::1] D = np.empty((N, W), np.uint8)
-    cdef u8[:, ::1] I = np.empty((nt, W*K), np.uint8)
-    cdef u8[:, ::1] path = np.empty((nt, W), np.uint8)
-    cdef u32[:, ::1] votes = np.zeros((nt, W*K), np.uint32) if A > 1 else np.empty((nt, 0), np.uint32)
-    cdef f64[:, ::1] tmp = np.empty((nt, 5*K))
-    for i in prange(N, nogil=True, schedule='static', num_threads=nt):
+    cdef:
+        const f64[:, ::1] q = Q
+        const f64[::1] rates = alpha
+        Py_ssize_t N = E.shape[0], W = E.shape[1], K = E.shape[2], A = len(alpha)
+        Py_ssize_t nt = min(N, omp.omp_get_max_threads()), i, a, t, w, k, dst
+        f64[:, ::1] step = _steps(dist, alpha, W, simple)
+        const f64* steps = &step[0, 0] if step is not None else NULL
+        int bad = 0
+        f64 value
+        u8[:, ::1] D = np.empty((N, W), np.uint8)
+        u8[:, ::1] I = np.empty((nt, W * K), np.uint8)
+        u8[:, ::1] path = np.empty((nt, W), np.uint8)
+        u32[:, ::1] votes = (
+            np.zeros((nt, W * K), np.uint32) if A > 1 else np.empty((nt, 0), np.uint32)
+        )
+        f64[:, ::1] tmp = np.empty((nt, 5 * K))
+    for i in prange(N, nogil=True, schedule="static", num_threads=nt):
         t = threadid()
         for a in range(A):
-            value = _viterbi(&E[i, 0, 0], &q[i, 0], &path[t, 0], &I[t, 0],
-                             &tmp[t, 0], W, K, rates[a], simple, steps)
+            value = _viterbi(
+                &E[i, 0, 0],
+                &q[i, 0],
+                &path[t, 0],
+                &I[t, 0],
+                &tmp[t, 0],
+                W,
+                K,
+                rates[a],
+                simple,
+                steps,
+            )
             if not isfinite(value):
                 bad |= 1
                 continue
             for w in range(W):
-                if A == 1: D[i, w] = path[t, w]
-                else: votes[t, w*K+path[t, w]] += 1
+                if A == 1:
+                    D[i, w] = path[t, w]
+                else:
+                    votes[t, w * K + path[t, w]] += 1
         if A > 1:
             for w in range(W):
                 dst = 0
                 for k in range(1, K):
-                    if votes[t, w*K+k] > votes[t, w*K+dst]: dst = k
+                    if votes[t, w * K + k] > votes[t, w * K + dst]:
+                        dst = k
                 D[i, w] = dst
-                for k in range(K): votes[t, w*K+k] = 0
-    if bad: raise ValueError("No supported HMM path for an observed haplotype")
+                for k in range(K):
+                    votes[t, w * K + k] = 0
+    if bad:
+        raise ValueError("No supported HMM path for an observed haplotype")
     return np.asarray(D)
 
 
@@ -578,15 +798,24 @@ def viterbi(const f64[:, :, ::1] E, Q, alpha, bint simple=False, dist=None):
 
 
 ### Score labels directly with two state vectors and a log-space fallback
-cdef f64 _mapForward(const u8* z, const f64* p, const i64* c,
-                       const u8* use, const f64* q, const f64* step, f64* work,
-                       Py_ssize_t W, Py_ssize_t K,
-                       bint logs) noexcept nogil:
-    cdef Py_ssize_t w, k, a
-    cdef f64* f = work
-    cdef f64* v = work+K
-    cdef f64 lq[255]
-    cdef f64 norm, value, ll = 0, prod = 1, e, s
+cdef f64 _mapForward(
+    const u8* z,
+    const f64* p,
+    const i64* c,
+    const u8* use,
+    const f64* q,
+    const f64* step,
+    f64* work,
+    Py_ssize_t W,
+    Py_ssize_t K,
+    bint logs,
+) noexcept nogil:
+    cdef:
+        Py_ssize_t w, k, a
+        f64* f = work
+        f64* v = work + K
+        f64[255] lq
+        f64 norm, value, ll = 0, prod = 1, e, s
     for k in range(K):
         f[k] = q[k]
         if logs:
@@ -595,40 +824,52 @@ cdef f64 _mapForward(const u8* z, const f64* p, const i64* c,
     for w in range(W):
         a = z[w]
         if use[w] and a != 255:
-            if a >= c[w+1]-c[w]: return -INFINITY
-            a = (c[w]+a)*K
+            if a >= c[w + 1] - c[w]:
+                return -INFINITY
+            a = (c[w] + a) * K
         else:
             a = -1
         if logs:
-            e, s = step[4*w], step[4*w+3]
+            e, s = step[4 * w], step[4 * w + 3]
             for k in range(K):
-                value = f[k] if w == 0 else _add(-e+f[k], s+lq[k])
-                v[k] = value+(log(p[a+k]) if a >= 0 else 0)
+                value = f[k] if w == 0 else _add(-e + f[k], s + lq[k])
+                v[k] = value + (log(p[a + k]) if a >= 0 else 0)
             norm = _sum(v, K)
-            if norm == -INFINITY: return norm
+            if norm == -INFINITY:
+                return norm
             ll += norm
-            for k in range(K): f[k] = v[k]-norm
+            for k in range(K):
+                f[k] = v[k] - norm
         else:
-            e, s = step[4*w+1], step[4*w+2]
+            e, s = step[4 * w + 1], step[4 * w + 2]
             norm = 0
             for k in range(K):
-                value = f[k] if w == 0 else e*f[k]+s*q[k]
-                v[k] = value*(p[a+k] if a >= 0 else 1)
-                if value > 0 and (a < 0 or p[a+k] > 0) and v[k] < 1e-200:
+                value = f[k] if w == 0 else e * f[k] + s * q[k]
+                v[k] = value * (p[a + k] if a >= 0 else 1)
+                if value > 0 and (a < 0 or p[a + k] > 0) and v[k] < 1e-200:
                     return -INFINITY
                 norm += v[k]
-            if norm <= 0: return -INFINITY
+            if norm <= 0:
+                return -INFINITY
             prod *= norm
             if prod < 1e-100:
                 ll += log(prod)
                 prod = 1
-            for k in range(K): f[k] = v[k]/norm
-    return ll if logs else ll+log(prod)
+            for k in range(K):
+                f[k] = v[k] / norm
+    return ll if logs else ll + log(prod)
 
 
 ### Score one date with mapped labels and two state vectors per worker
-def mapScore(const u8[:, ::1] Z, const f64[::1] P, const i64[::1] c,
-             const u8[::1] use, Q, dist, f64 time):
+def mapScore(
+    const u8[:, ::1] Z,
+    const f64[::1] P,
+    const i64[::1] c,
+    const u8[::1] use,
+    Q,
+    dist,
+    f64 time,
+):
     cdef Py_ssize_t N = Z.shape[0], W = Z.shape[1], K, nt, i, t
     if dist is None:
         raise ValueError("Dating requires genetic distances")
@@ -637,30 +878,44 @@ def mapScore(const u8[:, ::1] Z, const f64[::1] P, const i64[::1] c,
         raise ValueError("Date proportions do not match haplotypes")
     K = Q.shape[1]
     Q, alpha = _arguments(Q[:, None], Q, time)
-    if W < 1 or c.shape[0] != W+1 or use.shape[0] != W:
+    if W < 1 or c.shape[0] != W + 1 or use.shape[0] != W:
         raise ValueError("Invalid date window dimensions")
-    if c[0] != 0 or c[W]*K != P.shape[0] or np.any(np.diff(c) < 0):
+    if c[0] != 0 or c[W] * K != P.shape[0] or np.any(np.diff(c) < 0):
         raise ValueError("Invalid date frequency dimensions")
     if not np.isfinite(P).all() or np.any(np.asarray(P) < 0):
         raise ValueError("Date frequencies must be finite and nonnegative")
     nt = min(N, omp.omp_get_max_threads())
-    cdef const f64[:, ::1] q = Q
-    cdef f64[:, ::1] step = _steps(dist, alpha, W, False)
-    cdef const f64* p = &P[0] if P.shape[0] else NULL
-    cdef f64[:, ::1] work = np.empty((nt, 2*K))
-    cdef f64[::1] ll = np.empty(N)
-    cdef int bad = 0
-    cdef f64 value
-    for i in prange(N, nogil=True, schedule='static', num_threads=nt):
+    cdef:
+        const f64[:, ::1] q = Q
+        f64[:, ::1] step = _steps(dist, alpha, W, False)
+        const f64* p = &P[0] if P.shape[0] else NULL
+        f64[:, ::1] work = np.empty((nt, 2 * K))
+        f64[::1] ll = np.empty(N)
+        int bad = 0
+        f64 value
+    for i in prange(N, nogil=True, schedule="static", num_threads=nt):
         t = threadid()
-        value = _mapForward(&Z[i, 0], p, &c[0], &use[0], &q[i, 0],
-                              &step[0, 0], &work[t, 0], W, K, False)
+        value = _mapForward(
+            &Z[i, 0], p, &c[0], &use[0], &q[i, 0], &step[0, 0], &work[t, 0], W, K, False
+        )
         if not isfinite(value):
-            value = _mapForward(&Z[i, 0], p, &c[0], &use[0], &q[i, 0],
-                                  &step[0, 0], &work[t, 0], W, K, True)
+            value = _mapForward(
+                &Z[i, 0],
+                p,
+                &c[0],
+                &use[0],
+                &q[i, 0],
+                &step[0, 0],
+                &work[t, 0],
+                W,
+                K,
+                True,
+            )
         ll[i] = value
-        if not isfinite(value): bad |= 1
-    if bad: raise ValueError("No supported HMM path for dating")
+        if not isfinite(value):
+            bad |= 1
+    if bad:
+        raise ValueError("No supported HMM path for dating")
     return np.asarray(ll)
 
 
@@ -669,26 +924,29 @@ def mapScore(const u8[:, ::1] Z, const f64[::1] P, const i64[::1] c,
 
 ### Count observed assignments once for convergence scaling and empty samples
 def observations(const u8[:, ::1] Z, const u8[::1] use):
-    cdef Py_ssize_t W = Z.shape[0], N = Z.shape[1] // 2, i, w, t
-    cdef Py_ssize_t nt = max(1, min(N, omp.omp_get_max_threads()))
+    cdef:
+        Py_ssize_t W = Z.shape[0], N = Z.shape[1] // 2, i, w, t
+        Py_ssize_t nt = max(1, min(N, omp.omp_get_max_threads()))
     if Z.shape[1] % 2 or use.shape[0] != W:
         raise ValueError("Invalid observation dimensions")
     cdef i64[::1] obs = np.zeros(N, np.int64)
-    for t in prange(nt, nogil=True, schedule='static', num_threads=nt):
+    for t in prange(nt, nogil=True, schedule="static", num_threads=nt):
         for w in range(W):
             if use[w]:
-                for i in range(N*t//nt, N*(t+1)//nt):
-                    obs[i] += (Z[w, 2*i] != 255) + (Z[w, 2*i+1] != 255)
+                for i in range(N * t // nt, N * (t + 1) // nt):
+                    obs[i] += (Z[w, 2 * i] != 255) + (Z[w, 2 * i + 1] != 255)
     return np.asarray(obs)
 
 
 ### Log prior relative to its mode: -mass * KL(base || current)
 def penalty(const f64[::1] base, const f64[::1] p, f64 mass):
-    cdef Py_ssize_t a
-    cdef f64 value = 0
+    cdef:
+        Py_ssize_t a
+        f64 value = 0
     if base.shape[0] != p.shape[0] or not isfinite(mass) or mass < 0:
         raise ValueError("Invalid prior dimensions or mass")
-    if mass == 0: return 0.0
+    if mass == 0:
+        return 0.0
     with nogil:
         for a in range(base.shape[0]):
             if base[a] > 0:
@@ -700,111 +958,188 @@ def penalty(const f64[::1] base, const f64[::1] p, f64 mass):
 
 
 ### Accumulate P sufficient statistics from bounded posterior batches
-def accumulate(const u8[:, ::1] Z, const f64[:, :, ::1] G,
-               const u8[::1] use, const i64[::1] c, Py_ssize_t beg,
-               Py_ssize_t end, f64[::1] counts):
+def accumulate(
+    const u8[:, ::1] Z,
+    const f64[:, :, ::1] G,
+    const u8[::1] use,
+    const i64[::1] c,
+    Py_ssize_t beg,
+    Py_ssize_t end,
+    f64[::1] counts,
+):
     cdef Py_ssize_t N = Z.shape[0], K = G.shape[2], w, i, k, z
-    if G.shape[0] != N or G.shape[1] != end-beg or counts.shape[0] != c[c.shape[0]-1]*K:
+    if G.shape[0] != N or G.shape[1] != end - beg or counts.shape[0] != c[c.shape[0] - 1] * K:
         raise ValueError("Refinement dimensions differ")
-    for w in prange(beg, end, nogil=True, schedule='static'):
+    for w in prange(beg, end, nogil=True, schedule="static"):
         if use[w]:
             for i in range(N):
                 z = Z[i, w]
                 if z != 255:
-                    for k in range(K): counts[(c[w]+z)*K+k] += G[i, w-beg, k]
+                    for k in range(K):
+                        counts[(c[w] + z) * K + k] += G[i, w - beg, k]
 
 
 ### Sum unfloored ancestry counts once for each window
 def looTotals(const f64[::1] counts, const i64[::1] c, Py_ssize_t K):
-    cdef Py_ssize_t W = c.shape[0]-1, w, k, a
-    if W < 1 or K < 1 or c[0] != 0 or c[W]*K != counts.shape[0]:
+    cdef Py_ssize_t W = c.shape[0] - 1, w, k, a
+    if W < 1 or K < 1 or c[0] != 0 or c[W] * K != counts.shape[0]:
         raise ValueError("Invalid LOO count dimensions")
     cdef f64[:, ::1] total = np.zeros((W, K))
-    for w in prange(W, nogil=True, schedule='static'):
-        for a in range(c[w], c[w+1]):
-            for k in range(K): total[w, k] += counts[a*K+k]
+    for w in prange(W, nogil=True, schedule="static"):
+        for a in range(c[w], c[w + 1]):
+            for k in range(K):
+                total[w, k] += counts[a * K + k]
     return np.asarray(total)
 
 
 ### Remove both haplotypes from the emissions used to update this individual's Q
-cdef void _looPair(const u8* z, const f64* g, f64* E, const f64* q,
-                   const f64* base, const f64* counts, const f64* total,
-                   const i64* c, const u8* use, Py_ssize_t W, Py_ssize_t beg,
-                   Py_ssize_t end, Py_ssize_t K, f64 mass) noexcept nogil:
-    cdef Py_ssize_t w, k, h, r, s, a, n, off, row, B = end-beg
-    cdef f64 rest, pool, own, den, value
-    cdef bint support
+cdef void _looPair(
+    const u8* z,
+    const f64* g,
+    f64* E,
+    const f64* q,
+    const f64* base,
+    const f64* counts,
+    const f64* total,
+    const i64* c,
+    const u8* use,
+    Py_ssize_t W,
+    Py_ssize_t beg,
+    Py_ssize_t end,
+    Py_ssize_t K,
+    f64 mass,
+) noexcept nogil:
+    cdef:
+        Py_ssize_t w, k, h, r, s, a, n, off, row, B = end - beg
+        f64 rest, pool, own, den, value
+        bint support
     for w in range(beg, end):
-        if not use[w]: continue
-        r, s = z[w], z[W+w]
+        if not use[w]:
+            continue
+        r, s = z[w], z[W + w]
         n = (r != 255) + (s != 255)
-        if not n: continue
-        off = (w-beg)*K
+        if not n:
+            continue
+        off = (w - beg) * K
         rest = -n
-        for k in range(K): rest += total[w*K+k]
+        for k in range(K):
+            rest += total[w * K + k]
         for h in range(2):
             a = r if h == 0 else s
-            if a == 255: continue
+            if a == 255:
+                continue
             pool = -(r == a) - (s == a)
-            for k in range(K): pool += counts[(c[w]+a)*K+k]
+            for k in range(K):
+                pool += counts[(c[w] + a) * K + k]
             # Pooled support is a haplotype count, so discard subtraction roundoff
             if rest < 0.5:
-                pool = 1.0/(c[w+1]-c[w])
+                pool = 1.0 / (c[w + 1] - c[w])
             else:
-                pool = pool/rest if pool >= 0.5 else 0
-            row = h*B*K + off
+                pool = pool / rest if pool >= 0.5 else 0
+            row = h * B * K + off
             support = False
             for k in range(K):
-                own = (g[off+k] if r != 255 else 0) + (g[B*K+off+k] if s != 255 else 0)
-                den = max(0.0, total[w*K+k]-own) if rest >= 0.5 else 0
-                own = (g[off+k] if r == a else 0) + (g[B*K+off+k] if s == a else 0)
-                value = max(0.0, counts[(c[w]+a)*K+k]-own) if rest >= 0.5 else 0
-                value = (value + mass*base[(c[w]+a)*K+k])/(den+mass) if den+mass > 0 else pool
-                if mass == 0 and pool == 0: value = 0
+                own = (g[off + k] if r != 255 else 0) + (g[B * K + off + k] if s != 255 else 0)
+                den = max(0.0, total[w * K + k] - own) if rest >= 0.5 else 0
+                own = (g[off + k] if r == a else 0) + (g[B * K + off + k] if s == a else 0)
+                value = max(0.0, counts[(c[w] + a) * K + k] - own) if rest >= 0.5 else 0
+                value = (
+                    (value + mass * base[(c[w] + a) * K + k]) / (den + mass)
+                    if den + mass > 0
+                    else pool
+                )
+                if mass == 0 and pool == 0:
+                    value = 0
                 value = min(1.0, value)
-                E[row+k] = log(value) if value > 0 else -INFINITY
-                support |= value > 0 and q[h*K+k] > 0
+                E[row + k] = log(value) if value > 0 else -INFINITY
+                support |= value > 0 and q[h * K + k] > 0
             # Unsupported private clusters are neutral, like missing emissions
             if not support:
-                for k in range(K): E[row+k] = 0
+                for k in range(K):
+                    E[row + k] = 0
 
 
 ### Replace an existing emission batch without storing individual P matrices
-def looEmissions(const u8[:, ::1] Z, const f64[:, :, ::1] G, f64[:, :, ::1] E,
-                 const f64[:, ::1] Q, const f64[::1] base, const f64[::1] counts,
-                 const f64[:, ::1] total, const i64[::1] c, const u8[::1] use,
-                 Py_ssize_t beg, Py_ssize_t end, f64 mass):
+def looEmissions(
+    const u8[:, ::1] Z,
+    const f64[:, :, ::1] G,
+    f64[:, :, ::1] E,
+    const f64[:, ::1] Q,
+    const f64[::1] base,
+    const f64[::1] counts,
+    const f64[:, ::1] total,
+    const i64[::1] c,
+    const u8[::1] use,
+    Py_ssize_t beg,
+    Py_ssize_t end,
+    f64 mass,
+):
     cdef Py_ssize_t N = Z.shape[0], W = Z.shape[1], K = Q.shape[1], i
-    if (N < 2 or N % 2 or not 0 <= beg < end <= W or not 1 <= K <= 255 or
-            Q.shape[0] != N or G.shape[0] != N or E.shape[0] != N or
-            G.shape[1] != end-beg or E.shape[1] != end-beg or
-            G.shape[2] != K or E.shape[2] != K or c.shape[0] != W+1 or
-            use.shape[0] != W or total.shape[0] != W or total.shape[1] != K or
-            base.shape[0] != c[W]*K or counts.shape[0] != base.shape[0] or
-            not isfinite(mass) or mass < 0):
+    if (
+        N < 2
+        or N % 2
+        or not 0 <= beg < end <= W
+        or not 1 <= K <= 255
+        or Q.shape[0] != N
+        or G.shape[0] != N
+        or E.shape[0] != N
+        or G.shape[1] != end - beg
+        or E.shape[1] != end - beg
+        or G.shape[2] != K
+        or E.shape[2] != K
+        or c.shape[0] != W + 1
+        or use.shape[0] != W
+        or total.shape[0] != W
+        or total.shape[1] != K
+        or base.shape[0] != c[W] * K
+        or counts.shape[0] != base.shape[0]
+        or not isfinite(mass)
+        or mass < 0
+    ):
         raise ValueError("Invalid LOO emission dimensions or prior mass")
-    for i in prange(N//2, nogil=True, schedule='static'):
-        _looPair(&Z[2*i, 0], &G[2*i, 0, 0], &E[2*i, 0, 0], &Q[2*i, 0],
-                 &base[0] if base.shape[0] else NULL,
-                 &counts[0] if counts.shape[0] else NULL, &total[0, 0],
-                 &c[0], &use[0], W, beg, end, K, mass)
+    for i in prange(N // 2, nogil=True, schedule="static"):
+        _looPair(
+            &Z[2 * i, 0],
+            &G[2 * i, 0, 0],
+            &E[2 * i, 0, 0],
+            &Q[2 * i, 0],
+            &base[0] if base.shape[0] else NULL,
+            &counts[0] if counts.shape[0] else NULL,
+            &total[0, 0],
+            &c[0],
+            &use[0],
+            W,
+            beg,
+            end,
+            K,
+            mass,
+        )
 
 
 ### Normalize emission counts with optional prior mass
-def refineP(const f64[::1] base, const f64[::1] counts,
-            const i64[::1] c, Py_ssize_t K, f64 mass):
-    cdef Py_ssize_t W = c.shape[0]-1, w, k, a
-    cdef f64 total
-    cdef f64[::1] P = np.empty(base.shape[0])
-    if counts.shape[0] != base.shape[0] or base.shape[0] != c[W]*K or not isfinite(mass) or mass < 0:
+def refineP(const f64[::1] base, const f64[::1] counts, const i64[::1] c, Py_ssize_t K, f64 mass):
+    cdef:
+        Py_ssize_t W = c.shape[0] - 1, w, k, a
+        f64 total
+        f64[::1] P = np.empty(base.shape[0])
+    if (
+        counts.shape[0] != base.shape[0]
+        or base.shape[0] != c[W] * K
+        or not isfinite(mass)
+        or mass < 0
+    ):
         raise ValueError("Invalid refinement counts or prior mass")
-    for w in prange(W, nogil=True, schedule='static'):
+    for w in prange(W, nogil=True, schedule="static"):
         for k in range(K):
             total = 0
-            for a in range(c[w], c[w+1]): total = total + counts[a*K+k]
-            for a in range(c[w], c[w+1]):
-                P[a*K+k] = ((counts[a*K+k] + mass*base[a*K+k])/(total + mass)
-                            if total > 0 else base[a*K+k])
+            for a in range(c[w], c[w + 1]):
+                total = total + counts[a * K + k]
+            for a in range(c[w], c[w + 1]):
+                P[a * K + k] = (
+                    (counts[a * K + k] + mass * base[a * K + k]) / (total + mass)
+                    if total > 0
+                    else base[a * K + k]
+                )
     return np.asarray(P)
 
 
@@ -826,7 +1161,7 @@ def phaseCorrect(u8[:, ::1] D, f64[:, ::1] L, const u32 dist, bint probs):
         raise ValueError("Phase correction requires paired haplotypes and nonempty windows")
     if probs and (L.shape[0] != D.shape[0] or L.shape[1] != W):
         raise ValueError("Phase confidence and path dimensions differ")
-    for i in prange(N, nogil=True, schedule='static'):
+    for i in prange(N, nogil=True, schedule="static"):
         j = 2 * i
         p0 = D[j, 0]
         p1 = D[j + 1, 0]
@@ -882,19 +1217,21 @@ def phaseCorrect(u8[:, ::1] D, f64[:, ::1] L, const u32 dist, bint probs):
 
 
 ### Format text output in one fixed buffer, without Python objects per value
-def writeRows(int fd, const u8[:, ::1] D=None, const f64[:, ::1] P=None):
-    cdef Py_ssize_t N, W, i, w, ndec, _
-    cdef size_t n = 0, size = 1024*1024
-    cdef int copy, value, digits, error = 0
-    cdef unsigned long long rounded, place, digit, scale
-    cdef f64 x, scaled
-    cdef FILE* out
-    cdef u8[::1] buffer = np.empty(size, np.uint8)
+def writeRows(int fd, const u8[:, ::1] D = None, const f64[:, ::1] P = None):
+    cdef:
+        Py_ssize_t N, W, i, w, ndec, _
+        size_t n = 0, size = 1024 * 1024
+        int copy, value, digits, error = 0
+        unsigned long long rounded, place, digit, scale
+        f64 x, scaled
+        FILE* out
+        u8[::1] buffer = np.empty(size, np.uint8)
     if (D is None) == (P is None):
         raise ValueError("Provide either paths or posterior confidence for output")
     N, W = (D.shape[0], D.shape[1]) if D is not None else (P.shape[0], P.shape[1])
     copy = dup(fd)
-    if copy < 0: raise OSError("Cannot duplicate local ancestry output handle")
+    if copy < 0:
+        raise OSError("Cannot duplicate local ancestry output handle")
     out = fdopen(copy, "a")
     if out == NULL:
         close(copy)
@@ -902,7 +1239,7 @@ def writeRows(int fd, const u8[:, ::1] D=None, const f64[:, ::1] P=None):
     with nogil:
         for i in range(N):
             for w in range(W):
-                if n > size-64:
+                if n > size - 64:
                     if fwrite(&buffer[0], 1, n, out) != n:
                         error = 1
                         break
@@ -910,12 +1247,12 @@ def writeRows(int fd, const u8[:, ::1] D=None, const f64[:, ::1] P=None):
                 if D is not None:
                     value = D[i, w]
                     if value >= 100:
-                        buffer[n] = 48+value//100
+                        buffer[n] = 48 + value // 100
                         n += 1
                     if value >= 10:
-                        buffer[n] = 48+(value//10)%10
+                        buffer[n] = 48 + (value // 10) % 10
                         n += 1
-                    buffer[n] = 48+value%10
+                    buffer[n] = 48 + value % 10
                     n += 1
                 else:
                     x = P[i, w]
@@ -934,17 +1271,19 @@ def writeRows(int fd, const u8[:, ::1] D=None, const f64[:, ::1] P=None):
                                 n += 1
                             else:
                                 buffer[n] = 48
-                                buffer[n+1] = 46
+                                buffer[n + 1] = 46
                                 n += 2
                                 for _ in range(ndec):
                                     digit = rounded // place
                                     buffer[n] = 48 + digit
                                     n += 1
-                                    rounded -= digit*place
+                                    rounded -= digit * place
                                     place //= 10
-                                while buffer[n-1] == 48: n -= 1
-                                if buffer[n-1] == 46: n -= 1
-                            buffer[n] = 10 if w+1 == W else 32
+                                while buffer[n - 1] == 48:
+                                    n -= 1
+                                if buffer[n - 1] == 46:
+                                    n -= 1
+                            buffer[n] = 10 if w + 1 == W else 32
                             n += 1
                             continue
                     digits = snprintf(<char*>&buffer[n], 32, "%.8g", x)
@@ -952,9 +1291,13 @@ def writeRows(int fd, const u8[:, ::1] D=None, const f64[:, ::1] P=None):
                         error = 1
                         break
                     n += digits
-                buffer[n] = 10 if w+1 == W else 32
+                buffer[n] = 10 if w + 1 == W else 32
                 n += 1
-            if error: break
-        if n and not error and fwrite(&buffer[0], 1, n, out) != n: error = 1
-        if fclose(out) != 0: error = 1
-    if error: raise OSError("Failed to write local ancestry output")
+            if error:
+                break
+        if n and not error and fwrite(&buffer[0], 1, n, out) != n:
+            error = 1
+        if fclose(out) != 0:
+            error = 1
+    if error:
+        raise OSError("Failed to write local ancestry output")

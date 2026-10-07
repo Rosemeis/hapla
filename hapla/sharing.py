@@ -88,6 +88,8 @@ def paint(path, count, x, left, right, bins=1):
     rows, cov = np.zeros(N + 1, np.int64), np.empty(N)
     sums, seen, hit = np.empty(N), np.full(N, -1, np.int64), np.empty(N, np.int64)
     chunk = (N + bins - 1) // bins
+    edge = np.minimum(np.arange(bins + 1) * chunk, N)
+    seg = cache(path / "segments", np.uint32, (int(np.diff(ptr[2 * edge]).max()), 3))
     with (path / "columns").open("wb") as cols, (path / "values").open("wb") as vals:
         for slot in range(bins):
             first, last = slot * chunk, min((slot + 1) * chunk, N)
@@ -96,7 +98,6 @@ def paint(path, count, x, left, right, bins=1):
             off = ptr[2 * first]
             size = ptr[2 * last] - off
             pth = path / ("matches" if bins == 1 else f"matches.{slot}")
-            seg = cache(path / "segments", np.uint32, (size, 3))
             pos = ptr[:-1] - off
             with pth.open("rb") as src:
                 for beg in range(0, size, 1048576):
@@ -120,8 +121,8 @@ def paint(path, count, x, left, right, bins=1):
                 out[:n].tofile(vals)
                 rows[beg + 1 : end + 1] = rows[beg] + row[1:]
                 del val, col, out
-            del seg
-            (path / "segments").unlink()
+    del seg
+    (path / "segments").unlink()
     n = int(rows[-1])
     if n == 0:
         return None, cov
@@ -304,7 +305,7 @@ def product(data, Q, transpose=False):
     if Q.ndim != 2 or len(Q) != len(data[0][0]) - 1:
         raise ValueError("Sharing sketch dimensions differ from the sample count")
     if transpose:
-        Q = np.ascontiguousarray(Q - Q.mean(axis=0))
+        Q = Q - Q.mean(axis=0)
     out = np.zeros_like(Q)
     cy.product(*data[int(transpose)], Q, out)
     if not transpose:

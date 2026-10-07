@@ -71,7 +71,7 @@ def covariance(data, Q, chunk=1024):
             if U.shape[1] == N:
                 continue  # The fitted subspace leaves no residual degrees of freedom.
             np.matmul(cy.project(Z, c, U), U.T, out=R)
-            full += cy.residuals(R, Z, c)
+            full += cy.residuals(R, Z, c, False)
         else:
             w = 0
             while w < len(Z):
@@ -104,7 +104,7 @@ def covariance(data, Q, chunk=1024):
                     r.fill(0)
                     continue
                 np.matmul(cy.project(z, idx, u), u.T, out=r)
-                v = cy.residuals(r, z, idx)
+                v = cy.residuals(r, z, idx, h is not None)
                 if h is None:
                     full += v
                 else:
@@ -169,9 +169,11 @@ def main(args):
         raise ValueError(
             "Q requires one row per sample and at least two finite nonnegative ancestries"
         )
-    if not np.allclose(Q.sum(axis=1), 1, rtol=0, atol=1e-5):
+    sums = Q.sum(axis=1, keepdims=True)
+    if not np.allclose(sums, 1, rtol=0, atol=1e-5):
         raise ValueError("Q rows must sum to one")
-    Q /= Q.sum(axis=1, keepdims=True)
+    Q /= sums
+    del sums
     stats = dict(
         samples=len(ids),
         windows=len(k),

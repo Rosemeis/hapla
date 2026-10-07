@@ -9,6 +9,10 @@ import os
 from libc.stdint cimport uint8_t, uint32_t, int8_t, int32_t, int64_t
 from libc.stdlib cimport free
 
+
+##### Native declarations
+
+
 cdef extern from "htslib/kstring.h" nogil:
     ctypedef struct kstring_t:
         size_t l
@@ -55,7 +59,7 @@ cdef extern from "htslib/vcf.h" nogil:
     void bcf_destroy(bcf1_t*)
     int bcf_read(htsFile*, bcf_hdr_t*, bcf1_t*)
     int bcf_unpack(bcf1_t*, int)
-    bcf_fmt_t* bcf_get_fmt(const bcf_hdr_t*, bcf1_t*, const char*)
+    bcf_fmt_t* bcf_get_fmt_id(bcf1_t*, int)
     int bcf_get_genotypes(const bcf_hdr_t*, bcf1_t*, int32_t**, int*)
     int BCF_BT_INT8
     int BCF_DT_CTG
@@ -63,39 +67,45 @@ cdef extern from "htslib/vcf.h" nogil:
     int BCF_UN_STR
 
 
+##### Genotype reader
+
+
 ### Decode phased INT8 GT and diagnose invalid rows with scalar code
-cdef bint decode8(const int8_t* raw, uint8_t* output, int samples,
-                   uint8_t* missing) noexcept nogil:
-    cdef int i, a, b
-    cdef unsigned int invalid = 0, absent = 0
+cdef bint decode8(const int8_t* raw, uint8_t* output, int samples, uint8_t* missing) noexcept nogil:
+    cdef:
+        int i, a, b
+        unsigned int invalid = 0, absent = 0
     for i in range(samples):
-        a, b = raw[2*i], raw[2*i+1]
+        a, b = raw[2 * i], raw[2 * i + 1]
         invalid |= (a < 0) | (b < 0) | (a > 5) | (b > 5)
         invalid |= ((a >> 1) != (b >> 1)) & ((b & 1) == 0)
         absent |= (a < 2) | (b < 2)
-        output[2*i] = <uint8_t>((a >> 1) - 1)
-        output[2*i+1] = <uint8_t>((b >> 1) - 1)
+        output[2 * i] = <uint8_t>((a >> 1) - 1)
+        output[2 * i + 1] = <uint8_t>((b >> 1) - 1)
     missing[0] = absent != 0
     return invalid == 0
 
 
 ### Own HTSlib pointers and fill a reusable block with the GIL released
 cdef class Reader:
-    cdef htsFile* handle
-    cdef bcf_hdr_t* header
-    cdef bcf1_t* record
-    cdef int32_t* gt
-    cdef int cap
-    cdef int N
-    cdef int rid0
-    cdef int64_t pos0
-    cdef kstring_t sbuf
-    cdef bint failed, busy, save
+    cdef:
+        htsFile* handle
+        bcf_hdr_t* header
+        bcf1_t* record
+        int32_t* gt
+        int cap
+        int N
+        int gid
+        int rid0
+        int64_t pos0
+        kstring_t sbuf
+        bint failed, busy, save
     cdef readonly bint finished
     cdef readonly object htslib_version
     cdef public object samples, contigs, path, sites
     cdef public unsigned long long variants
 
+    ### Initialize owned pointers before opening the input
     def __cinit__(self):
         self.handle = NULL
         self.header = NULL
@@ -105,8 +115,8 @@ cdef class Reader:
         self.rid0 = -1
         self.pos0 = -1
 
-    # Validate the header and retain one reusable record and GT buffer
-    def __init__(self, path, int threads=0, bint save=False):
+    ### Validate the header and retain one reusable record and GT buffer
+    def __init__(self, path, int threads = 0, bint save = False):
         cdef bytes encoded
         if threads < 0:
             raise ValueError("HTSlib threads must be nonnegative")
@@ -126,7 +136,8 @@ cdef class Reader:
         self.N = bcf_hdr_nsamples(self.header)
         if self.N <= 0:
             raise ValueError("VCF/BCF contains no samples")
-        if bcf_hdr_id2int(self.header, BCF_DT_ID, b"GT") < 0:
+        self.gid = bcf_hdr_id2int(self.header, BCF_DT_ID, b"GT")
+        if self.gid < 0:
             raise ValueError("VCF/BCF header does not declare FORMAT/GT")
         self.samples = [self.header.samples[i].decode("utf-8") for i in range(self.N)]
         if len(set(self.samples)) != len(self.samples):
@@ -134,8 +145,10 @@ cdef class Reader:
         for name in self.samples:
             if not name or any(map(str.isspace, name)):
                 raise ValueError("Sample IDs must be nonempty and contain no whitespace")
-        self.contigs = [bcf_hdr_id2name(self.header, i).decode("utf-8")
-                        for i in range(self.header.n[BCF_DT_CTG])]
+        self.contigs = [
+            bcf_hdr_id2name(self.header, i).decode("utf-8")
+            for i in range(self.header.n[BCF_DT_CTG])
+        ]
         for name in self.contigs:
             if not name or any(map(str.isspace, name)):
                 raise ValueError("Contig names must be nonempty and contain no whitespace")
@@ -143,12 +156,13 @@ cdef class Reader:
         if self.record == NULL:
             raise MemoryError("Cannot allocate HTSlib record")
 
+    ### Close the reader when no read is in progress
     def close(self):
         if self.busy:
             raise RuntimeError("Cannot close a reader while readInto is running")
         self._release()
 
-    # Release native pointers once, including partially initialized readers
+    ### Release native pointers once, including partially initialized readers
     cdef void _release(self) noexcept:
         if self.handle != NULL:
             hts_close(self.handle)
@@ -167,23 +181,32 @@ cdef class Reader:
             self.sbuf.s = NULL
             self.sbuf.l = self.sbuf.m = 0
 
+    ### Release native buffers when the reader is destroyed
     def __dealloc__(self):
         self._release()
 
+    ### Return the reader for context management
     def __enter__(self):
         return self
 
+    ### Close the reader when its context ends
     def __exit__(self, *args):
         self.close()
 
-    # Fill variant-major arrays, using direct INT8 or reusable INT32 GT decoding
-    def readInto(self, uint8_t[:, ::1] output, int64_t[::1] pos,
-                 int32_t[::1] contigs, uint8_t[::1] missing):
-        cdef Py_ssize_t row = 0, i, size = output.shape[0]
-        cdef int status = 0, a = 0, b = 0, error = 0
-        cdef bcf_fmt_t* fmt
-        cdef int8_t* raw = NULL
-        cdef bint decoded
+    ### Fill variant-major arrays, using direct INT8 or reusable INT32 GT decoding
+    def readInto(
+        self,
+        uint8_t[:, ::1] output,
+        int64_t[::1] pos,
+        int32_t[::1] contigs,
+        uint8_t[::1] missing,
+    ):
+        cdef:
+            Py_ssize_t row = 0, i, size = output.shape[0]
+            int status = 0, a = 0, b = 0, error = 0
+            bcf_fmt_t* fmt
+            int8_t* raw = NULL
+            bint decoded
         if self.busy:
             raise RuntimeError("Concurrent calls on the same genotype reader are unsupported")
         if self.handle == NULL or self.failed:
@@ -215,11 +238,14 @@ cdef class Reader:
                 if self.record.rid < 0 or self.record.rid >= self.header.n[BCF_DT_CTG]:
                     error = 4
                     break
-                if (self.record.pos < 0 or self.record.rid < self.rid0 or
-                    (self.record.rid == self.rid0 and self.record.pos < self.pos0)):
+                if (
+                    self.record.pos < 0
+                    or self.record.rid < self.rid0
+                    or (self.record.rid == self.rid0 and self.record.pos < self.pos0)
+                ):
                     error = 4
                     break
-                fmt = bcf_get_fmt(self.header, self.record, b"GT")
+                fmt = bcf_get_fmt_id(self.record, self.gid)
                 if fmt == NULL:
                     error = 5
                     break
@@ -242,9 +268,9 @@ cdef class Reader:
                     decoded = decode8(raw, &output[row, 0], self.N, &missing[row])
                 for i in range(0 if decoded else self.N):
                     if fmt.type == BCF_BT_INT8:
-                        a, b = raw[2*i], raw[2*i+1]
+                        a, b = raw[2 * i], raw[2 * i + 1]
                     else:
-                        a, b = self.gt[2*i], self.gt[2*i+1]
+                        a, b = self.gt[2 * i], self.gt[2 * i + 1]
 
                     # Missing is 0/1. Negative values include vector-end/ploidy markers.
                     if a < 0 or b < 0:
@@ -258,8 +284,8 @@ cdef class Reader:
                     if (a >> 1) != (b >> 1) and not (b & 1):
                         error = 8
                         break
-                    output[row, 2*i] = 255 if a < 2 else (a >> 1) - 1
-                    output[row, 2*i+1] = 255 if b < 2 else (b >> 1) - 1
+                    output[row, 2 * i] = 255 if a < 2 else (a >> 1) - 1
+                    output[row, 2 * i + 1] = 255 if b < 2 else (b >> 1) - 1
                     if a < 2 or b < 2:
                         missing[row] = 1
                 if error:
@@ -288,7 +314,7 @@ cdef class Reader:
                 row += 1
         self.busy = False
         if self.sbuf.l:
-            self.sites = self.sbuf.s[:self.sbuf.l]
+            self.sites = self.sbuf.s[: self.sbuf.l]
         if error:
             self.failed = True
             if error == 9:
@@ -303,5 +329,7 @@ cdef class Reader:
                 7: "GT allele index exceeds the biallelic range",
                 8: "Unphased heterozygous or partially missing GT is unsupported",
             }[error]
-            raise ValueError(f"{reason} at record {self.variants + 1}, position {self.record.pos + 1}")
+            raise ValueError(
+                f"{reason} at record {self.variants + 1}, position {self.record.pos + 1}"
+            )
         return row
