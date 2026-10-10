@@ -519,9 +519,36 @@ def moments(const i64[::1] ptr, const u32[::1] col, const f64[::1] val):
     return np.asarray(mean), ss
 
 
-### Expand only the rows needed by the current kernel tile
-def rows(const i64[::1] ptr, const u32[::1] col, const f64[::1] val, i64 beg, f64[:, ::1] out):
-    cdef i64 i, e
+### Expand and center only the rows needed by the current kernel tile
+def rows(
+    const i64[::1] ptr, const u32[::1] col, const f64[::1] val, i64 beg,
+    const f64[::1] mean, f64[:, ::1] out,
+):
+    cdef i64 i, j, e
     for i in prange(out.shape[0], nogil=True, schedule="static"):
+        for j in range(out.shape[1]):
+            out[i, j] = 0
         for e in range(ptr[beg + i], ptr[beg + i + 1]):
             out[i, col[e]] += val[e]
+        for j in range(out.shape[1]):
+            out[i, j] -= mean[j]
+
+
+### Form centered group profiles directly from the cached transpose
+def centroids(
+    const i64[::1] ptr,
+    const u32[::1] col,
+    const f64[::1] val,
+    const int[::1] Z,
+    const f64[::1] inv,
+    const f64[::1] mean,
+    f64[:, ::1] out,
+):
+    cdef:
+        i64 i, e, g, N = ptr.shape[0] - 1, K = out.shape[1]
+    for i in prange(N, nogil=True, schedule="static"):
+        for g in range(K):
+            out[i, g] = -mean[i]
+        for e in range(ptr[i], ptr[i + 1]):
+            g = Z[col[e]]
+            out[i, g] += val[e] * inv[g]

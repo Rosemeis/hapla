@@ -252,13 +252,16 @@ def refine(data, P, Q, alpha, args, dist=None):
         finish = it == args.iter or (args.loo and change is not None and change <= args.tole)
         nextP = []
         countQ = None if finish else np.zeros_like(Q)
-        ll, prior = 0.0, cy.penalty(baseQ.ravel(), Q.ravel(), tq)
+        ll, prior = 0.0, 0.0 if Q is baseQ else cy.penalty(baseQ.ravel(), Q.ravel(), tq)
         for f, ((Z, c, use, regions, size), p, base) in enumerate(zip(data, P, baseP)):
             d = dist[f] if dist is not None else None
-            prior += cy.penalty(base, p, tp)
             table = cy.emissionTable(p, c, K)
+            if p is not base:
+                prior += cy.penalty(base, p, tp, table)
             countP = None if finish else np.zeros_like(p)
-            one = args.loo and size >= Z.shape[1] and len(regions) == 1
+            one = args.loo and size >= Z.shape[1]
+            # Keep the per-file Q sum used by bounded LOO batches.
+            cq = np.zeros_like(Q) if one and len(regions) > 1 and not finish else countQ
             for i, j, z in haplotypes(Z, size):
                 q = np.repeat(Q[i // 2 : j // 2], 2, axis=0)
                 for beg, end in regions:
@@ -271,14 +274,16 @@ def refine(data, P, Q, alpha, args, dist=None):
                     if not finish:
                         cy.accumulate(z, G, use, c, beg, end, countP)
                         if one:
-                            total = cy.looTotals(countP, c, K)
+                            total = cy.looTotals(countP, c, K, beg, end)
                             cy.looEmissions(z, G, E, q, base, countP, total, c, use, beg, end, tp)
                             del G, C, L, total
                             G, C, L = cy.posterior(E, q, alpha, resets=True, dist=step)
                         if not args.loo or one:
-                            countQ[i // 2 : j // 2] += C.reshape(-1, 2, K).sum(axis=1)
+                            cq[i // 2 : j // 2] += C.reshape(-1, 2, K).sum(axis=1)
                     del E, G, C, L
             if not finish:
+                if cq is not countQ:
+                    countQ += cq
                 if args.loo and not one:
                     countQ += looQ(Z, c, use, regions, size, table, base, countP, Q, alpha, tp, d)
                 nextP.append(cy.refineP(base, countP, c, K, tp))
@@ -392,12 +397,7 @@ def decode(Z, table, Q, c, use, regions, size, alpha, args, path, prob, dist=Non
                         p = np.repeat(p, repeat, axis=1)
                     del repeat
                 if args.phase_correct is not None:
-                    d = np.ascontiguousarray(d)
-                    if p is not None:
-                        p = np.ascontiguousarray(p)
-                    n_fix += cy.phaseCorrect(
-                        d, np.empty((0, 0)) if p is None else p, args.phase_correct, p is not None
-                    )
+                    n_fix += cy.phaseCorrect(d, args.phase_correct, p)
                 D[:, beg:end] = d
                 if conf:
                     probs[:, beg:end] = p

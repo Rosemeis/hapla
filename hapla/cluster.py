@@ -88,7 +88,6 @@ def adaptiveFit(meta, G, missing, opt, minimum, pos):
         nonlocal fits
         B = end - beg
         x = G[beg:end]
-        split = B >= 2 * minimum
         obs = packed_cy.observedWindow(packed[1], beg, end) if missing else x.shape[1]
         res = None
         cost = lost = float("inf")
@@ -103,7 +102,7 @@ def adaptiveFit(meta, G, missing, opt, minimum, pos):
             # A single exact pattern cannot benefit from another dictionary.
             if obs == x.shape[1] and res["stats"]["exact"] and res["stats"]["K"] == 1:
                 return cost, lost, [res]
-        if split:
+        if B >= 2 * minimum:
             mid = beg + B // 2
             lc, ll, left = fit(beg, mid)
             rc, rl, right = fit(mid, end)
@@ -238,7 +237,8 @@ def main(args):
 
             # Write in input order while other workers continue fitting
             def write(res):
-                fit_key.update(int(res["window"][0]).to_bytes(8, "little"))
+                meta = res["window"]
+                fit_key.update(int(meta[0]).to_bytes(8, "little"))
                 fit_key.update(res["identity"])
                 info = res["stats"]
                 K = info["K"]
@@ -250,13 +250,13 @@ def main(args):
                 stats["exact_windows"] += info["exact"]
                 if args.adaptive:
                     stats["candidate_fits"] += res.get("candidate_fits", 0)
-                    stats["smallest_window"] = min(stats["smallest_window"], res["window"][4])
-                    stats["largest_window"] = max(stats["largest_window"], res["window"][4])
-                writeWindow(files, res["window"], res["labels"], K, stats["windows"])
+                    stats["smallest_window"] = min(stats["smallest_window"], meta[4])
+                    stats["largest_window"] = max(stats["largest_window"], meta[4])
+                writeWindow(files, meta, res["labels"], K, stats["windows"])
                 if args.medians:
                     files[".bcm"].write(res["medians"])
                     files[".blk"].write(res["likelihoods"])
-                    files[".wix"].write(f"{res['window'][0]}\n")
+                    files[".wix"].write(f"{meta[0]}\n")
 
             runBatches(
                 batches(windows, n),

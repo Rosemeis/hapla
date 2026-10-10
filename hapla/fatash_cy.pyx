@@ -381,15 +381,18 @@ cdef f64 _fbLog(
         f64* ex = work + 2 * K
         f64* lq = work + 3 * K
         f64* den = work + 4 * K
+        f64* row
+        f64* prev = F
     for k in range(K):
         lq[k] = log(q[k]) if q[k] > 0 else -INFINITY
         den[k] = _add(-alpha, ls + log1p(-q[k])) if simple else 0
     for w in range(W):
+        row = F + ((w & 1) if G == NULL else w) * K
         if steps != NULL:
             alpha, ls = steps[4 * w], steps[4 * w + 3]
         if simple and w:
             for k in range(K):
-                v[k] = F[(w - 1) * K + k] - den[k]
+                v[k] = prev[k] - den[k]
             _exclude(v, ex, K)
         for k in range(K):
             if w == 0:
@@ -397,15 +400,16 @@ cdef f64 _fbLog(
             elif simple:
                 value = _add(-alpha + v[k], ls + lq[k] + ex[k])
             else:
-                value = _add(-alpha + F[(w - 1) * K + k], ls + lq[k])
-            F[w * K + k] = E[w * K + k] + value
-        norm = _sum(&F[w * K], K)
+                value = _add(-alpha + prev[k], ls + lq[k])
+            row[k] = E[w * K + k] + value
+        norm = _sum(row, K)
         if norm == -INFINITY:
             return norm
         ll += norm
         shift[w] = norm
         for k in range(K):
-            F[w * K + k] -= norm
+            row[k] -= norm
+        prev = row
     if G == NULL:
         return ll
     for k in range(K):
@@ -939,11 +943,16 @@ def observations(const u8[:, ::1] Z, const u8[::1] use):
 
 
 ### Log prior relative to its mode: -mass * KL(base || current)
-def penalty(const f64[::1] base, const f64[::1] p, f64 mass):
+def penalty(const f64[::1] base, const f64[::1] p, f64 mass, const f64[::1] logs = None):
     cdef:
         Py_ssize_t a
         f64 value = 0
-    if base.shape[0] != p.shape[0] or not isfinite(mass) or mass < 0:
+    if (
+        base.shape[0] != p.shape[0]
+        or (logs is not None and logs.shape[0] != p.shape[0])
+        or not isfinite(mass)
+        or mass < 0
+    ):
         raise ValueError("Invalid prior dimensions or mass")
     if mass == 0:
         return 0.0
@@ -953,7 +962,7 @@ def penalty(const f64[::1] base, const f64[::1] p, f64 mass):
                 if p[a] <= 0:
                     value = -INFINITY
                     break
-                value += base[a] * (log(p[a]) - log(base[a]))
+                value += base[a] * ((logs[a] if logs is not None else log(p[a])) - log(base[a]))
     return mass * value
 
 
@@ -980,12 +989,20 @@ def accumulate(
 
 
 ### Sum unfloored ancestry counts once for each window
-def looTotals(const f64[::1] counts, const i64[::1] c, Py_ssize_t K):
+def looTotals(
+    const f64[::1] counts,
+    const i64[::1] c,
+    Py_ssize_t K,
+    Py_ssize_t beg = 0,
+    Py_ssize_t end = -1,
+):
     cdef Py_ssize_t W = c.shape[0] - 1, w, k, a
-    if W < 1 or K < 1 or c[0] != 0 or c[W] * K != counts.shape[0]:
+    if end == -1:
+        end = W
+    if W < 1 or K < 1 or c[0] != 0 or c[W] * K != counts.shape[0] or not 0 <= beg < end <= W:
         raise ValueError("Invalid LOO count dimensions")
     cdef f64[:, ::1] total = np.zeros((W, K))
-    for w in prange(W, nogil=True, schedule="static"):
+    for w in prange(beg, end, nogil=True, schedule="static"):
         for a in range(c[w], c[w + 1]):
             for k in range(K):
                 total[w, k] += counts[a * K + k]
@@ -1147,7 +1164,7 @@ def refineP(const f64[::1] base, const f64[::1] counts, const i64[::1] c, Py_ssi
 
 
 ### Correct reciprocal phase switches in pairs of haplotypes
-def phaseCorrect(u8[:, ::1] D, f64[:, ::1] L, const u32 dist, bint probs):
+def phaseCorrect(u8[:, ::1] D, const u32 dist, f64[:, ::1] L = None):
     cdef:
         Py_ssize_t N = D.shape[0] // 2
         Py_ssize_t W = D.shape[1]
@@ -1159,7 +1176,7 @@ def phaseCorrect(u8[:, ::1] D, f64[:, ::1] L, const u32 dist, bint probs):
         bint change0, change1, match, phase
     if D.shape[0] % 2 or W < 1:
         raise ValueError("Phase correction requires paired haplotypes and nonempty windows")
-    if probs and (L.shape[0] != D.shape[0] or L.shape[1] != W):
+    if L is not None and (L.shape[0] != D.shape[0] or L.shape[1] != W):
         raise ValueError("Phase confidence and path dimensions differ")
     for i in prange(N, nogil=True, schedule="static"):
         j = 2 * i
@@ -1207,7 +1224,7 @@ def phaseCorrect(u8[:, ::1] D, f64[:, ::1] L, const u32 dist, bint probs):
             if phase:
                 D[j, w] = x1
                 D[j + 1, w] = x0
-                if probs:
+                if L is not None:
                     tmp = L[j, w]
                     L[j, w] = L[j + 1, w]
                     L[j + 1, w] = tmp

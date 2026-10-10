@@ -87,11 +87,10 @@ def alsStep(Y, V, p_vec, k_vec, c_vec, Q, P=None):
     if Q is not None:
         H = np.dot(Q, np.linalg.pinv(np.dot(Q.T, Q)))
         P = np.dot(Y, np.dot(V.T, H), out=P)
-        P *= 0.5
-        P += np.outer(p_vec, np.sum(H, axis=0))
-        admix_cy.projectP(P, k_vec, c_vec)
+        admix_cy.projectP(P, k_vec, c_vec, p_vec, np.sum(H, axis=0))
     H = np.dot(P, np.linalg.pinv(np.dot(P.T, P)))
-    Q = 0.5 * np.dot(V, np.dot(Y.T, H))
+    Q = np.dot(V, np.dot(Y.T, H))
+    Q *= 0.5
     H *= p_vec[:, None]
     Q += H.sum(axis=0)
     admix_cy.projectQ(Q)
@@ -131,8 +130,9 @@ def centerSub(Z, S, V, p_vec, c_vec, W_sub, chunk, obs=None):
     c = np.ascontiguousarray(c_vec[W_sub:] - beg, dtype=np.int64)
     o = None if obs is None else np.ascontiguousarray(obs[W_sub:], dtype=np.int64)
     data = [(Z[W_sub:], c, o)]
+    buf = np.empty((min(len(p), max(chunk, 255)), Q.shape[1]))
     for z, c, s, o in struct.blocks(data, chunk):
-        A = np.empty((int(c[-1]), Q.shape[1]))
+        A = buf[: c[-1]]
         struct_cy.leftProduct(z, c, p[s], a[s], Q, sums, A, o)
         U[s] = A
     return U

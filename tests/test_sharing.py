@@ -2,12 +2,14 @@
 
 __author__ = "Jonas Meisner"
 
+from unittest.mock import patch
+
 import numpy as np
 from helpers import TemporaryTests, command, readLog, writeClusters
 
-from hapla import sharing
+from hapla import sharing, struct
 from hapla import sharing_cy as cy
-from hapla.formats import readWindows
+from hapla.formats import readMetadata, readWindows
 
 
 ### Find nonextendable best suffixes by exhaustive comparison
@@ -52,6 +54,36 @@ def exactSharing(rec, H, x, left, right):
 
 ### Check matching and products against independent references
 class SharingTests(TemporaryTests):
+    def test_cached_metadata_and_category_counts_preserve_sharing(self):
+        rng = np.random.default_rng(39)
+        Z = rng.integers(0, 3, (29, 20), dtype=np.uint8)
+        Z[3], Z[7] = 255, 1
+        k = np.full(len(Z), 255, np.int64)
+        k[3] = 0
+        src = writeClusters(self.root, "input", Z, np.r_[0, np.cumsum(k)])
+        meta = []
+        paths, ids, k, sizes = readMetadata([src], meta=meta)
+        levels = np.empty(len(k), np.uint8)
+        data, p = struct.readData(paths, k, sizes, len(ids))
+        lean, q = struct.readData(paths, k, sizes, len(ids), freq=False, levels=levels)
+        self.assertIsNone(q)
+        seen = np.r_[0, np.cumsum(p > 0, dtype=np.int64)]
+        expect = np.diff(seen[data[0][1]]) > 1
+        with patch("hapla.sharing.readWindows", side_effect=AssertionError("Repeated metadata")):
+            actual = sharing.chromosomes(paths, lean, levels, meta)
+        np.testing.assert_array_equal(actual[0][3], expect)
+        out = []
+        for n in range(2):
+            tmp = self.root / f"cache{n}"
+            tmp.mkdir()
+            opts = dict(meta=meta) if n else {}
+            d, cov, _ = sharing.build(paths, lean, levels, ids, tmp, **opts)
+            out.append((d, cov))
+        np.testing.assert_array_equal(out[0][1], out[1][1])
+        for a, b in zip(out[0][0], out[1][0]):
+            for x, y in zip(a, b):
+                np.testing.assert_array_equal(x, y)
+
     def test_categorical_pbwt_matches_exhaustive_reference(self):
         rng = np.random.default_rng(72)
         for rep in range(35):
@@ -295,7 +327,7 @@ class SharingTests(TemporaryTests):
             np.testing.assert_array_equal(ids[:, 0], ids[:, 1])
             np.testing.assert_array_equal(ids[:, 1], np.loadtxt(f"{src}.ids", dtype=str))
             self.assertFalse((self.root / "kernel.hsm.grm.N.bin").exists())
-            command(*args, "--hsm", "--power", 1)
+            command(*args, "--hsm", "--power", 1, "--hsm-matches", 2**50)
             np.testing.assert_array_equal(packed, np.fromfile(f"{pfx}.hsm.grm.bin", "<f4"))
             single = readLog(pfx)
             self.assertEqual(
@@ -372,7 +404,6 @@ class SharingTests(TemporaryTests):
         b = writeClusters(self.root, "chr2", Z[4:], np.arange(4) * 2)
         with open(f"{b}.win", "w") as dst:
             dst.writelines("2 " + " ".join(map(str, r[1:])) + "\n" for r in readWindows(a))
-        p = np.tile([0.5, 0.5], 6)
         data = [(Z[:3], np.arange(4) * 2, None), (Z[4:], np.arange(4) * 2, None)]
-        parts = sharing.chromosomes([a, b], data, p)
+        parts = sharing.chromosomes([a, b], data, np.full(6, 2, np.uint8))
         self.assertEqual([part[0] for part in parts], ["1", "2"])

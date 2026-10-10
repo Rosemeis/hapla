@@ -180,7 +180,8 @@ def main(args):
         print(f"Fixed ancestry: {np.sum(y > 0):,}/{N:,} samples", flush=True)
 
         # Initialize parameters
-        P = rng.random(size=(M, args.K)).clip(min=1e-5, max=1 - (1e-5))
+        P = rng.random(size=(M, args.K))
+        P.clip(min=1e-5, max=1 - (1e-5), out=P)
         P[:, np.unique(y[y > 0]) - 1] = 0.0
         admix_cy.superP(Z, P, k_vec, c_tmp, y)
         P = P.ravel()
@@ -225,7 +226,8 @@ def main(args):
 
     elif args.random_init:  # Random initialization
         print("Random initialization.", flush=True)
-        P = rng.random(size=(M * args.K)).clip(min=1e-5, max=1 - (1e-5))
+        P = rng.random(size=(M * args.K))
+        P.clip(min=1e-5, max=1 - (1e-5), out=P)
     else:  # SVD/ALS initialization
         print("Computing SVD/ALS estimates.", flush=True)
         ts = time()
@@ -250,7 +252,10 @@ def main(args):
             U, S, V, p[: len(U)], k_vec[:W_s], c_tmp[: W_s + 1], args.als_iter, args.als_tole, rng
         )
         if U_r is not None:
-            Y = np.ascontiguousarray(np.concatenate((U, U_r), axis=0) * S)
+            Y = np.empty((M, len(S)), dtype=np.float32)
+            Y[: len(U)] = U
+            Y[len(U) :] = U_r
+            Y *= S
             P, Q = functions.alsStep(Y, V, p, k_vec, c_tmp, Q)
             del Y
         del U, U_r, p
@@ -258,7 +263,8 @@ def main(args):
         del S, V
 
     if args.supervised is not None or args.projection is not None or args.random_init:
-        Q = rng.random(size=(N, args.K)).clip(min=1e-5, max=1 - (1e-5))
+        Q = rng.random(size=(N, args.K))
+        Q.clip(min=1e-5, max=1 - (1e-5), out=Q)
         Q /= np.sum(Q, axis=1, keepdims=True)
 
     # Enforce one probability domain for initialization, EM, and acceleration

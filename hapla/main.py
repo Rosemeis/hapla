@@ -222,14 +222,17 @@ def main():
         "--hsm-svd", type=int, metavar="INT", help="Eigenvectors from haplotype sharing profiles"
     )
     pca.add_argument(
+        "--hsm-groups", type=int, metavar="INT", help="Group individuals using the sharing kernel"
+    )
+    pca.add_argument(
         "--hsm-sqrt", action="store_true", help="Square-root sharing profiles before centering"
     )
     pca.add_argument(
         "--hsm-matches",
         type=int,
-        default=16,
+        default=32,
         metavar="INT",
-        help="Maximum tied haplotypes per maximal sharing match (16)",
+        help="Maximum tied haplotypes per maximal sharing match (32)",
     )
     pca.add_argument(
         "--hsm-gap",

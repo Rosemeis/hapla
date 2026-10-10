@@ -105,13 +105,8 @@ cdef class Reader:
     cdef public object samples, contigs, path, sites
     cdef public unsigned long long variants
 
-    ### Initialize owned pointers before opening the input
+    ### Initialize sort sentinels before opening the input
     def __cinit__(self):
-        self.handle = NULL
-        self.header = NULL
-        self.record = NULL
-        self.gt = NULL
-        self.cap = 0
         self.rid0 = -1
         self.pos0 = -1
 
@@ -252,20 +247,19 @@ cdef class Reader:
                 if fmt.n != 2:
                     error = 6
                     break
-                missing[row] = 0
                 if fmt.type == BCF_BT_INT8:
                     if fmt.size != 2 or fmt.p_len < 2 * self.N:
                         error = 3
                         break
                     raw = <int8_t*>fmt.p
+                    decoded = decode8(raw, &output[row, 0], self.N, &missing[row])
                 else:
                     status = bcf_get_genotypes(self.header, self.record, &self.gt, &self.cap)
                     if status != 2 * self.N:
                         error = 6
                         break
-                decoded = False
-                if fmt.type == BCF_BT_INT8:
-                    decoded = decode8(raw, &output[row, 0], self.N, &missing[row])
+                    missing[row] = 0
+                    decoded = False
                 for i in range(0 if decoded else self.N):
                     if fmt.type == BCF_BT_INT8:
                         a, b = raw[2 * i], raw[2 * i + 1]

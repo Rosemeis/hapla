@@ -22,6 +22,8 @@ ctypedef uint64_t u64
 ctypedef int64_t i64
 ctypedef double f64
 
+##### Residual projections
+
 
 ### Project the two observed cluster labels directly onto a small fitted basis
 def project(const u8[:, ::1] Z, const i64[::1] c, const f64[:, ::1] U):
@@ -84,6 +86,9 @@ def residuals(f64[:, ::1] R, const u8[:, ::1] Z, const i64[::1] c, bint missing 
                             (Z[w, 2 * i] == a - c[w]) + (Z[w, 2 * i + 1] == a - c[w]) - p
                         ) * weight
     return np.asarray(v)
+
+
+##### Correlations and output
 
 
 ### Convert each symmetric covariance entry once using saved standard deviations

@@ -112,6 +112,23 @@ class HMMCorrectness(unittest.TestCase):
             self.assertAlmostEqual(L[i, 0], ll, places=12)
         self.assertTrue(np.all(cy.viterbi(E, Q, 0.1) < 255))
 
+    def test_score_matches_posterior_with_mapped_and_log_recursions(self):
+        rng = np.random.default_rng(903)
+        for K in (5, 6):
+            Q = rng.dirichlet(np.ones(K), 3)
+            Q[0] = np.eye(K)[0]
+            E = np.log(rng.uniform(0.001, 1, (3, 31, K)))
+            dist = rng.uniform(0, 0.01, 31)
+            dist[::7] = 0
+            for simple, step in ((False, None), (True, None), (False, dist)):
+                for log in (False, True):
+                    e = E.copy()
+                    if log:
+                        e[:, :, 1:] -= 400
+                    _, _, L = cy.posterior(e, Q, 0.1, simple, dist=step)
+                    _, _, S = cy.posterior(e, Q, 0.1, simple, score=True, dist=step)
+                    np.testing.assert_array_equal(S, L)
+
     def test_enumerated_posteriors_paths_likelihood_and_reset_counts(self):
         rng = np.random.default_rng(143)
         for K, W, alpha, simple in itertools.product(
@@ -395,6 +412,8 @@ class HMMCorrectness(unittest.TestCase):
         )
         self.assertEqual(cy.penalty(np.array([1.0, 0.0]), np.array([0.0, 1.0]), 0), 0)
         self.assertEqual(cy.penalty(np.array([1.0, 0.0]), np.array([0.0, 1.0]), 3), -np.inf)
+        table = cy.emissionTable(actual, c, 2)
+        self.assertEqual(cy.penalty(base, actual, 3, table), cy.penalty(base, actual, 3))
 
     def test_map_accepts_likelihood_decrease_when_penalized_objective_improves(self):
         rng = np.random.default_rng(0)
@@ -411,8 +430,11 @@ class HMMCorrectness(unittest.TestCase):
 
     def test_phase_correction_swaps_confidence_with_labels(self):
         D = np.array([[0, 0, 1, 1, 0], [1, 1, 0, 0, 1]], np.uint8)
+        d = D.copy()
         P = np.arange(10, dtype=float).reshape(2, 5)
-        self.assertEqual(cy.phaseCorrect(D, P, 0, True), 2)
+        self.assertEqual(cy.phaseCorrect(D, 0, P), 2)
+        self.assertEqual(cy.phaseCorrect(d, 0), 2)
+        np.testing.assert_array_equal(d, D)
         np.testing.assert_array_equal(D, [[0] * 5, [1] * 5])
         np.testing.assert_array_equal(P, [[0, 1, 7, 8, 4], [5, 6, 2, 3, 9]])
 
@@ -531,7 +553,7 @@ class FatashPipeline(TemporaryTests):
             G, _, _ = cy.posterior(E, np.repeat(Q, 2, axis=0), 0.3)
             d = np.repeat(G.argmax(axis=2).astype(np.uint8), 3, axis=1)[:, :4].copy()
             p = np.repeat(G.max(axis=2), 3, axis=1)[:, :4].copy()
-            cy.phaseCorrect(d, p, 0, True)
+            cy.phaseCorrect(d, 0, p)
             expected.append(d)
             confidence.append(p)
         np.testing.assert_array_equal(np.loadtxt(f"{out}.path"), np.concatenate(expected, axis=1))

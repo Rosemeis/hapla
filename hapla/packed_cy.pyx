@@ -103,6 +103,55 @@ cdef void radixOrder(
 ##### Clustering
 
 
+### Pack complete one-word windows with contiguous haplotype writes
+cdef bint packSingle(const u8[:, ::1] G, u64* X) noexcept nogil:
+    cdef:
+        Py_ssize_t j, h
+        u8 value
+        bint bad = False
+    for j in range(G.shape[0]):
+        for h in range(G.shape[1]):
+            value = G[j, h]
+            bad |= value > 1
+            X[h] |= <u64>(value & 1) << j
+    return bad
+
+
+### Deduplicate short windows with an exact byte histogram
+cdef Py_ssize_t uniqueByte(
+    const u64[:, ::1] packed,
+    const u8[::1] valid,
+    u64[:, ::1] X,
+    u64[::1] w,
+    u32[::1] inverse,
+    bint full,
+    Py_ssize_t B,
+    Py_ssize_t* first,
+) noexcept nogil:
+    cdef:
+        u32[256] cnt
+        u32[256] idx
+        Py_ssize_t h, j, U = 0, H = packed.shape[0]
+        u64 tail = (<u64>1 << B) - 1
+    memset(cnt, 0, (1 << B) * sizeof(u32))
+    first[0] = -1
+    for h in range(H):
+        if full or valid[h]:
+            if first[0] < 0:
+                first[0] = h
+            cnt[packed[h, 0] & tail] += 1
+    for j in range(1 << B):
+        if cnt[j]:
+            X[U, 0] = j
+            w[U] = cnt[j]
+            idx[j] = U
+            U += 1
+    for h in range(H):
+        if full or valid[h]:
+            inverse[h] = idx[packed[h, 0] & tail]
+    return U
+
+
 ### Pack an adaptive search block once, retaining missing bits for its children
 def packWindow(const u8[:, ::1] G, bint missing):
     cdef:
@@ -116,15 +165,18 @@ def packWindow(const u8[:, ::1] G, bint missing):
         u64[:, ::1] X = np.zeros((H, Q), dtype=np.uint64)
         u64[:, ::1] M = np.zeros((H if missing else 0, Q if missing else 0), dtype=np.uint64)
     with nogil:
-        for j in range(B):
-            for h in range(H):
-                value = G[j, h]
-                if value <= 1:
-                    X[h, j >> 6] |= <u64>value << (j & 63)
-                elif missing and value == 255:
-                    M[h, j >> 6] |= <u64>1 << (j & 63)
-                else:
-                    bad = True
+        if not missing and Q == 1:
+            bad = packSingle(G, &X[0, 0])
+        else:
+            for j in range(B):
+                for h in range(H):
+                    value = G[j, h]
+                    if value <= 1:
+                        X[h, j >> 6] |= <u64>value << (j & 63)
+                    elif missing and value == 255:
+                        M[h, j >> 6] |= <u64>1 << (j & 63)
+                    else:
+                        bad = True
     if bad:
         raise ValueError(
             "Expected binary GT (or 255 for missing). Complete-data flag must be valid"
@@ -138,12 +190,10 @@ def observedWindow(const u64[:, ::1] M, Py_ssize_t beg, Py_ssize_t end):
         Py_ssize_t h, q, first = beg >> 6, last = (end - 1) >> 6, count = 0
         u64 word, low = <u64>-1 << (beg & 63)
         u64 high = (<u64>1 << (end & 63)) - 1 if end & 63 else <u64>-1
-        bint full
     if beg < 0 or end <= beg or end > M.shape[1] * 64:
         raise ValueError("Invalid packed missing-mask interval")
     with nogil:
         for h in range(M.shape[0]):
-            full = True
             for q in range(first, last + 1):
                 word = M[h, q]
                 if q == first:
@@ -151,9 +201,9 @@ def observedWindow(const u64[:, ::1] M, Py_ssize_t beg, Py_ssize_t end):
                 if q == last:
                     word &= high
                 if word:
-                    full = False
                     break
-            count += full
+            else:
+                count += 1
     return count
 
 
@@ -363,7 +413,7 @@ def fitWindow(
     # Complete windows skip missingness checks inside the clustering kernel
     cdef:
         Py_ssize_t B = G.shape[0], H = G.shape[1], Q = (B + 63) >> 6
-        Py_ssize_t i, j, q, h, first, prev = -1, U = 0, H_obs, cand
+        Py_ssize_t i, j, q, h, first = -1, prev = -1, U = 0, H_obs, cand
         int k, slot, it
         u32 d_lim, value
         u64 n_min, n_low = <u64>-1
@@ -386,6 +436,8 @@ def fitWindow(
         const u64[:, ::1] src, mask
         Py_ssize_t start = offset >> 6, shift = offset & 63, stop
         u64 word, tail = (<u64>1 << (B & 63)) - 1 if B & 63 else <u64>-1
+        u64* raw
+        const u64* raw_src
         u8[::1] valid = np.ones(H if missing else 0, dtype=np.uint8)
     if packed is not None:
         src, mask, stop = packed
@@ -401,23 +453,30 @@ def fitWindow(
             X_pack = packed[0]
         else:
             X_pack = np.empty((H, Q), dtype=np.uint64)
-        with nogil:
-            for h in range(H):
-                for q in range(Q):
-                    if offset or B != stop:
-                        word = src[h, start + q] >> shift
-                        if shift and start + q + 1 < src.shape[1]:
-                            word |= src[h, start + q + 1] << (64 - shift)
-                        X_pack[h, q] = word & tail if q == Q - 1 else word
-                    if missing:
-                        word = mask[h, start + q] >> shift
-                        if shift and start + q + 1 < mask.shape[1]:
-                            word |= mask[h, start + q + 1] << (64 - shift)
-                        if q == Q - 1:
-                            word &= tail
-                        if word:
-                            valid[h] = 0
-                            full = False
+        if offset or B != stop or missing:
+            with nogil:
+                if not missing and src.shape[1] == 1 and src.strides[0] == sizeof(u64):
+                    raw = &X_pack[0, 0]
+                    raw_src = &src[0, 0]
+                    for h in range(H):
+                        raw[h] = (raw_src[h] >> shift) & tail
+                else:
+                    for h in range(H):
+                        for q in range(Q):
+                            if offset or B != stop:
+                                word = src[h, start + q] >> shift
+                                if shift and start + q + 1 < src.shape[1]:
+                                    word |= src[h, start + q + 1] << (64 - shift)
+                                X_pack[h, q] = word & tail if q == Q - 1 else word
+                            if missing:
+                                word = mask[h, start + q] >> shift
+                                if shift and start + q + 1 < mask.shape[1]:
+                                    word |= mask[h, start + q + 1] << (64 - shift)
+                                if q == Q - 1:
+                                    word &= tail
+                                if word:
+                                    valid[h] = 0
+                                    full = False
     else:
         X_pack = np.zeros((H, Q), dtype=np.uint64)
         with nogil:
@@ -432,12 +491,13 @@ def fitWindow(
                             X_pack[h, j >> 6] |= <u64>value << (j & 63)
                         else:
                             bad = True
+            elif Q == 1:
+                bad = packSingle(G, &X_pack[0, 0])
             else:
                 for j in range(B):
                     for h in range(H):
                         value = G[j, h]
-                        if value > 1:
-                            bad = True
+                        bad |= value > 1
                         X_pack[h, j >> 6] |= <u64>(value & 1) << (j & 63)
     if bad:
         raise ValueError(
@@ -459,34 +519,39 @@ def fitWindow(
 
     # Collapse identical haplotypes and retain an inverse map for output
     cdef:
-        u32[::1] order = np.empty(H_obs, dtype=np.uint32)
-        u32[::1] tmp = np.empty(H_obs, dtype=np.uint32)
+        u32[::1] order, tmp
         u64[:, ::1] X = np.empty((H_obs, Q), dtype=np.uint64)
         u64[::1] w_vec = np.zeros(H_obs, dtype=np.uint64)
         u32[::1] inverse = np.empty(H, dtype=np.uint32)
-    with nogil:
-        i = 0
-        for h in range(H):
-            if full or valid[h]:
-                order[i] = h
-                i += 1
-        first = order[0]
-        radixOrder(X_pack, order, tmp, B)
-        for i in range(H_obs):
-            h = order[i]
-            equal = prev >= 0
-            if equal:
-                for q in range(Q):
-                    if X_pack[h, q] != X_pack[prev, q]:
-                        equal = False
-                        break
-            if not equal:
-                for q in range(Q):
-                    X[U, q] = X_pack[h, q]
-                U += 1
-            w_vec[U - 1] += 1
-            inverse[h] = U - 1
-            prev = h
+    if B <= 8 and H_obs >= 1 << B:
+        with nogil:
+            U = uniqueByte(X_pack, valid, X, w_vec, inverse, full, B, &first)
+    else:
+        order = np.empty(H_obs, dtype=np.uint32)
+        tmp = np.empty(H_obs, dtype=np.uint32)
+        with nogil:
+            i = 0
+            for h in range(H):
+                if full or valid[h]:
+                    order[i] = h
+                    i += 1
+            first = order[0]
+            radixOrder(X_pack, order, tmp, B)
+            for i in range(H_obs):
+                h = order[i]
+                equal = prev >= 0
+                if equal:
+                    for q in range(Q):
+                        if X_pack[h, q] != X_pack[prev, q]:
+                            equal = False
+                            break
+                if not equal:
+                    for q in range(Q):
+                        X[U, q] = X_pack[h, q]
+                    U += 1
+                w_vec[U - 1] += 1
+                inverse[h] = U - 1
+                prev = h
     X = X[:U]
     w_vec = w_vec[:U]
 

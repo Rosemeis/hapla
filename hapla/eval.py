@@ -16,6 +16,8 @@ from hapla.runtime import (
     writeLog,
 )
 
+##### Residual correlations
+
 
 ### Use the estimable Q subspace without squaring its condition number
 def basis(Q):
@@ -130,6 +132,9 @@ def correlation(C):
     d[d <= tol] = 0
     cy.correlation(C, np.sqrt(d))
     return C
+
+
+##### Analysis
 
 
 ### Validate sample order and publish all residual diagnostics together

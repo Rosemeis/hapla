@@ -135,7 +135,7 @@ class LeaveOneOutTests(TemporaryTests):
                                 with np.errstate(divide="ignore"):
                                     E[w - beg] = np.log(p[w, label])
                         cq[i] += np.mean([enumerateHMM(E, Q[i], a)[1] for a in alpha], axis=0)
-            q = cq + mass * Q
+            q = 2 * cq + mass * Q
             q /= q.sum(axis=1, keepdims=True)
             q[0] = Q[0]
             expected_q = 0.5 * (Q + q)
@@ -144,13 +144,21 @@ class LeaveOneOutTests(TemporaryTests):
             p = np.divide(p, total, out=P.copy(), where=total > 0)
             expected_p = 0.5 * (P + p)
             args = Namespace(baum_welch=bw, p_prior=mass, q_prior=mass, iter=1, tole=0, loo=True)
-            with redirect_stdout(StringIO()):
-                pp, qq, info = fatash.refine([(Z, c, use, regions, 4)], [P.ravel()], Q, alpha, args)
-            np.testing.assert_allclose(pp[0].reshape(P.shape), expected_p, atol=3e-13)
-            np.testing.assert_allclose(qq, expected_q, atol=3e-13)
-            self.assertEqual(info["iterations"], 1)
-            self.assertTrue(info["loo"])
-            self.assertEqual(info["convergence"], "parameter RMSE")
+            fits = []
+            for size in (4, 2 * N):
+                with redirect_stdout(StringIO()):
+                    pp, qq, info = fatash.refine(
+                        [(Z, c, use, regions, size)] * 2, [P.ravel()] * 2, Q, alpha, args
+                    )
+                for p in pp:
+                    np.testing.assert_allclose(p.reshape(P.shape), expected_p, atol=3e-13)
+                np.testing.assert_allclose(qq, expected_q, atol=3e-13)
+                self.assertEqual(info["iterations"], 1)
+                self.assertTrue(info["loo"])
+                self.assertEqual(info["convergence"], "parameter RMSE")
+                fits.append((pp[0], qq))
+            for a, b in zip(*fits):
+                np.testing.assert_array_equal(a, b)
 
     def test_hmm_loo_accepts_a_likelihood_decrease(self):
         Z = np.array([[0, 1, 0, 0], [1, 0, 1, 1]], np.uint8)

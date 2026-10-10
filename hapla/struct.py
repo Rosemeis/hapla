@@ -18,6 +18,8 @@ from hapla.runtime import (
     writeLog,
 )
 
+##### Inputs and products
+
 
 ### Give constant cluster alleles zero standardization weight
 def scale(p):
@@ -32,7 +34,7 @@ def scale(p):
 
 
 ### Map assignments and count frequencies without expanding dosages
-def readData(paths, k, sizes, N, *, freq=True):
+def readData(paths, k, sizes, N, *, freq=True, levels=None):
     import numpy as np
 
     from hapla import struct_cy as cy
@@ -42,6 +44,8 @@ def readData(paths, k, sizes, N, *, freq=True):
         raise ValueError("Population structure requires 0..255 clusters per window")
     if len(paths) != len(sizes) or sum(map(int, sizes)) != len(k):
         raise ValueError("Assignment file and window counts differ")
+    if levels is not None and (levels.shape != k.shape or levels.dtype != np.uint8):
+        raise ValueError("Observed category counts must be uint8, one per window")
     data, beg, off = [], 0, 0
     p = np.empty(int(k.sum(dtype=np.int64))) if freq else None
     for pfx, W in zip(paths, sizes):
@@ -50,7 +54,13 @@ def readData(paths, k, sizes, N, *, freq=True):
         c = np.r_[0, np.cumsum(k[beg : beg + W], dtype=np.int64)]
         end = off + c[-1]
         obs = np.empty(W, dtype=np.int64)
-        cy.frequencies(Z, c, p[off:end] if freq else None, obs)
+        cy.frequencies(
+            Z,
+            c,
+            p[off:end] if freq else None,
+            obs,
+            levels[beg : beg + W] if levels is not None else None,
+        )
         data.append((Z, c, obs if np.any(obs != 2 * N) else None))
         beg += W
         off = end
@@ -99,13 +109,14 @@ def product(data, p, a, L, chunk, *, Q=None, rng=None):
     from hapla import struct_cy as cy
 
     H = np.zeros((data[0][0].shape[1] // 2, L), dtype=np.float64)
+    buf = np.empty((min(len(p), max(chunk, 255)), L))
     shift = np.zeros(L)
     sums = None if Q is None else Q.sum(axis=0)
     for Z, c, s, obs in blocks(data, chunk):
+        A = buf[: c[-1]]
         if Q is None:
-            A = rng.standard_normal((int(c[-1]), L), dtype=np.float32).astype(np.float64)
+            A[:] = rng.standard_normal(A.shape, dtype=np.float32)
         else:
-            A = np.empty((int(c[-1]), L))
             cy.leftProduct(Z, c, p[s], a[s], Q, sums, A, obs)
         A *= a[s, None]
         shift += 2.0 * (p[s] @ A)
@@ -130,6 +141,9 @@ def subspace(data, p, a, L, chunk, power, rng):
     return np.ascontiguousarray(Q)
 
 
+##### Components and matrices
+
+
 ### Solve the small final PCA problem within the estimated subspace
 def pca(data, p, K, chunk, power, seed, v=None):
     import numpy as np
@@ -152,8 +166,9 @@ def pca(data, p, K, chunk, power, seed, v=None):
 
     # Accumulate (X Q)' (X Q) without storing all cluster loadings
     T, sums = np.zeros((L, L)), Q.sum(axis=0)
+    buf = np.empty((min(M, max(chunk, 255)), L))
     for Z, c, s, obs in blocks(data, chunk):
-        A = np.empty((int(c[-1]), L))
+        A = buf[: c[-1]]
         cy.leftProduct(Z, c, p[s], a[s], Q, sums, A, obs)
         T += A.T @ A
     vals, R = np.linalg.eigh(T)
@@ -186,15 +201,18 @@ def project(data, p, U, vals, chunk):
     V = np.zeros((data[0][0].shape[1] // 2, K))
     shift = np.zeros(K)
     den = np.sqrt(vals * M)
+    buf = np.empty((min(M, max(chunk, 255)), K))
     for Z, c, s, obs in blocks(data, chunk):
-        A = np.ascontiguousarray(U[s] * (a[s, None] / den))
+        A = buf[: c[-1]]
+        np.divide(a[s, None], den, out=A)
+        A *= U[s]
         shift += 2.0 * (p[s] @ A)
         cy.rightProduct(Z, c, A, V, p[s], obs)
     V -= shift
     return V
 
 
-### Accumulate the same centered GRM with one fewer row per window
+### Accumulate the GRM using only observed categorical contrasts
 def grm(data, p, chunk, center=True, tile=None, info=None):
     import numpy as np
 
@@ -206,17 +224,24 @@ def grm(data, p, chunk, center=True, tile=None, info=None):
         raise ValueError("GRM estimation requires variable cluster alleles")
     G = np.zeros(N * (N + 1) // 2)
     if tile is None:
-        b_tile = 16 * 1024**2
-        tile = max(1, b_tile // (N * np.dtype(np.float32).itemsize))
+        tile = max(1, 16 * 1024**2 // (N * np.dtype(np.float32).itemsize))
     tile = min(N, tile)
     T = np.empty(tile * N, dtype=np.float32)
+    buf = np.empty((min(len(p), max(chunk, 255)), N), dtype=np.float32)
     for Z, c, s, obs in blocks(data, chunk):
-        rows = np.r_[0, np.cumsum(np.maximum(np.diff(c) - 1, 0))]
+        seen = p[s] > 0
+        active = not np.all(seen)
+        if active:
+            seen = np.r_[0, np.cumsum(seen, dtype=np.int64)]
+            k = np.diff(seen[c])
+        else:
+            k = np.diff(c)
+        rows = np.r_[0, np.cumsum(np.maximum(k - 1, 0))]
         M = int(rows[-1])
         if M == 0:
             continue
-        X = np.empty((M, N), dtype=np.float32)
-        cy.contrastBlock(Z, c, p[s], rows, X)
+        X = buf[:M]
+        cy.contrastBlock(Z, c, p[s], rows, X, active)
         for beg in range(0, N, tile):
             end = min(N, beg + tile)
             tmp = T[: (end - beg) * end].reshape(end - beg, end)
@@ -233,6 +258,9 @@ def grm(data, p, chunk, center=True, tile=None, info=None):
     return G, den
 
 
+##### Output and analysis
+
+
 ### Stream optional loadings from the final sample vectors
 def writeLoadings(pth, data, p, a, V, S, chunk):
     import numpy as np
@@ -240,11 +268,13 @@ def writeLoadings(pth, data, p, a, V, S, chunk):
     from hapla import struct_cy as cy
 
     sums = V.sum(axis=0)
+    buf = np.empty((min(len(p), max(chunk, 255)), V.shape[1]))
     with Path(pth).open("w", buffering=1024**2) as dst:
         for Z, c, s, obs in blocks(data, chunk):
-            A = np.empty((int(c[-1]), V.shape[1]))
+            A = buf[: c[-1]]
             cy.leftProduct(Z, c, p[s], a[s], V, sums, A, obs)
-            np.savetxt(dst, A / S, fmt="%.10g")
+            A /= S
+            np.savetxt(dst, A, fmt="%.10g")
 
 
 ### Write numeric PC columns directly, with optional sample identifiers
@@ -264,11 +294,11 @@ def writeVectors(pth, V, ids, raw, dup, label="PC"):
 
 ### Run requested analyses with one mapped, validated input set
 def main(args):
-    hsm = args.hsm or args.hsm_svd is not None
+    hsm = args.hsm or args.hsm_svd is not None or args.hsm_groups is not None
     if (args.clusters is None) == (args.filelist is None):
         raise ValueError("Provide exactly one of --clusters or --filelist")
     if not args.grm and args.pca is None and args.projection is None and not hsm:
-        raise ValueError("Select --grm, --pca, --projection, --hsm, or --hsm-svd")
+        raise ValueError("Select --grm, --pca, --projection, --hsm, --hsm-svd, or --hsm-groups")
     if args.grm_no_center and not args.grm:
         raise ValueError("--grm-no-center requires --grm")
     if hsm:
@@ -276,12 +306,13 @@ def main(args):
             raise ValueError("HSM is a separate analysis from PCA, GRM, and projection")
         if (
             (args.hsm_svd is not None and args.hsm_svd < 1)
+            or (args.hsm_groups is not None and args.hsm_groups < 1)
             or args.hsm_matches < 1
             or args.hsm_gap < 1
         ):
-            raise ValueError("Sharing components, matches, and gap must be positive")
-    elif args.map or args.hsm_sqrt or args.hsm_matches != 16 or args.hsm_gap != 1000000:
-        raise ValueError("Sharing options require --hsm or --hsm-svd")
+            raise ValueError("Sharing components, groups, matches, and gap must be positive")
+    elif args.map or args.hsm_sqrt or args.hsm_matches != 32 or args.hsm_gap != 1000000:
+        raise ValueError("Sharing options require --hsm, --hsm-svd, or --hsm-groups")
     if args.threads < 1 or args.chunk < 1 or args.power < 1 or args.seed < 0:
         raise ValueError(
             "Threads, chunk size, and power must be positive. Seed must be nonnegative"
@@ -301,11 +332,17 @@ def main(args):
     start = perf_counter()
     printHeader("struct", args)
     print("Reading clusters.", flush=True)
-    paths, ids, k, sizes = readMetadata(args.clusters, args.filelist)
+    meta = [] if hsm else None
+    paths, ids, k, sizes = readMetadata(args.clusters, args.filelist, meta=meta)
     if args.hsm_svd is not None and args.hsm_svd >= len(ids):
         raise ValueError("Sharing components must be between one and samples minus one")
+    if args.hsm_groups is not None and args.hsm_groups >= len(ids):
+        raise ValueError("Sharing groups must be between one and samples minus one")
     M = int(k.sum(dtype=np.int64))
-    data, p = readData(paths, k, sizes, len(ids), freq=args.grm or args.pca is not None or hsm)
+    levels = np.empty(len(k), np.uint8) if args.grm or hsm else None
+    data, p = readData(
+        paths, k, sizes, len(ids), freq=args.grm or args.pca is not None, levels=levels
+    )
     keys = featureKeys(paths, k, sizes) if args.loadings or args.projection else None
     if args.projection:
         checkModel(args.projection, keys)
@@ -341,11 +378,14 @@ def main(args):
             ".hsm.grm.N.bin",
             ".hsm.vec",
             ".hsm.val",
+            ".hsm.grp",
         )
         if args.hsm:
             sfxs += [".hsm.grm.bin", ".hsm.grm.id"]
         if args.hsm_svd is not None:
             sfxs += [".hsm.vec", ".hsm.val"]
+        if args.hsm_groups is not None:
+            sfxs += [".hsm.grp"]
     inputs = [f"{pth}{s}" for pth in paths for s in (".bca", ".win", ".ids")]
     inputs += [args.filelist, args.map, *[f"{pth}.ref" for pth in paths]]
     if args.projection:
@@ -369,7 +409,7 @@ def main(args):
                 cache, cov, info = sharing.build(
                     paths,
                     data,
-                    p,
+                    levels,
                     ids,
                     tmp,
                     args.hsm_matches,
@@ -377,8 +417,9 @@ def main(args):
                     args.threads,
                     args.seed,
                     root=args.hsm_sqrt,
-                    transpose=args.hsm_svd is not None,
+                    transpose=args.hsm_svd is not None or (args.hsm_groups or 0) > 1,
                     gmap=gmap,
+                    meta=meta,
                 )
                 step = perf_counter()
                 mean, ss = sharing.moments(cache)
@@ -398,6 +439,27 @@ def main(args):
                     np.savetxt(out[".hsm.val"], S * S * scale, fmt="%.10g")
                     info["svd_seconds"] = perf_counter() - step
                     printTiming("HSM components complete.", info["svd_seconds"])
+                if args.hsm_groups is not None:
+                    from hapla import grouping
+
+                    step = perf_counter()
+                    labels, gap, groups = grouping.fit(
+                        cache, args.hsm_groups, args.power, args.seed, mom=(mean, ss)
+                    )
+                    with out[".hsm.grp"].open("w") as dst:
+                        dst.write("#FID\tIID\tGROUP\tMARGIN\n")
+                        for name, label, val in zip(ids, labels, gap):
+                            dst.write(
+                                f"{name if args.duplicate_fid else '0'}\t{name}\t"
+                                f"{label + 1}\t{val:.10g}\n"
+                            )
+                    groups["seconds"] = perf_counter() - step
+                    info["groups"] = groups
+                    printTiming(
+                        f"Grouping complete ({args.hsm_groups:,} groups).", groups["seconds"]
+                    )
+                    if not groups["converged"]:
+                        print("Grouping iteration limit reached.", flush=True)
                 del cache
             with out[".hsm.cov"].open("w") as dst:
                 dst.write("#IID\tLENGTH\tFRACTION\n")
@@ -424,10 +486,7 @@ def main(args):
             print("\nComputing GRM.", flush=True)
 
             # One represented categorical contrast per additional observed cluster allele.
-            c = np.r_[0, np.cumsum(k, dtype=np.int64)]
-            seen = np.r_[0, np.cumsum(p > 0, dtype=np.int64)]
-            levels = np.diff(seen[c])
-            count = int(np.maximum(levels - 1, 0).sum())
+            count = int(np.maximum(levels.astype(np.int64) - 1, 0).sum())
             info = dict(
                 count_unit="categorical contrasts",
                 count=count,

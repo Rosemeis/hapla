@@ -26,7 +26,7 @@ def readReference(pfx):
     from hapla.formats import readMedians, readWindows
 
     with open(f"{pfx}.wix") as src:
-        idx = [int(line.strip()) for line in src if line.strip()]
+        idx = [int(line) for line in src if line.strip()]
     rows = readWindows(pfx)
     if len(idx) != len(rows):
         raise ValueError("Reference window and index counts differ or are empty")
@@ -72,8 +72,9 @@ def predictBatch(batch):
 
     out = []
     for meta, G, R in batch:
-        z = packed_cy.predictHaplotypes(G, R) if len(R) else np.full(G.shape[1], 255, np.uint8)
-        out.append((meta, len(R), z))
+        K = len(R)
+        z = packed_cy.predictHaplotypes(G, R) if K else np.full(G.shape[1], 255, np.uint8)
+        out.append((meta, K, z))
     return out
 
 

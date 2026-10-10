@@ -220,8 +220,9 @@ The haplotype sharing matrix (`--hsm`) uses phased matches across windows.
 | `--pca INT` | — | Number of principal components |
 | `--hsm` | Off | Export the full haplotype sharing kernel in GCTA format |
 | `--hsm-svd INT` | — | Number of eigenvectors from sharing profiles |
+| `--hsm-groups INT` | — | Number of individual groups fitted to the sharing kernel |
 | `--hsm-sqrt` | Off | Square-root sharing profiles before centering |
-| `--hsm-matches INT` | `16` | Maximum tied haplotypes per maximal sharing match |
+| `--hsm-matches INT` | `32` | Maximum tied haplotypes per maximal sharing match |
 | `--hsm-gap INT` | `1000000` | Break sharing runs across gaps larger than this many bp |
 | `--map FILE` | — | Genetic map for HSM weights and covered lengths |
 | `--grm` | Off | Estimate the GRM |
@@ -251,6 +252,7 @@ merging is not supported. The log records normalization, counts, dimensions, and
 ```sh
 hapla struct --clusters chr{1..22} --hsm-svd 20 --threads 8 --out result
 hapla struct --clusters chr{1..22} --hsm --hsm-svd 20 --hsm-sqrt --threads 8 --out result
+hapla struct --clusters chr{1..22} --hsm-groups 5 --threads 8 --out groups
 ```
 
 HSM compares matching cluster-label runs across phased, ordered, nonoverlapping
@@ -263,18 +265,30 @@ matched coverage are rejected.
 
 Profiles are combined across chromosomes, normalized by matched coverage, and
 centred. Linear profiles are the default. `--hsm-sqrt` applies square roots before
-centering for both outputs.
+centering for all HSM operations.
 
 - `--hsm-svd K` writes unit-norm `.hsm.vec` and kernel `.hsm.val`.
   Multiply eigenvectors by `sqrt(eigenvalue)` for kernel PCA scores.
 - `--hsm` writes the full PSD kernel with trace `N - 1`, up to rounding, as GCTA
   float32 `.hsm.grm.bin` and `.hsm.grm.id`. No SNP-count file is written.
+- `--hsm-groups K` fits kernel k-means and writes `.hsm.grp` with FID, IID,
+  group (1..K), and distance margin. PCA scores initialize the fit, then sparse
+  products refine groups using the full kernel. The margin is the next group's
+  squared distance minus the assigned group's distance, not a probability.
+  Require `1 <= K < N`. With one group, the margin is zero.
 
-Both flags share one matching pass. `.hsm.cov` reports matched lengths and
+These flags share one matching pass. `.hsm.cov` reports matched lengths and
 fractions. The log records the transformation and `Gower scale`. SVD uses sparse
 profiles and temporary storage. Full matrix export requires quadratic disk space.
+Grouping uses sparse products and `N × K` work arrays without constructing the kernel.
 HSM runs separately from PCA, GRM, and projection. Matches are not verified IBD,
 and heritability use needs separate validation.
+
+Grouping is a flat partition for a supplied K, with four PCA starts and up to
+100 full-kernel updates for the best two distinct starts. It does not implement
+fineSTRUCTURE's Bayesian model or hierarchy.
+Check several seeds and compare separate chromosome sets for reproducibility.
+Groups describe sharing profiles and need not represent discrete populations.
 
 ## hapla admix
 
