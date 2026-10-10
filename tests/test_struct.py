@@ -75,6 +75,26 @@ class DirectProducts(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "outside"):
                 cy.frequencies(bad, c, out, np.empty(len(Z), np.int64))
 
+    def test_observed_category_counts_with_or_without_frequencies(self):
+        Z = np.full((5, 600), 255, dtype=np.uint8)
+        Z[1] = 0
+        Z[2, :500] = np.arange(500) % 2
+        Z[3] = np.resize(np.arange(255, dtype=np.uint8), 600)
+        c = np.array([0, 0, 1, 3, 258, 259], dtype=np.int64)
+        levels, obs, p = np.empty(5, np.uint8), np.empty(5, np.int64), np.empty(c[-1])
+        for out in (None, p):
+            cy.frequencies(Z, c, out, obs, levels)
+            np.testing.assert_array_equal(levels, [0, 1, 2, 255, 0])
+            np.testing.assert_array_equal(obs, [0, 600, 500, 600, 0])
+        expected = np.r_[1, 0.5, 0.5, np.bincount(Z[3], minlength=255) / 600, 0]
+        np.testing.assert_array_equal(p, expected)
+        with self.assertRaisesRegex(ValueError, "observed-category dimensions"):
+            cy.frequencies(Z, c, None, obs, np.empty(4, np.uint8))
+        Z[2, 0] = 2
+        for out in (None, p):
+            with self.assertRaisesRegex(ValueError, "outside"):
+                cy.frequencies(Z, c, out, obs, levels)
+
     def test_both_products_equal_dense_matrix(self):
         Z, c, p, _, X = structureFixture()
         rng = np.random.default_rng(610)
@@ -166,6 +186,55 @@ class DirectProducts(unittest.TestCase):
         G, den = struct.grm([(Z, c, None)], p, 255, center=False, tile=73)
         expected = E.T @ E / (2 * den)
         np.testing.assert_allclose(G, expected[np.tril_indices(300)], atol=4e-7)
+
+    def test_contrasts_preserve_missing_reference_imputed_dosage_products(self):
+        rng = np.random.default_rng(171)
+        k, N = np.array([0, 1, 2, 7, 255]), 300
+        c = np.r_[0, np.cumsum(k, dtype=np.int64)]
+        Z = np.full((len(k), 2 * N), 255, dtype=np.uint8)
+        p, E = np.empty(c[-1]), np.zeros((c[-1], N))
+        for w, K in enumerate(k):
+            if not K:
+                continue
+            row = Z[w]
+            row[:] = rng.integers(K, size=2 * N)
+            row[rng.random(2 * N) < 0.2] = 255
+            q = rng.dirichlet(np.ones(K))
+            p[c[w] : c[w + 1]] = q
+            for h, label in enumerate(row):
+                if label == 255:
+                    E[c[w] : c[w + 1], h // 2] += q
+                else:
+                    E[c[w] + label, h // 2] += 1
+            E[c[w] : c[w + 1]] -= 2 * q[:, None]
+        rows = np.r_[0, np.cumsum(np.maximum(k - 1, 0), dtype=np.int64)]
+        X = np.empty((rows[-1], N), dtype=np.float32)
+        cy.contrastBlock(Z, c, p, rows, X)
+        X = X.astype(np.float64)
+        np.testing.assert_allclose(X.T @ X, E.T @ E, atol=4e-6)
+
+    def test_active_contrasts_drop_unobserved_categories_and_fixed_windows(self):
+        rng = np.random.default_rng(809)
+        Z = rng.choice([0, 71, 254], (4, 100)).astype(np.uint8)
+        Z[rng.random(Z.shape) < 0.3] = 255
+        Z[0] = 255
+        Z[1, Z[1] != 255] = 71
+        c = np.arange(0, 5 * 255, 255, dtype=np.int64)
+        p, levels = np.empty(c[-1]), np.empty(len(Z), np.uint8)
+        cy.frequencies(Z, c, p, np.empty(len(Z), np.int64), levels)
+        rows = np.r_[0, np.cumsum(np.maximum(levels.astype(np.int64) - 1, 0))]
+        X = np.empty((rows[-1], Z.shape[1] // 2), np.float32)
+        cy.contrastBlock(Z, c, p, rows, X, True)
+        E = np.zeros((len(p), X.shape[1]))
+        for w, row in enumerate(Z):
+            for h, label in enumerate(row):
+                if label == 255:
+                    E[c[w] : c[w + 1], h // 2] += p[c[w] : c[w + 1]]
+                else:
+                    E[c[w] + label, h // 2] += 1
+        E -= 2 * p[:, None]
+        X = X.astype(np.float64)
+        np.testing.assert_allclose(X.T @ X, E.T @ E, atol=1e-6)
 
 
 ### Check PCA, projection, and GRM output

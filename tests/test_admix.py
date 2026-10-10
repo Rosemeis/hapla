@@ -483,8 +483,50 @@ class AdmixtureTests(TemporaryTests):
         np.testing.assert_allclose(S, exact[:4], rtol=2e-6)
         np.testing.assert_allclose(V @ V.T, R[:4].T @ R[:4], atol=2e-6)
         np.testing.assert_allclose(U * S, X[: c[5]] @ V, atol=2e-6)
-        A = functions.centerSub(Z, S, V, p, c, 5, 8)
-        np.testing.assert_allclose(A, X[c[5] :] @ (V / S), atol=2e-6)
+        for chunk in (1, 8, 10000):
+            A = functions.centerSub(Z, S, V, p, c, 5, chunk)
+            np.testing.assert_allclose(A, X[c[5] :] @ (V / S), atol=2e-6)
+
+    def test_als_centering_preserves_float32_rounding_and_checks_dimensions(self):
+        rng = np.random.default_rng(273)
+        k = np.array([0, 1, 2, 7, 255], np.uint32)
+        c = np.r_[0, np.cumsum(k)].astype(np.uint32)
+        M = int(c[-1])
+        for K in (2, 5, 6, 17):
+            P = rng.standard_normal((M, K), dtype=np.float32)
+            p = rng.random(M, dtype=np.float32)
+            shift = rng.standard_normal(K, dtype=np.float32)
+            expected = P.copy()
+            expected *= 0.5
+            expected += np.outer(p, shift)
+            cy.projectP(expected, k, c)
+            cy.projectP(P, k, c, p, shift)
+            np.testing.assert_array_equal(P, expected)
+            for mean, offset in ((None, shift), (p, None), (p[:-1], shift), (p, shift[:-1])):
+                with self.assertRaisesRegex(ValueError, "ALS centering dimensions"):
+                    cy.projectP(P, k, c, mean, offset)
+
+    def test_als_updates_match_dense_centered_data(self):
+        rng = np.random.default_rng(274)
+        N, K = 37, 5
+        k = np.array([0, 1, 2, 7, 255], np.uint32)
+        c = np.r_[0, np.cumsum(k)].astype(np.uint32)
+        M = int(c[-1])
+        Y = rng.standard_normal((M, K - 1), dtype=np.float32)
+        V = rng.standard_normal((N, K - 1), dtype=np.float32)
+        p = np.concatenate([rng.dirichlet(np.ones(C)) for C in k if C]).astype(np.float32)
+        Q = rng.random((N, K), dtype=np.float32)
+        cy.projectQ(Q)
+        D = Y @ V.T + 2 * p[:, None]
+        H = Q @ np.linalg.pinv(Q.T @ Q)
+        expected = 0.5 * D @ H
+        cy.projectP(expected, k, c)
+        P, Q = functions.alsStep(Y, V, p, k, c, Q)
+        np.testing.assert_allclose(P, expected, atol=3e-6)
+        H = P @ np.linalg.pinv(P.T @ P)
+        q = 0.5 * D.T @ H
+        cy.projectQ(q)
+        np.testing.assert_allclose(Q, q, atol=3e-6)
 
     def test_short_runs_report_actual_final_likelihood_and_iteration_limit(self):
         P, Q, ctx = fixture(5)

@@ -17,15 +17,24 @@ ctypedef int64_t i64
 ctypedef float f32
 ctypedef double f64
 
+##### Frequencies and variation
 
-### Validate in a linear scan and build a histogram only when frequencies are needed
-cdef int _frequency(const u8* z, Py_ssize_t H, Py_ssize_t K, f64* p, i64* obs) noexcept nogil:
+
+### Validate labels and reuse histograms for requested window summaries
+cdef int _frequency(
+    const u8* z,
+    Py_ssize_t H,
+    Py_ssize_t K,
+    f64* p,
+    i64* obs,
+    u8* levels,
+) noexcept nogil:
     cdef:
         Py_ssize_t h, k, total = 0
         u64[256] cnt
         u8 limit = K
         int bad = 0
-    if p == NULL:
+    if p == NULL and levels == NULL:
         for h in range(H):
             total += z[h] != 255
             bad |= (z[h] != 255) & (z[h] >= limit)
@@ -39,13 +48,24 @@ cdef int _frequency(const u8* z, Py_ssize_t H, Py_ssize_t K, f64* p, i64* obs) n
         if cnt[k]:
             bad = 1
     obs[0] = H - cnt[255]
-    for k in range(K):
-        p[k] = <f64>cnt[k] / obs[0] if obs[0] else 0.0
+    if levels != NULL:
+        levels[0] = 0
+        for k in range(K):
+            levels[0] += cnt[k] != 0
+    if p != NULL:
+        for k in range(K):
+            p[k] = <f64>cnt[k] / obs[0] if obs[0] else 0.0
     return bad
 
 
 ### Validate labels while counting each window once
-cpdef void frequencies(const u8[:, ::1] Z, const i64[::1] c, f64[::1] p, i64[::1] obs):
+cpdef void frequencies(
+    const u8[:, ::1] Z,
+    const i64[::1] c,
+    f64[::1] p,
+    i64[::1] obs,
+    u8[::1] levels = None,
+):
     cdef:
         Py_ssize_t W = Z.shape[0], H = Z.shape[1], w
         int bad = 0
@@ -53,6 +73,8 @@ cpdef void frequencies(const u8[:, ::1] Z, const i64[::1] c, f64[::1] p, i64[::1
         raise ValueError("Invalid assignment or frequency dimensions")
     if p is not None and c[W] != p.shape[0]:
         raise ValueError("Invalid frequency dimensions")
+    if levels is not None and levels.shape[0] != W:
+        raise ValueError("Invalid observed-category dimensions")
     for w in range(W):
         if not 0 <= c[w + 1] - c[w] <= 255:
             raise ValueError("Population structure requires 0..255 clusters per window")
@@ -63,6 +85,7 @@ cpdef void frequencies(const u8[:, ::1] Z, const i64[::1] c, f64[::1] p, i64[::1
             c[w + 1] - c[w],
             &p[c[w]] if p is not None and c[w + 1] > c[w] else NULL,
             &obs[w],
+            &levels[w] if levels is not None else NULL,
         )
     if bad:
         raise ValueError("Observed assignment is outside its window's cluster range")
@@ -119,6 +142,9 @@ cpdef void variation(const u8[:, ::1] Z, const i64[::1] c, const f64[::1] p, f64
             _variation(&Z[w, 0], &p[c[w]], &out[c[w]], N, c[w + 1] - c[w])
 
 
+##### Matrix products
+
+
 ### Compute X Q by accumulating two nonzero dosages per sample
 cpdef void leftProduct(
     const u8[:, ::1] Z,
@@ -142,9 +168,13 @@ cpdef void leftProduct(
         if obs is None or obs[w] == 2 * N:
             for i in range(N):
                 r, s = c[w] + Z[w, 2 * i], c[w] + Z[w, 2 * i + 1]
-                for l in range(L):
-                    A[r, l] += Q[i, l]
-                    A[s, l] += Q[i, l]
+                if r == s:
+                    for l in range(L):
+                        A[r, l] += 2.0 * Q[i, l]
+                else:
+                    for l in range(L):
+                        A[r, l] += Q[i, l]
+                        A[s, l] += Q[i, l]
         else:
             t = threadid()
             for l in range(L):
@@ -208,6 +238,9 @@ cpdef void rightProduct(
                         )
 
 
+##### GRM
+
+
 ### Center and scale the packed GRM without allocating a square matrix
 cpdef f64 normalizeGram(f64[::1] G, f64 den, Py_ssize_t N, bint center):
     cdef:
@@ -250,27 +283,37 @@ cpdef f64 normalizeGram(f64[::1] G, f64 den, Py_ssize_t N, bint center):
     return scale
 
 
-### Use K-1 orthonormal Helmert contrasts for each centered categorical window
+### Use orthonormal Helmert contrasts for each centered categorical window
 cdef void _contrasts(
     const u8* z,
     const f64* p,
     f32[:, ::1] X,
     Py_ssize_t K,
     Py_ssize_t off,
+    bint active,
 ) noexcept nogil:
     cdef:
-        Py_ssize_t N = X.shape[1], j, i
+        Py_ssize_t N = X.shape[1], j, i, k, R = 0
         f64 d, u, total = 0.0
-        int a, b
-    for j in range(K - 1):
-        total += p[j]
+        f64[256] lut
+        int[255] idx
+    lut[255] = 0.0
+    for k in range(K):
+        lut[k] = 0.0
+        if not active or p[k] > 0:
+            idx[R] = k
+            R += 1
+    for j in range(R - 1):
+        total += p[idx[j]]
         d = 1.0 / sqrt(<f64>(j + 1) * (j + 2))
-        u = (total - (j + 1) * p[j + 1]) * d
+        u = (total - (j + 1) * p[idx[j + 1]]) * d
+        for k in range(j + 1):
+            lut[idx[k]] = d - u
+        lut[idx[j + 1]] = -(j + 1) * d - u
+        for k in range(j + 2, R):
+            lut[idx[k]] = -u
         for i in range(N):
-            a, b = z[2 * i], z[2 * i + 1]
-            X[off + j, i] = ((a <= j) + (b <= j) - (j + 1) * ((a == j + 1) + (b == j + 1))) * d - (
-                (a != 255) + (b != 255)
-            ) * u
+            X[off + j, i] = lut[z[2 * i]] + lut[z[2 * i + 1]]
 
 
 ### Expand one bounded block and omit GRM rows for fixed windows
@@ -280,11 +323,12 @@ cpdef void contrastBlock(
     const f64[::1] p,
     const i64[::1] rows,
     f32[:, ::1] X,
+    bint active = False,
 ) noexcept nogil:
     cdef Py_ssize_t w
     for w in prange(Z.shape[0], schedule="static"):
         if c[w + 1] > c[w]:
-            _contrasts(&Z[w, 0], &p[c[w]], X, c[w + 1] - c[w], rows[w])
+            _contrasts(&Z[w, 0], &p[c[w]], X, c[w + 1] - c[w], rows[w], active)
 
 
 ### Accumulate only the lower triangle, in double precision

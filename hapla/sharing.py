@@ -18,19 +18,18 @@ from hapla.runtime import printTiming
 
 
 ### Join chromosome runs across input files
-def chromosomes(paths, data, p):
+def chromosomes(paths, data, levels, meta=None):
     parts, seen, off = [], set(), 0
     chrom, rows, zs, live = None, [], [], []
-    for path, (Z, c, _) in zip(paths, data):
-        meta = readWindows(path)
-        cnt = np.r_[0, np.cumsum(p[off : off + c[-1]] > 0, dtype=np.int64)]
-        info = np.diff(cnt[c]) > 1
-        off += c[-1]
+    for n, (path, (Z, _, _)) in enumerate(zip(paths, data)):
+        win = readWindows(path) if meta is None else meta[n]
+        info = levels[off : off + len(Z)] > 1
+        off += len(Z)
         beg = 0
-        for end in range(1, len(meta) + 1):
-            if end < len(meta) and meta[end][0] == meta[beg][0]:
+        for end in range(1, len(win) + 1):
+            if end < len(win) and win[end][0] == win[beg][0]:
                 continue
-            cur = meta[beg][0]
+            cur = win[beg][0]
             if cur != chrom:
                 if chrom is not None:
                     parts.append((chrom, rows, zs, np.concatenate(live)))
@@ -38,7 +37,7 @@ def chromosomes(paths, data, p):
                     raise ValueError("Sharing chromosomes must be contiguous in input order")
                 seen.add(cur)
                 chrom, rows, zs, live = cur, [], [], []
-            rows.extend(meta[beg:end])
+            rows.extend(win[beg:end])
             zs.append(Z[beg:end])
             live.append(info[beg:end])
             beg = end
@@ -82,14 +81,19 @@ def cache(path, dtype, shape):
 
 ### Cache sparse chromosome profiles
 def paint(path, count, x, left, right, bins=1):
-    H = len(count)
-    N = H // 2
+    N = len(count) // 2
     ptr = np.r_[0, np.cumsum(count, dtype=np.int64)]
     rows, cov = np.zeros(N + 1, np.int64), np.empty(N)
     sums, seen, hit = np.empty(N), np.full(N, -1, np.int64), np.empty(N, np.int64)
     chunk = (N + bins - 1) // bins
     edge = np.minimum(np.arange(bins + 1) * chunk, N)
-    seg = cache(path / "segments", np.uint32, (int(np.diff(ptr[2 * edge]).max()), 3))
+    n = int(np.diff(ptr[2 * edge]).max())
+    # Use RAM for segment buffers up to 64 MiB.
+    seg = (
+        np.empty((n, 3), np.uint32)
+        if 12 * n <= 64 * 1024**2
+        else cache(path / "segments", np.uint32, (n, 3))
+    )
     with (path / "columns").open("wb") as cols, (path / "values").open("wb") as vals:
         for slot in range(bins):
             first, last = slot * chunk, min((slot + 1) * chunk, N)
@@ -115,14 +119,15 @@ def paint(path, count, x, left, right, bins=1):
                 val = np.empty(e - b)
                 cov[beg:end] = cy.paint(seg[b:e], sub, x, left, right, val)
                 row = np.empty(end - beg + 1, np.int64)
-                col, out = np.empty(e - b, np.uint32), np.empty(e - b)
+                size = min(e - b, (end - beg) * N)
+                col, out = np.empty(size, np.uint32), np.empty(size)
                 n = cy.compact(seg[b:e], sub, val, row, col, out, sums, seen, hit, beg)
                 col[:n].tofile(cols)
                 out[:n].tofile(vals)
                 rows[beg + 1 : end + 1] = rows[beg] + row[1:]
                 del val, col, out
     del seg
-    (path / "segments").unlink()
+    (path / "segments").unlink(missing_ok=True)
     n = int(rows[-1])
     if n == 0:
         return None, cov
@@ -163,10 +168,10 @@ def profiles(data, cov, path, *, root=False, transpose=True):
 def build(
     paths,
     data,
-    p,
+    levels,
     ids,
     tmp,
-    matches=16,
+    matches=32,
     gap=1000000,
     threads=1,
     seed=42,
@@ -174,6 +179,7 @@ def build(
     root=False,
     transpose=True,
     gmap=None,
+    meta=None,
 ):
     if matches < 1 or gap < 1:
         raise ValueError("Sharing match count and gap must be positive")
@@ -187,7 +193,7 @@ def build(
     rank[inv] = np.arange(H)
     jobs, span = [], 0.0
     tick = perf_counter()
-    for n, (_, rows, parts, info) in enumerate(chromosomes(paths, data, p)):
+    for n, (_, rows, parts, info) in enumerate(chromosomes(paths, data, levels, meta)):
         path = Path(tmp) / str(n)
         path.mkdir()
         x, left, right, cut = geometry(rows, info, gap, gmap)
@@ -268,13 +274,6 @@ def moments(data):
     return mean, ss
 
 
-### Expand and center a bounded block of combined profiles
-def rows(data, mean, beg, out):
-    out.fill(0)
-    cy.rows(*data[0], beg, out)
-    out -= mean
-
-
 ### Stream the full lower triangle using bounded BLAS tiles
 def grm(path, data, mean, ss, tile=None):
     N = len(data[0][0]) - 1
@@ -288,12 +287,12 @@ def grm(path, data, mean, ss, tile=None):
         for beg in range(0, N, tile):
             end = min(beg + tile, N)
             A = X[: end - beg]
-            rows(data, mean, beg, A)
+            cy.rows(*data[0], beg, mean, A)
             for b in range(0, end, tile):
                 e = min(b + tile, end)
                 B = A if b == beg else Y[: e - b]
                 if b != beg:
-                    rows(data, mean, b, B)
+                    cy.rows(*data[0], b, mean, B)
                 T[: len(A), b:e] = (A @ B.T) * scale
             for i in range(len(A)):
                 T[i, : beg + i + 1].tofile(dst)
@@ -314,7 +313,7 @@ def product(data, Q, transpose=False):
 
 
 ### Fit randomized SVD and return unit-norm eigenvectors and singular values
-def pca(data, K, power, seed):
+def pca(data, K, power, seed, strict=True):
     N = len(data[0][0]) - 1
     if not 1 <= K < N:
         raise ValueError("Sharing components must be between one and samples minus one")
@@ -331,8 +330,9 @@ def pca(data, K, power, seed):
     A = product(data, Q, True)
     _, S, R = np.linalg.svd(A, full_matrices=False)
     rank = int(np.count_nonzero(S > np.finfo(float).eps * N * S[0]))
-    if K > rank:
+    if strict and K > rank:
         raise ValueError(f"Requested {K} sharing PCs but the profiles support only {rank}")
+    K = min(K, rank)
     V = Q @ R[:K].T
     V *= np.sign(V[np.argmax(np.abs(V), axis=0), np.arange(K)])
     return V, S[:K]
