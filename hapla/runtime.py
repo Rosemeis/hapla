@@ -118,6 +118,8 @@ def headerRows(cmd, args):
         rows.append(f"Size: {size}")
     elif cmd == "admix":
         rows.append(f"K: {args.K:,}, Seed: {args.seed:,}")
+    elif cmd == "deconv":
+        rows.append(f"Ancestries: {args.K:,}")
     rows.append(f"Threads: {args.threads:,}")
     bar = "-" * max(64, *map(len, rows))
     return [bar, *rows, bar, ""]

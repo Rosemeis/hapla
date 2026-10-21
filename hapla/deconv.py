@@ -109,7 +109,7 @@ def writeClusters(prefix, source, labels, path, selected, ids, rows, include_ori
         ".bca": Path(f"{prefix}.bca"),
         ".ids": Path(f"{prefix}.ids"),
         ".win": Path(f"{prefix}.win"),
-        ".ref.json": Path(f"{prefix}.ref.json"),
+        ".ref": Path(f"{prefix}.ref"),
     }
     files[".bca"].write_bytes(MAGIC + expanded.tobytes())
     files[".ids"].write_text("".join(f"{s}\n" for s in out_ids))
@@ -117,7 +117,7 @@ def writeClusters(prefix, source, labels, path, selected, ids, rows, include_ori
         "#CHROM\tSTART\tEND\tLENGTH\tSIZE\tK\n"
         + "".join("\t".join(map(str, row)) + "\n" for row in rows)
     )
-    key = sha256(Path(f"{source}.ref.json").read_bytes() + path.tobytes()).hexdigest()
+    key = sha256(Path(f"{source}.ref").read_bytes() + path.tobytes()).hexdigest()
     writeIdentity(files, key, W, int(sum(row[5] for row in rows)))
 
 
@@ -127,7 +127,7 @@ def main(args):
 
     paths, lai, support, bcf = checkArgs(args)
     start = perf_counter()
-    printHeader("deconv", args.threads, f"Ancestries: {args.K}")
+    printHeader("deconv", args)
     prefixes, ids, _, sizes = readMetadata(paths)
     N = len(ids)
     labels = []
@@ -187,7 +187,7 @@ def main(args):
                     handle.write(f"{base}.{tag}\n")
             out[".filelist"] = filelist
             for j, tag in enumerate(tags):
-                for sfx in (".bca", ".ids", ".win", ".ref.json"):
+                for sfx in (".bca", ".ids", ".win", ".ref"):
                     out[f".{tag}{sfx}"] = tmp / f"result.{tag}{sfx}"
         if args.format in ("bcf", "both"):
             from hapla.vcf_cy import writeDeconvBcf
@@ -242,9 +242,9 @@ def main(args):
         min_tract_windows=args.min_tract_windows,
         homozygous_only=args.homozygous_only,
         saved_filtered_paths=args.save_filtered_paths,
+        elapsed_seconds=perf_counter() - start,
     )
-    elapsed = perf_counter() - start
-    printTiming("Deconvolution", elapsed)
-    writeLog(f"{args.out}.log", "deconv", args, stats)
+    printTiming("Deconvolution", stats["elapsed_seconds"])
     out[".log"] = Path(f"{args.out}.log")
-    printDone(args.out, out, elapsed)
+    writeLog(out, "deconv", args, stats)
+    printDone(args.out, out, stats["elapsed_seconds"])

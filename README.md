@@ -478,7 +478,7 @@ hapla deconv --clusters chr{1..22} --path-filelist paths.txt --K 4 \
 ```
 
 Cluster output is written as `<out>.<input-suffix>.bca`, `.ids`, `.win`, and
-`.ref.json`; `<out>.filelist` lists those prefixes in input order. BCF output
+`.ref`; `<out>.filelist` lists those prefixes in input order. BCF output
 uses matching `<out>.<input-suffix>.bcf` files and `<out>.bcfs` lists them.
 Each retained copy is named `SAMPLE_K`, where `K` is its zero-based ancestry
 label. `--include-original` retains the unmasked samples before these copies.
