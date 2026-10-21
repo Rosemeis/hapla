@@ -128,6 +128,12 @@ PLINK output marks the diploid genotype missing if either haplotype is missing.
 | `-f`, `--size INT` | — | Variants per window |
 | `-l`, `--length INT` | — | Physical span in bp, from the first variant through start + span |
 | `-w`, `--windows FILE` | — | Increasing zero-based start indices, beginning at zero |
+| `--adaptive` | Off | Select nonoverlapping variable windows by compression cost |
+| `--min-size INT` | `8` | Minimum adaptive window size, except span limits or tails |
+| `--max-size INT` | `64` | Maximum adaptive window size |
+| `--max-length INT` | `100000` | Maximum adaptive physical span in bp |
+| `--map FILE` | — | Genetic map for adaptive window spans |
+| `--max-cm FLOAT` | `0.1` with a map | Maximum adaptive genetic span in cM, requires `--map` |
 | `-s`, `--step INT` | Window size | Step for overlapping `--size` windows |
 | `-p`, `--lmbda FLOAT` | `0` | Hamming-distance growth threshold as a window fraction, zero allows any mismatch |
 | `--min-freq FLOAT` | `0.001` | Minimum cluster frequency among observed haplotypes, combined with `--min-mac` |
@@ -140,6 +146,21 @@ PLINK output marks the diploid genotype missing if either haplotype is missing.
 
 For overlapping windows, a short tail is added only if it covers new variants.
 A `--windows` file may end with the genotype record count as an EOF marker.
+`--adaptive` fits candidate blocks of up to 64 variants and compares them with
+recursive halves, down to 8 variants by default. Physical span is limited to
+100,000 bp, with a further 0.1 cM limit when `--map` is supplied. Span limits
+and chromosome tails can produce shorter windows. All variants are retained.
+Adaptive size and span options require `--adaptive`, which cannot
+use `--size`, `--length`, `--windows`, `--step`, or `--tail drop`.
+Selection balances median dictionaries, assignments, reconstruction differences,
+and boundaries. Observed alleles in incomplete haplotypes contribute literal
+bits, so additional missing-window loss has a cost rather than being discarded.
+Equal costs favor more usable alleles, then fewer windows.
+This is a compression proxy, not an automatic biological optimum.
+Variable windows change regional weighting in downstream analyses. Use map-aware
+FATASH transitions when a genetic map is available. Prediction reuses the saved
+boundaries.
+
 The fitter deduplicates haplotypes and grows binary medians using XOR/popcount
 Hamming distances. Each step selects the single furthest pattern from its nearest
 median, breaking ties by pattern count and canonical allele order. Seeds require
@@ -199,8 +220,9 @@ The haplotype sharing matrix (`--hsm`) uses phased matches across windows.
 | `--pca INT` | — | Number of principal components |
 | `--hsm` | Off | Export the full haplotype sharing kernel in GCTA format |
 | `--hsm-svd INT` | — | Number of eigenvectors from sharing profiles |
+| `--hsm-groups INT` | — | Number of individual groups fitted to the sharing kernel |
 | `--hsm-sqrt` | Off | Square-root sharing profiles before centering |
-| `--hsm-matches INT` | `16` | Maximum tied haplotypes per maximal sharing match |
+| `--hsm-matches INT` | `32` | Maximum tied haplotypes per maximal sharing match |
 | `--hsm-gap INT` | `1000000` | Break sharing runs across gaps larger than this many bp |
 | `--map FILE` | — | Genetic map for HSM weights and covered lengths |
 | `--grm` | Off | Estimate the GRM |
@@ -230,6 +252,7 @@ merging is not supported. The log records normalization, counts, dimensions, and
 ```sh
 hapla struct --clusters chr{1..22} --hsm-svd 20 --threads 8 --out result
 hapla struct --clusters chr{1..22} --hsm --hsm-svd 20 --hsm-sqrt --threads 8 --out result
+hapla struct --clusters chr{1..22} --hsm-groups 5 --threads 8 --out groups
 ```
 
 HSM compares matching cluster-label runs across phased, ordered, nonoverlapping
@@ -242,18 +265,30 @@ matched coverage are rejected.
 
 Profiles are combined across chromosomes, normalized by matched coverage, and
 centred. Linear profiles are the default. `--hsm-sqrt` applies square roots before
-centering for both outputs.
+centering for all HSM operations.
 
 - `--hsm-svd K` writes unit-norm `.hsm.vec` and kernel `.hsm.val`.
   Multiply eigenvectors by `sqrt(eigenvalue)` for kernel PCA scores.
 - `--hsm` writes the full PSD kernel with trace `N - 1`, up to rounding, as GCTA
   float32 `.hsm.grm.bin` and `.hsm.grm.id`. No SNP-count file is written.
+- `--hsm-groups K` fits kernel k-means and writes `.hsm.grp` with FID, IID,
+  group (1..K), and distance margin. PCA scores initialize the fit, then sparse
+  products refine groups using the full kernel. The margin is the next group's
+  squared distance minus the assigned group's distance, not a probability.
+  Require `1 <= K < N`. With one group, the margin is zero.
 
-Both flags share one matching pass. `.hsm.cov` reports matched lengths and
+These flags share one matching pass. `.hsm.cov` reports matched lengths and
 fractions. The log records the transformation and `Gower scale`. SVD uses sparse
 profiles and temporary storage. Full matrix export requires quadratic disk space.
+Grouping uses sparse products and `N × K` work arrays without constructing the kernel.
 HSM runs separately from PCA, GRM, and projection. Matches are not verified IBD,
 and heritability use needs separate validation.
+
+Grouping is a flat partition for a supplied K, with four PCA starts and up to
+100 full-kernel updates for the best two distinct starts. It does not implement
+fineSTRUCTURE's Bayesian model or hierarchy.
+Check several seeds and compare separate chromosome sets for reproducibility.
+Groups describe sharing profiles and need not represent discrete populations.
 
 ## hapla admix
 
@@ -413,7 +448,7 @@ the fitted `--time` instead of alpha.
 
 ### Genetic distances and dating
 
-Both `struct` and `fatash` interpolate the supplied map internally. Use the
+`cluster`, `struct`, and `fatash` interpolate the supplied map internally. Use the
 same genome build as the clusters, with increasing bp and nondecreasing cM.
 The whitespace-separated map contains all required chromosomes:
 

@@ -76,7 +76,7 @@ def sampleIndices(ids, pth, *, ordered=False):
 
 
 ### Collect chromosome metadata without repeatedly growing NumPy arrays
-def readMetadata(pfx, files=None, *, likes=False):
+def readMetadata(pfx, files=None, *, likes=False, meta=None):
     paths = readPaths(files, pfx)
     ids, counts = None, []
     for pth in paths:
@@ -90,7 +90,10 @@ def readMetadata(pfx, files=None, *, likes=False):
             ids = cur
         elif not np.array_equal(ids, cur):
             raise ValueError("Samples do not match across files!")
-        counts.append(np.array([r[5] for r in readWindows(pth)], dtype=np.uint32))
+        rows = readWindows(pth)
+        counts.append(np.array([r[5] for r in rows], dtype=np.uint32))
+        if meta is not None:
+            meta.append(rows)
     return paths, ids, np.concatenate(counts), np.array([len(k) for k in counts], np.uint32)
 
 

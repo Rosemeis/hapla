@@ -111,9 +111,13 @@ def headerRows(cmd, args):
     rows = [f"hapla v{__version__}", f"hapla {cmd}"]
     if cmd == "cluster":
         size = (
-            f"{args.size:,}"
-            if args.size is not None
-            else (f"{args.length:,} bp" if args.length is not None else "predefined")
+            f"adaptive ({args.min_size:,}-{args.max_size:,})"
+            if args.adaptive
+            else (
+                f"{args.size:,}"
+                if args.size is not None
+                else (f"{args.length:,} bp" if args.length is not None else "predefined")
+            )
         )
         rows.append(f"Size: {size}")
     elif cmd == "admix":

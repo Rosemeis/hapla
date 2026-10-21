@@ -100,17 +100,10 @@ class MapTests(TemporaryTests):
         self.assertTrue(np.any(right == left))
         rec = exactMatches(Z, cut, np.ones(W, np.uint8), np.arange(H), H)
         C, cov = exactSharing(rec, H, x, left, right)
-        p = (Z == 0).mean(axis=1)
         c = np.arange(0, 2 * W + 1, 2, dtype=np.int64)
         ids = np.array([f"s{i}" for i in range(H // 2)])
         cache, actual, info = sharing.build(
-            [ref],
-            [(Z, c, None)],
-            np.column_stack((p, 1 - p)).ravel(),
-            ids,
-            self.root,
-            matches=H,
-            gmap=gmap,
+            [ref], [(Z, c, None)], np.full(W, 2, np.uint8), ids, self.root, matches=H, gmap=gmap
         )
         np.testing.assert_allclose(actual, cov)
         C /= cov[:, None]
@@ -138,8 +131,6 @@ class MapTests(TemporaryTests):
         refs = [writeClusters(self.root, name, Z, c) for name in ("live", "flat")]
         pth = Path(f"{refs[1]}.win")
         pth.write_text(pth.read_text().replace("\n1 ", "\n2 "))
-        p = (Z == 0).mean(axis=1)
-        p = np.column_stack((p, 1 - p)).ravel()
         ids = np.array([f"s{i}" for i in range(6)])
         gmap = {"1": np.array([[1, 0], [17, 1.6]]), "2": np.array([[1, 0], [17, 0]])}
         result = []
@@ -147,7 +138,7 @@ class MapTests(TemporaryTests):
             tmp = self.root / f"cache{n}"
             tmp.mkdir()
             cache, cov, info = sharing.build(
-                refs[:n], [(Z, c, None)] * n, np.tile(p, n), ids, tmp, gmap=gmap
+                refs[:n], [(Z, c, None)] * n, np.full(n * len(Z), 2, np.uint8), ids, tmp, gmap=gmap
             )
             self.assertEqual(info["chromosomes"], 1)
             result.append((sharing.product(cache, np.eye(6)), cov))

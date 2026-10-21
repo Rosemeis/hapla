@@ -70,7 +70,8 @@ def checkArgs(args):
         raise ValueError("Use positive HMM iterations and finite nonnegative tolerance and priors")
     if not (args.fixed_model or args.dating) and (args.medians or args.block != 1 or args.simple):
         raise ValueError(
-            "HMM fitting requires hard cluster emissions, --block 1, and standard transitions. Use --fixed-model for --medians, --block, or --simple"
+            "HMM fitting requires hard cluster emissions, --block 1, and standard transitions. "
+            "Use --fixed-model for --medians, --block, or --simple"
         )
     for value in (args.min_length, args.max_length):
         if value is not None and value < 1:
@@ -138,7 +139,8 @@ def readQ(pth, N):
     sums = Q.sum(axis=1)
     if not np.allclose(sums, 1, rtol=0, atol=1e-5):
         raise ValueError("Q rows must sum to one")
-    return Q / sums[:, None]
+    Q /= sums[:, None]
+    return Q
 
 
 ### Read and normalize cluster frequencies within each window and ancestry
@@ -250,13 +252,16 @@ def refine(data, P, Q, alpha, args, dist=None):
         finish = it == args.iter or (args.loo and change is not None and change <= args.tole)
         nextP = []
         countQ = None if finish else np.zeros_like(Q)
-        ll, prior = 0.0, cy.penalty(baseQ.ravel(), Q.ravel(), tq)
+        ll, prior = 0.0, 0.0 if Q is baseQ else cy.penalty(baseQ.ravel(), Q.ravel(), tq)
         for f, ((Z, c, use, regions, size), p, base) in enumerate(zip(data, P, baseP)):
             d = dist[f] if dist is not None else None
-            prior += cy.penalty(base, p, tp)
             table = cy.emissionTable(p, c, K)
+            if p is not base:
+                prior += cy.penalty(base, p, tp, table)
             countP = None if finish else np.zeros_like(p)
-            one = args.loo and size >= Z.shape[1] and len(regions) == 1
+            one = args.loo and size >= Z.shape[1]
+            # Keep the per-file Q sum used by bounded LOO batches.
+            cq = np.zeros_like(Q) if one and len(regions) > 1 and not finish else countQ
             for i, j, z in haplotypes(Z, size):
                 q = np.repeat(Q[i // 2 : j // 2], 2, axis=0)
                 for beg, end in regions:
@@ -269,14 +274,16 @@ def refine(data, P, Q, alpha, args, dist=None):
                     if not finish:
                         cy.accumulate(z, G, use, c, beg, end, countP)
                         if one:
-                            total = cy.looTotals(countP, c, K)
+                            total = cy.looTotals(countP, c, K, beg, end)
                             cy.looEmissions(z, G, E, q, base, countP, total, c, use, beg, end, tp)
                             del G, C, L, total
                             G, C, L = cy.posterior(E, q, alpha, resets=True, dist=step)
                         if not args.loo or one:
-                            countQ[i // 2 : j // 2] += C.reshape(-1, 2, K).sum(axis=1)
+                            cq[i // 2 : j // 2] += C.reshape(-1, 2, K).sum(axis=1)
                     del E, G, C, L
             if not finish:
+                if cq is not countQ:
+                    countQ += cq
                 if args.loo and not one:
                     countQ += looQ(Z, c, use, regions, size, table, base, countP, Q, alpha, tp, d)
                 nextP.append(cy.refineP(base, countP, c, K, tp))
@@ -390,12 +397,7 @@ def decode(Z, table, Q, c, use, regions, size, alpha, args, path, prob, dist=Non
                         p = np.repeat(p, repeat, axis=1)
                     del repeat
                 if args.phase_correct is not None:
-                    d = np.ascontiguousarray(d)
-                    if p is not None:
-                        p = np.ascontiguousarray(p)
-                    n_fix += cy.phaseCorrect(
-                        d, np.empty((0, 0)) if p is None else p, args.phase_correct, p is not None
-                    )
+                    n_fix += cy.phaseCorrect(d, args.phase_correct, p)
                 D[:, beg:end] = d
                 if conf:
                     probs[:, beg:end] = p
@@ -543,8 +545,9 @@ def main(args):
             zip(paths, stems, data, P)
         ):
             start = perf_counter()
+            row = stats["files"][index]
             size = batchSize(N, len(Z), regions, K, len(alpha), args, decode=True)
-            stats["files"][index]["batch_haplotypes"] = size
+            row["batch_haplotypes"] = size
             likes = None
             if args.medians:
                 pth = Path(f"{pfx}.blk")
@@ -560,7 +563,7 @@ def main(args):
                 )
             table = cy.emissionTable(p, c, K, likes)
             np.savetxt(out[f"{stem}.P"], p.reshape(-1, K), fmt="%.10g")
-            stats["files"][index].update(
+            row.update(
                 decode(
                     Z,
                     table,
@@ -576,13 +579,13 @@ def main(args):
                     dist[index] if dist is not None else None,
                 )
             )
-            stats["files"][index]["seconds"] = perf_counter() - start
+            row["seconds"] = perf_counter() - start
             label = (
                 f"File {index + 1:,}/{len(paths):,} decoded."
                 if len(paths) > 1
                 else "Decoding complete."
             )
-            printTiming(label, stats["files"][index]["seconds"])
+            printTiming(label, row["seconds"])
             del table, likes
         stats["elapsed_seconds"] = perf_counter() - tick
         writeLog(out, "fatash", args, stats)

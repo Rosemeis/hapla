@@ -109,7 +109,7 @@ def main():
         sub.add_argument(
             "--loo", action="store_true", help="Exclude each individual's P counts when updating Q"
         )
-    for sub in (pca, lai):
+    for sub in (clu, pca, lai):
         sub.add_argument(
             "--map", metavar="FILE", help="Genetic map with chromosome, bp, cumulative cM"
         )
@@ -121,6 +121,30 @@ def main():
     )
     clu.add_argument(
         "-w", "--windows", metavar="FILE", help="Use provided start indices for windows"
+    )
+    clu.add_argument(
+        "--adaptive", action="store_true", help="Select variable windows by compression cost"
+    )
+    clu.add_argument(
+        "--min-size",
+        type=int,
+        metavar="INT",
+        help="Minimum adaptive window size, except span limits or tails (8)",
+    )
+    clu.add_argument(
+        "--max-size", type=int, metavar="INT", help="Maximum adaptive window size (64)"
+    )
+    clu.add_argument(
+        "--max-length",
+        type=int,
+        metavar="INT",
+        help="Maximum adaptive physical span in bp (100000)",
+    )
+    clu.add_argument(
+        "--max-cm",
+        type=float,
+        metavar="FLOAT",
+        help="Maximum adaptive genetic span in cM, requires --map (0.1)",
     )
     clu.add_argument(
         "-p",
@@ -205,14 +229,17 @@ def main():
         "--hsm-svd", type=int, metavar="INT", help="Eigenvectors from haplotype sharing profiles"
     )
     pca.add_argument(
+        "--hsm-groups", type=int, metavar="INT", help="Group individuals using the sharing kernel"
+    )
+    pca.add_argument(
         "--hsm-sqrt", action="store_true", help="Square-root sharing profiles before centering"
     )
     pca.add_argument(
         "--hsm-matches",
         type=int,
-        default=16,
+        default=32,
         metavar="INT",
-        help="Maximum tied haplotypes per maximal sharing match (16)",
+        help="Maximum tied haplotypes per maximal sharing match (32)",
     )
     pca.add_argument(
         "--hsm-gap",

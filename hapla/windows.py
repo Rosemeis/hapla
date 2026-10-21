@@ -116,6 +116,32 @@ def physicalWindows(buf, length):
         advanceBuffer(buf, n)
 
 
+### Bound adaptive search blocks by SNP count and physical or genetic span
+def adaptiveWindows(buf, size, length, data=None, cm=None):
+    from hapla.maps import chromosome
+
+    prev = None
+    while fillBuffer(buf, size):
+        beg = buf["beg"]
+        n = min(size, chromosomeEnd(buf))
+        pos = buf["pos"][beg : beg + n]
+        n = int(np.searchsorted(pos, int(pos[0]) + length, side="right"))
+        if data is not None:
+            chrom = chromosome(buf["chroms"][buf["rid"][beg]])
+            if chrom not in data:
+                raise ValueError(f"Chromosome {chrom} is absent from the genetic map")
+            if chrom != prev:
+                # Interpolation otherwise copies the entire strided map for every block.
+                bp, cm_pos = (np.ascontiguousarray(data[chrom][:, i]) for i in (0, 1))
+                prev = chrom
+            if pos[0] < bp[0] or pos[n - 1] > bp[-1]:
+                raise ValueError(f"Variant coordinates on chromosome {chrom} exceed map coverage")
+            x = np.interp(pos[:n], bp, cm_pos)
+            n = int(np.searchsorted(x, x[0] + cm, side="right"))
+        yield (*takeWindow(buf, n), pos[:n].copy())
+        advanceBuffer(buf, n)
+
+
 ### Read strictly increasing, zero-based window starts
 def readStarts(pth):
     idx = []

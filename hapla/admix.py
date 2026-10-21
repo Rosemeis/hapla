@@ -257,7 +257,8 @@ def main(args):
         print(f"Fixed ancestry: {np.sum(y > 0):,}/{N:,} samples", flush=True)
 
         # Initialize parameters
-        P = rng.random(size=(M, args.K)).clip(min=1e-5, max=1 - (1e-5))
+        P = rng.random(size=(M, args.K))
+        P.clip(min=1e-5, max=1 - (1e-5), out=P)
         P[:, np.unique(y[y > 0]) - 1] = 0.0
         admix_cy.superP(Z, P, k_vec, c_tmp, y)
         P = P.ravel()
@@ -316,7 +317,8 @@ def main(args):
 
     elif args.random_init:  # Random initialization
         print("Random initialization.", flush=True)
-        P = rng.random(size=(M * args.K)).clip(min=1e-5, max=1 - (1e-5))
+        P = rng.random(size=(M * args.K))
+        P.clip(min=1e-5, max=1 - (1e-5), out=P)
     else:  # SVD/ALS initialization
         print("Computing SVD/ALS estimates.", flush=True)
         ts = time()
@@ -356,7 +358,10 @@ def main(args):
             None if init_weights is None else init_weights[: len(U)],
         )
         if U_r is not None:
-            Y = np.ascontiguousarray(np.concatenate((U, U_r), axis=0) * S)
+            Y = np.empty((M, len(S)), dtype=np.float32)
+            Y[: len(U)] = U
+            Y[len(U) :] = U_r
+            Y *= S
             P, Q = functions.alsStep(Y, V, p, k_vec, c_tmp, Q, weights=init_weights)
             del Y
         del U, U_r, p
@@ -364,7 +369,8 @@ def main(args):
         del S, V
 
     if args.supervised is not None or args.projection is not None or args.random_init:
-        Q = rng.random(size=(N, args.K)).clip(min=1e-5, max=1 - (1e-5))
+        Q = rng.random(size=(N, args.K))
+        Q.clip(min=1e-5, max=1 - (1e-5), out=Q)
         Q /= np.sum(Q, axis=1, keepdims=True)
 
     # Enforce one probability domain for initialization, EM, and acceleration
@@ -582,8 +588,10 @@ def main(args):
 
     # Publish all requested files together after successful calculation
     sfxs = [".Q", ".ids", ".log"]
-    if not args.no_freqs and P1 is not None:
-        sfxs += [f".{args.prefix}{f + 1}.P" for f in range(F)] + [".plist"] if F > 1 else [".P"]
+    p_sfxs = [f".{args.prefix}{f + 1}.P" for f in range(F)] if F > 1 else [".P"]
+    freqs = not args.no_freqs and P1 is not None
+    if freqs:
+        sfxs += p_sfxs + ([".plist"] if F > 1 else [])
         if snp_vcf is not None:
             sfxs += [".snp.P"]
     inputs = [f"{p}{s}" for p in Z_list for s in (".bca", ".win", ".ids")]
@@ -594,22 +602,19 @@ def main(args):
     ]
     if args.projection and F > 1:
         inputs += P_list
-    stale = (".P", ".plist", ".snp.P") + tuple(
-        f".{args.prefix}{f + 1}.P" for f in range(F) if F > 1
-    )
+    stale = (".P", ".plist", ".snp.P") + tuple(p_sfxs if F > 1 else ())
     ts = time()
     with ExitStack() as stack:
         out = stageOutputs(stack, f_out, sfxs, inputs, stale=stale)
         np.savetxt(out[".Q"], Q, fmt="%.10g")
         np.savetxt(out[".ids"], q_ids, fmt="%s")
-        if not args.no_freqs and P1 is not None:
+        if freqs:
             if F > 1:
-                for f in range(F):
+                for f, sfx in enumerate(p_sfxs):
                     part = P[c_vec[f_vec[f]] : c_vec[f_vec[f + 1]]].reshape(-1, args.K)
-                    np.savetxt(out[f".{args.prefix}{f + 1}.P"], part, fmt="%.10g")
-                out[".plist"].write_text(
-                    "".join(f"{Path(f_out).absolute()}.{args.prefix}{f + 1}.P\n" for f in range(F))
-                )
+                    np.savetxt(out[sfx], part, fmt="%.10g")
+                pfx = Path(f_out).absolute()
+                out[".plist"].write_text("".join(f"{pfx}{sfx}\n" for sfx in p_sfxs))
                 if snp_vcf is not None:
                     np.savetxt(
                         out[".snp.P"], P[M_clusters * args.K :].reshape(-1, args.K), fmt="%.10g"

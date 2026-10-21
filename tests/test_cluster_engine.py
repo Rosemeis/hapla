@@ -5,7 +5,7 @@ __author__ = "Jonas Meisner"
 import unittest
 
 import numpy as np
-from hapla.packed_cy import fitWindow, likelihoods, plinkWindow, predictHaplotypes
+from hapla.packed_cy import fitWindow, likelihoods, packWindow, plinkWindow, predictHaplotypes
 
 
 ### Fit weighted medians using a full distance matrix
@@ -111,12 +111,16 @@ class PackedClusteringTests(unittest.TestCase):
                 )
 
     def test_complete_fast_path_is_identical(self):
-        G = np.random.default_rng(33).integers(0, 2, (65, 100), dtype=np.uint8)
-        full = fitWindow(G, missing=True)
-        fast = fitWindow(G, missing=False)
-        for key in ("labels", "medians", "sizes", "counts"):
-            np.testing.assert_array_equal(full[key], fast[key])
-        self.assertEqual(full["stats"], fast["stats"])
+        rng = np.random.default_rng(33)
+        for B in (1, 8, 32, 63, 64, 65, 128):
+            G = rng.integers(0, 2, (B, 100), dtype=np.uint8)
+            full = fitWindow(G, missing=True)
+            fast = fitWindow(G, missing=False)
+            cached = fitWindow(G, missing=False, packed=packWindow(G, False))
+            for res in (fast, cached):
+                for key in ("labels", "medians", "sizes", "counts"):
+                    np.testing.assert_array_equal(full[key], res[key])
+                self.assertEqual(full["stats"], res["stats"])
 
     def checkFlip(self, G, flip, **options):
         A = fitWindow(G, **options)
@@ -135,6 +139,15 @@ class PackedClusteringTests(unittest.TestCase):
         )
         np.testing.assert_array_equal(predictHaplotypes(G, A["medians"]), A["labels"])
         np.testing.assert_array_equal(predictHaplotypes(X, B["medians"]), B["labels"])
+
+    def test_byte_histogram_with_missingness_and_balanced_alleles(self):
+        rng = np.random.default_rng(128)
+        for B in (1, 7, 8):
+            G = np.repeat(rng.integers(0, 2, (16, B), dtype=np.uint8), 32, axis=0).T.copy()
+            G[-1] = np.tile([1, 0], 256)
+            G = np.concatenate((np.full((B, 1), 255, np.uint8), G), axis=1)
+            self.checkReference(G, min_mac=25, K_max=5)
+            self.checkFlip(G, rng.integers(0, 2, B, dtype=np.uint8), min_mac=25, K_max=5)
 
     def test_allele_flips_with_weighted_ties_missingness_and_word_boundaries(self):
         rng = np.random.default_rng(716)
