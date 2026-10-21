@@ -285,7 +285,10 @@ no observed assignments receive uniform Q unless fixed by supervision.
 
 Supervision and projection are mutually exclusive. Supervised labels must fit
 0..255. Projection requires P rows to match the cluster order and fixes P while
-fitting Q. The default unsupervised initializer uses SVD/ALS. With a SNP BCF/VCF,
+fitting Q. For a hybrid cluster-plus-SNP fit, the reference run also writes a
+matching `.snp.P` file beside its `.plist`; provide the same BCF/VCF to the
+projection run and this sibling file is loaded automatically. The default
+unsupervised initializer uses SVD/ALS. With a SNP BCF/VCF,
 it uses the complete joint cluster/SNP representation with the same per-window
 marker weights as the hybrid likelihood. Opt-in P shrinkage
 uses pooled cluster frequencies within each window and cannot update a fixed
@@ -313,9 +316,10 @@ buffers. Parameter arrays and input storage still scale with the dataset.
 
 Outputs use `<out>.K<K>.s<seed>`, or `<out>.proj.K<K>.s<seed>` for projection.
 They include `.Q`, `.ids`, and `.log`. Fitted frequencies use `.P` for one input
-or `.chr1.P`, `.chr2.P`, etc. plus `.plist` for multiple inputs. P-file lists
-contain absolute paths. Rerunning with `--no-freqs` removes prior P outputs for
-the current input set.
+or `.chr1.P`, `.chr2.P`, etc. plus `.plist` for multiple inputs. Hybrid
+multi-input fits additionally write `.snp.P`. P-file lists contain absolute
+paths. Rerunning with `--no-freqs` removes prior P outputs for the current input
+set.
 
 ## hapla fatash
 

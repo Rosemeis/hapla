@@ -35,8 +35,6 @@ def main(args):
         raise ValueError("Weighted SNP input is not supported with --loo")
     if (args.filelist is None) == (args.clusters is None):
         raise ValueError("Provide exactly one of --clusters or --filelist")
-    if snp_vcf is not None and args.projection is not None:
-        raise ValueError("Weighted SNP input is not supported in projection mode")
     if not args.prefix or any(x in args.prefix for x in ("/", "\\")):
         raise ValueError("Output chromosome prefix must be a filename component")
     if args.K is None or not 1 < args.K < 100000:
@@ -285,6 +283,20 @@ def main(args):
                 p_tmp = p_tmp.ravel()
                 P[c_vec[f_vec[p]] : c_vec[f_vec[p + 1]]] = p_tmp
             del p_tmp
+            if snp_vcf is not None:
+                snp_path = Path(args.projection).with_suffix(".snp.P")
+                if not snp_path.is_file():
+                    raise ValueError(
+                        "Hybrid projection requires the reference .snp.P frequency file"
+                    )
+                p_tmp = np.loadtxt(snp_path, dtype=float, ndmin=2)
+                shape = (snp_count * 2, args.K)
+                if p_tmp.shape != shape:
+                    raise ValueError(
+                        "Reference SNP P rows/columns do not match the BCF input and K"
+                    )
+                P[c_vec[f_vec[-1]] :] = p_tmp.ravel()
+                del p_tmp
         else:  # Load single frequency file
             P = np.loadtxt(args.projection, dtype=float, ndmin=2)
             if P.shape != (M, args.K):
@@ -317,8 +329,7 @@ def main(args):
             print("Applying SNP weights to all hybrid SVD/ALS markers.", flush=True)
         try:
             U, S, V = functions.centerSVD(
-                Z, p_vec, c_tmp, W_s, args.K, args.chunk, args.power, rng, w_obs,
-                init_weights
+                Z, p_vec, c_tmp, W_s, args.K, args.chunk, args.power, rng, w_obs, init_weights
             )
         except ValueError:
             if W_s == W:
@@ -326,16 +337,23 @@ def main(args):
             print("SVD subset lacks rank. Using all windows.", flush=True)
             W_s = W
             U, S, V = functions.centerSVD(
-                Z, p_vec, c_tmp, W_s, args.K, args.chunk, args.power, rng, w_obs,
-                init_weights
+                Z, p_vec, c_tmp, W_s, args.K, args.chunk, args.power, rng, w_obs, init_weights
             )
         U_r = (
             functions.centerSub(Z, S, V, p_vec, c_tmp, W_s, args.chunk, w_obs) if W_s < W else None
         )
         p = p_vec.astype(np.float32)
         P, Q = functions.factorALS(
-            U, S, V, p[: len(U)], k_vec[:W_s], c_tmp[: W_s + 1], args.als_iter,
-            args.als_tole, rng, None if init_weights is None else init_weights[: len(U)]
+            U,
+            S,
+            V,
+            p[: len(U)],
+            k_vec[:W_s],
+            c_tmp[: W_s + 1],
+            args.als_iter,
+            args.als_tole,
+            rng,
+            None if init_weights is None else init_weights[: len(U)],
         )
         if U_r is not None:
             Y = np.ascontiguousarray(np.concatenate((U, U_r), axis=0) * S)
@@ -566,6 +584,8 @@ def main(args):
     sfxs = [".Q", ".ids", ".log"]
     if not args.no_freqs and P1 is not None:
         sfxs += [f".{args.prefix}{f + 1}.P" for f in range(F)] + [".plist"] if F > 1 else [".P"]
+        if snp_vcf is not None:
+            sfxs += [".snp.P"]
     inputs = [f"{p}{s}" for p in Z_list for s in (".bca", ".win", ".ids")]
     inputs += [
         p
@@ -574,7 +594,9 @@ def main(args):
     ]
     if args.projection and F > 1:
         inputs += P_list
-    stale = (".P", ".plist") + tuple(f".{args.prefix}{f + 1}.P" for f in range(F) if F > 1)
+    stale = (".P", ".plist", ".snp.P") + tuple(
+        f".{args.prefix}{f + 1}.P" for f in range(F) if F > 1
+    )
     ts = time()
     with ExitStack() as stack:
         out = stageOutputs(stack, f_out, sfxs, inputs, stale=stale)
@@ -588,6 +610,10 @@ def main(args):
                 out[".plist"].write_text(
                     "".join(f"{Path(f_out).absolute()}.{args.prefix}{f + 1}.P\n" for f in range(F))
                 )
+                if snp_vcf is not None:
+                    np.savetxt(
+                        out[".snp.P"], P[M_clusters * args.K :].reshape(-1, args.K), fmt="%.10g"
+                    )
             else:
                 np.savetxt(
                     out[".P"], P[: M_clusters * args.K].reshape(M_clusters, args.K), fmt="%.10g"
