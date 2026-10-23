@@ -25,6 +25,7 @@ def configureThreads(n, blas=None):
     for key in (
         "MKL_NUM_THREADS",
         "OPENBLAS_NUM_THREADS",
+        "OPENBLAS_DEFAULT_NUM_THREADS",
         "BLIS_NUM_THREADS",
         "GOTO_NUM_THREADS",
         "VECLIB_MAXIMUM_THREADS",
@@ -35,6 +36,26 @@ def configureThreads(n, blas=None):
     os.environ["OMP_DYNAMIC"] = os.environ["MKL_DYNAMIC"] = "FALSE"
     os.environ["OMP_MAX_ACTIVE_LEVELS"] = "1"
     os.environ.pop("MKL_DOMAIN_NUM_THREADS", None)
+
+
+### Limit OpenBLAS without changing the native OpenMP team
+def blasThreads(n):
+    from ctypes import CDLL, c_int
+
+    from numpy.linalg import _umath_linalg
+
+    lib = CDLL(_umath_linalg.__file__)
+    for name in (
+        "openblas_set_num_threads",
+        "openblas_set_num_threads64_",
+        "scipy_openblas_set_num_threads",
+        "scipy_openblas_set_num_threads64_",
+    ):
+        fn = getattr(lib, name, None)
+        if fn is not None:
+            fn.argtypes, fn.restype = [c_int], None
+            fn(n)
+            break
 
 
 ### Divide the CPU budget between input, decompression, and window workers
@@ -62,16 +83,15 @@ def stageOutputs(stack, pfx, sfxs, inputs=(), *, stale=_OPTIONAL):
         raise ValueError("Output prefix must include a filename")
     pfx = Path(pfx).absolute()
     pfx.parent.mkdir(parents=True, exist_ok=True)
-    sources = [Path(p).resolve() for p in inputs if p is not None]
+    sources = dict.fromkeys(Path(p).resolve() for p in inputs if p is not None)
     for sfx in dict.fromkeys((*sfxs, *stale)):
         dst = Path(f"{pfx}{sfx}")
         if dst.is_symlink() or (dst.exists() and not dst.is_file()):
             raise ValueError(f"Output must be a regular file: {dst}")
-        for src in sources:
-            if dst.resolve() == src or (
-                dst.exists() and src.exists() and os.path.samefile(dst, src)
-            ):
-                raise ValueError(f"Output conflicts with input: {dst}")
+        if dst.resolve() in sources or (
+            dst.exists() and any(src.exists() and os.path.samefile(dst, src) for src in sources)
+        ):
+            raise ValueError(f"Output conflicts with input: {dst}")
     tmp = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix=".hapla-", dir=pfx.parent)))
     return {sfx: tmp / f"output{sfx}" for sfx in sfxs}
 

@@ -174,13 +174,13 @@ def batchSize(N, W, regions, K, A, args, decode=False):
         state = 5 if A > 1 else 1
     elif stream:
         row += B * (1 + 8 * args.save_posteriors)
-        state = 24
+        state = 16 if args.simple else 24
     else:
         row += B * 9
         state = 16
     if args.block > 1:
         row += W * (1 + 8 * args.save_posteriors) * 2
-    scratch = B * K * state + B * (8 if viterbi else 16) + K * 40
+    scratch = B * K * state + B * (8 if viterbi or args.simple else 16) + K * 40
     budget = args.buffer_mb * 1024**2
     nt = min(N, args.threads)
     n = (budget - nt * scratch) // row
@@ -262,6 +262,7 @@ def refine(data, P, Q, alpha, args, dist=None):
             one = args.loo and size >= Z.shape[1]
             # Keep the per-file Q sum used by bounded LOO batches.
             cq = np.zeros_like(Q) if one and len(regions) > 1 and not finish else countQ
+            llf = np.zeros(Z.shape[1])
             for i, j, z in haplotypes(Z, size):
                 q = np.repeat(Q[i // 2 : j // 2], 2, axis=0)
                 for beg, end in regions:
@@ -270,7 +271,7 @@ def refine(data, P, Q, alpha, args, dist=None):
                     G, C, L = cy.posterior(
                         E, q, alpha, resets=not finish and not args.loo, score=finish, dist=step
                     )
-                    ll += float(L.mean(axis=1).sum())
+                    llf[i:j] += L.mean(axis=1)
                     if not finish:
                         cy.accumulate(z, G, use, c, beg, end, countP)
                         if one:
@@ -281,6 +282,8 @@ def refine(data, P, Q, alpha, args, dist=None):
                         if not args.loo or one:
                             cq[i // 2 : j // 2] += C.reshape(-1, 2, K).sum(axis=1)
                     del E, G, C, L
+            # Reduce haplotypes once per file, independent of batch and thread budgets.
+            ll += float(llf.sum())
             if not finish:
                 if cq is not countQ:
                     countQ += cq
@@ -366,7 +369,8 @@ def decode(Z, table, Q, c, use, regions, size, alpha, args, path, prob, dist=Non
 
     from hapla import fatash_cy as cy
 
-    K, n_fix, ll = Q.shape[1], 0, 0.0
+    K, n_fix = Q.shape[1], 0
+    ll = None if args.viterbi else np.zeros(Z.shape[1])
     with ExitStack() as stack:
         dst = stack.enter_context(Path(path).open("w", buffering=1024**2))
         conf = stack.enter_context(Path(prob).open("w", buffering=1024**2)) if prob else None
@@ -386,7 +390,7 @@ def decode(Z, table, Q, c, use, regions, size, alpha, args, path, prob, dist=Non
                     )
                     if conf is None:
                         p = None
-                    ll += float(L.mean(axis=1).sum())
+                    ll[i:j] += L.mean(axis=1)
                     del L
                 del E
                 if args.block > 1:
@@ -407,7 +411,7 @@ def decode(Z, table, Q, c, use, regions, size, alpha, args, path, prob, dist=Non
                 cy.writeRows(conf.fileno(), P=probs)
             del D, probs, z
     key = "log_likelihood" if dist is not None else "mean_alpha_log_likelihood"
-    return dict(phase_corrections=n_fix, **{key: None if args.viterbi else ll})
+    return dict(phase_corrections=n_fix, **{key: None if args.viterbi else float(ll.sum())})
 
 
 ### Validate inputs, estimate priors, and publish the complete result set atomically
@@ -501,7 +505,9 @@ def main(args):
                 chroms.append([rows[beg][0] for beg, _ in regions])
             if dist is not None:
                 dist.append(distances(rows, regions, gmap))
-            size = batchSize(N, W, regions, K, len(alpha), args, decode=args.fixed_model)
+            size = batchSize(
+                N, W, regions, K, len(alpha), args, decode=args.fixed_model or args.dating
+            )
             data.append((Z, c, use, regions, size))
             P.append(readP(pfile, c, K))
             stats["files"].append(

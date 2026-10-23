@@ -376,6 +376,42 @@ class AdmixtureTests(TemporaryTests):
         for a, b in zip(*fits):
             np.testing.assert_array_equal(a, b)
 
+    def test_svd_als_and_em_are_identical_across_thread_counts(self):
+        rng = np.random.default_rng(617)
+        N, W, C = 67, 129, 255
+        Z = rng.integers(C, size=(W, 2 * N), dtype=np.uint8)
+        Z[:, 1::6] = Z[:, ::6]
+        Z[:, :2] = 255
+        Z[5] = 255
+        Z[::4, 7] = 255
+        k = np.full(W, C)
+        k[5] = 0
+        refs = [
+            writeClusters(self.root, f"chr{j}", z, np.r_[0, np.cumsum(c)])
+            for j, (z, c) in enumerate(zip(np.array_split(Z, 2), np.array_split(k, 2)), 1)
+        ]
+        opts = ("admix", "--clusters", *refs, "--power", 2, "--als-iter", 4, "--als-tole", 0)
+        opts += ("--iter", 3, "--check", 1, "--tole", 0, "--batches", 3)
+        keys = ("Initial log-like", "Final log-like", "Iterations", "Final batches", "Converged")
+        for K in (5, 6):
+            for nt in (1, 2, 4, 8):
+                with self.subTest(K=K, threads=nt):
+                    out = self.root / f"threads{nt}.K{K}"
+                    command(*opts, "--K", K, "--threads", nt, "--out", out)
+                    pfx = f"{out}.K{K}.s42"
+                    files = [
+                        Path(pfx + s).read_bytes() for s in (".Q", ".ids", ".chr1.P", ".chr2.P")
+                    ]
+                    log = readLog(pfx)
+                    text = Path(pfx + ".log").read_text()
+                    history = text.partition("  History:\n")[2].partition("\n\n")[0]
+                    self.assertTrue(history)
+                    actual = files, [log[key] for key in keys], history
+                    if nt == 1:
+                        expected = actual
+                    else:
+                        self.assertEqual(actual, expected)
+
     def test_prior_accepts_likelihood_loss_when_objective_improves(self):
         from hapla.main import main
 

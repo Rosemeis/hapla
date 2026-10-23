@@ -9,6 +9,7 @@ from pathlib import Path
 from time import perf_counter as time
 
 from hapla.runtime import (
+    blasThreads,
     commitOutputs,
     configureThreads,
     printDone,
@@ -76,6 +77,8 @@ def main(args):
 
     from hapla import admix_cy, functions, struct_cy
     from hapla.formats import mapLabels, readMetadata, readPaths, sampleIndices
+
+    blasThreads(1)
 
     # Read chromosome metadata once and concatenate cluster counts
     Z_list, z_ids, k_vec, w_vec = readMetadata(args.clusters, args.filelist)
