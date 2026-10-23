@@ -78,6 +78,29 @@ class GroupingTests(TemporaryTests):
             z, _, _ = grouping.fit(data, K, 2, 42, scores=X[:, :5], mom=(mean, ss))
         self.assertEqual(len(np.unique(z)), K)
 
+    def test_shared_decomposition_preserves_requested_components_and_initial_scores(self):
+        rng = np.random.default_rng(317)
+        N = 37
+        data, _ = profiles(rng.uniform(0.02, 1, (N, N)), self.root / "cache")
+        for K, r, same in ((3, 10, True), (10, 10, True), (N - 1, 20, False)):
+            V, S = sharing.pca(data, K, 2, 42)
+            a, b, scores = sharing.pca(data, K, 2, 42, extra=r)
+            np.testing.assert_array_equal(a, V)
+            np.testing.assert_array_equal(b, S)
+            if same:
+                U, T = sharing.pca(data, r, 2, 42, strict=False)
+                np.testing.assert_array_equal(scores, U * T)
+
+        C = np.zeros((N, N))
+        C[: N // 2, 0], C[N // 2 :, 1] = 1, 1
+        data, _ = profiles(C, self.root / "singular")
+        V, S, scores = sharing.pca(data, 1, 2, 42, extra=10)
+        U, T = sharing.pca(data, 10, 2, 42, strict=False)
+        np.testing.assert_array_equal(scores, U * T)
+        self.assertEqual(scores.shape, (N, 1))
+        with self.assertRaisesRegex(ValueError, "Requested 2 sharing PCs"):
+            sharing.pca(data, 2, 2, 42, extra=10)
+
     def test_dense_centroid_objective_and_margin(self):
         rng = np.random.default_rng(82)
         N, K = 31, 4
@@ -206,26 +229,19 @@ class GroupingPipeline(TemporaryTests):
 
     def test_combined_svd_is_unchanged_and_group_output_is_replaced(self):
         src, out = self.fixture(), self.root / "result"
-        args = (
-            "struct",
-            "--clusters",
-            src,
-            "--hsm-svd",
-            3,
-            "--power",
-            2,
-            "--duplicate-fid",
-            "--out",
-            out,
-        )
-        command(*args)
+        args = ("struct", "--clusters", src, "--power", 2, "--duplicate-fid", "--out", out)
+        pcs = (*args, "--hsm-svd", 3)
+        command(*pcs)
         previous = {s: Path(f"{out}{s}").read_bytes() for s in (".hsm.vec", ".hsm.val")}
-        command(*args, "--hsm-groups", 3)
+        command(*pcs, "--hsm-groups", 3)
         for suffix, value in previous.items():
             self.assertEqual(Path(f"{out}{suffix}").read_bytes(), value)
         rows = np.loadtxt(f"{out}.hsm.grp", dtype=str)
         np.testing.assert_array_equal(rows[:, 0], rows[:, 1])
-        command(*args)
+        previous = Path(f"{out}.hsm.grp").read_bytes()
+        command(*args, "--hsm-groups", 3)
+        self.assertEqual(Path(f"{out}.hsm.grp").read_bytes(), previous)
+        command(*pcs)
         self.assertFalse(Path(f"{out}.hsm.grp").exists())
         self.assertEqual(readLog(out)["Component scaling"], "unit norm eigenvectors")
 

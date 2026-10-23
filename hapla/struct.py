@@ -2,12 +2,14 @@
 
 __author__ = "Jonas Meisner"
 
-from contextlib import ExitStack
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack, nullcontext
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from time import perf_counter
 
 from hapla.runtime import (
+    blasThreads,
     commitOutputs,
     configureThreads,
     printDone,
@@ -213,7 +215,7 @@ def project(data, p, U, vals, chunk):
 
 
 ### Accumulate the GRM using only observed categorical contrasts
-def grm(data, p, chunk, center=True, tile=None, info=None):
+def grm(data, p, chunk, center=True, tile=None, info=None, threads=1):
     import numpy as np
 
     from hapla import struct_cy as cy
@@ -223,30 +225,43 @@ def grm(data, p, chunk, center=True, tile=None, info=None):
     if den <= 0:
         raise ValueError("GRM estimation requires variable cluster alleles")
     G = np.zeros(N * (N + 1) // 2)
-    if tile is None:
-        tile = max(1, 16 * 1024**2 // (N * np.dtype(np.float32).itemsize))
-    tile = min(N, tile)
-    T = np.empty(tile * N, dtype=np.float32)
-    buf = np.empty((min(len(p), max(chunk, 255)), N), dtype=np.float32)
-    for Z, c, s, obs in blocks(data, chunk):
-        seen = p[s] > 0
-        active = not np.all(seen)
-        if active:
-            seen = np.r_[0, np.cumsum(seen, dtype=np.int64)]
-            k = np.diff(seen[c])
-        else:
-            k = np.diff(c)
-        rows = np.r_[0, np.cumsum(np.maximum(k - 1, 0))]
-        M = int(rows[-1])
-        if M == 0:
-            continue
-        X = buf[:M]
-        cy.contrastBlock(Z, c, p[s], rows, X, active)
-        for beg in range(0, N, tile):
+    # Choose by observed categories so every thread count uses the same arithmetic.
+    if np.count_nonzero(p) > 32 * sum(len(Z) for Z, _, _ in data):
+        off = 0
+        for Z, c, _ in data:
+            end = off + c[-1]
+            cy.gram(Z, c, p[off:end], G, threads)
+            off = end
+    else:
+        if tile is None:
+            tile = min(32, max(1, 16 * 1024**2 // (4 * N)))
+        tile = min(N, tile)
+        nt = min(threads, (N + tile - 1) // tile, max(1, 16 * 1024**2 // (4 * tile * N)))
+        jobs = range(0, N, tile) if nt <= 1 else range((N - 1) // tile * tile, -1, -tile)
+        buf = np.empty((min(len(p), max(chunk, 255)), N), dtype=np.float32)
+
+        def gram(beg):
             end = min(N, beg + tile)
-            tmp = T[: (end - beg) * end].reshape(end - beg, end)
-            np.dot(X[:, beg:end].T, X[:, :end], out=tmp)
+            tmp = X[:, beg:end].T @ X[:, :end]
             cy.addGram(tmp, G, beg)
+
+        with ThreadPoolExecutor(max_workers=nt) if nt > 1 else nullcontext() as pool:
+            run = map if pool is None else pool.map
+            for Z, c, s, obs in blocks(data, chunk):
+                seen = p[s] > 0
+                active = not np.all(seen)
+                if active:
+                    seen = np.r_[0, np.cumsum(seen, dtype=np.int64)]
+                    k = np.diff(seen[c])
+                else:
+                    k = np.diff(c)
+                rows = np.r_[0, np.cumsum(np.maximum(k - 1, 0))]
+                M = int(rows[-1])
+                if M == 0:
+                    continue
+                X = buf[:M]
+                cy.contrastBlock(Z, c, p[s], rows, X, active)
+                list(run(gram, jobs))
     scale = cy.normalizeGram(G, den, N, center)
     if info is not None:
         info.update(
@@ -323,12 +338,13 @@ def main(args):
         raise ValueError("--loadings requires --pca")
     if args.projection == "":
         raise ValueError("Projection prefix must not be empty")
-    configureThreads(args.threads, blas=args.threads if args.grm or args.hsm else 1)
+    configureThreads(args.threads, blas=1)
     import numpy as np
 
     from hapla.formats import readMetadata
     from hapla.identity import checkModel, featureKeys, writeModel
 
+    blasThreads(1)
     start = perf_counter()
     printHeader("struct", args)
     print("Reading clusters.", flush=True)
@@ -425,16 +441,25 @@ def main(args):
                 mean, ss = sharing.moments(cache)
                 scale = (len(ids) - 1) / ss
                 info["normalization_seconds"] = perf_counter() - step
+                scores = None
                 if args.hsm:
                     step = perf_counter()
-                    sharing.grm(out[".hsm.grm.bin"], cache, mean, ss)
+                    sharing.grm(out[".hsm.grm.bin"], cache, mean, ss, threads=args.threads)
                     with out[".hsm.grm.id"].open("w") as dst:
                         dst.writelines(f"{s if args.duplicate_fid else '0'}\t{s}\n" for s in ids)
                     info["matrix_seconds"] = perf_counter() - step
                     printTiming("HSM matrix complete.", info["matrix_seconds"])
                 if args.hsm_svd is not None:
                     step = perf_counter()
-                    V, S = sharing.pca(cache, args.hsm_svd, args.power, args.seed)
+                    K, extra = args.hsm_svd, 0
+                    if (args.hsm_groups or 0) > 1:
+                        # Reuse the decomposition only when both sketches are identical.
+                        r = min(max(args.hsm_groups, 10), 20, len(ids) - 1)
+                        if min(max(K + 10, 20), len(ids) - 1) == min(r + 10, len(ids) - 1):
+                            extra = r
+                    cur = sharing.pca(cache, K, args.power, args.seed, extra=extra)
+                    V, S = cur[:2]
+                    scores = cur[2] if extra else None
                     writeVectors(out[".hsm.vec"], V, ids, args.raw, args.duplicate_fid, "HC")
                     np.savetxt(out[".hsm.val"], S * S * scale, fmt="%.10g")
                     info["svd_seconds"] = perf_counter() - step
@@ -444,7 +469,7 @@ def main(args):
 
                     step = perf_counter()
                     labels, gap, groups = grouping.fit(
-                        cache, args.hsm_groups, args.power, args.seed, mom=(mean, ss)
+                        cache, args.hsm_groups, args.power, args.seed, scores=scores, mom=(mean, ss)
                     )
                     with out[".hsm.grp"].open("w") as dst:
                         dst.write("#FID\tIID\tGROUP\tMARGIN\n")
@@ -495,7 +520,9 @@ def main(args):
                 missingness="haplotype mean imputation",
                 count_is_pairwise_observed=False,
             )
-            G, den = grm(data, p, args.chunk, not args.grm_no_center, info=info)
+            G, den = grm(
+                data, p, args.chunk, not args.grm_no_center, info=info, threads=args.threads
+            )
             with out[".grm.bin"].open("wb") as dst, out[".grm.N.bin"].open("wb") as cnt:
                 for beg in range(0, len(G), 262144):
                     n = min(262144, len(G) - beg)

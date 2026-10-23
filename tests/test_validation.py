@@ -37,6 +37,17 @@ class CodebaseContracts(TemporaryTests):
             stageOutputs(stack, out, [".log"], [self.root / "absent.ref"], stale=())
         self.assertEqual(Path(f"{out}.log").read_text(), "previous")
 
+    def test_output_aliases_cannot_replace_inputs(self):
+        src, out = self.root / "input", self.root / "result"
+        src.write_text("original")
+        dst = Path(f"{out}.Q")
+        for link in (dst.hardlink_to, dst.symlink_to):
+            link(src)
+            with ExitStack() as stack, self.assertRaisesRegex(ValueError, "Output"):
+                stageOutputs(stack, out, (".Q",), (src,), stale=())
+            self.assertEqual(src.read_text(), "original")
+            dst.unlink()
+
     def test_admix_rejects_ambiguous_shapes_and_sample_subsets(self):
         rng = np.random.default_rng(491)
         ref = writeClusters(

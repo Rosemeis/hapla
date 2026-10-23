@@ -187,7 +187,7 @@ class DirectProducts(unittest.TestCase):
         expected = E.T @ E / (2 * den)
         np.testing.assert_allclose(G, expected[np.tril_indices(300)], atol=4e-7)
 
-    def test_contrasts_preserve_missing_reference_imputed_dosage_products(self):
+    def test_categorical_products_preserve_reference_imputed_dosages(self):
         rng = np.random.default_rng(171)
         k, N = np.array([0, 1, 2, 7, 255]), 300
         c = np.r_[0, np.cumsum(k, dtype=np.int64)]
@@ -207,11 +207,24 @@ class DirectProducts(unittest.TestCase):
                 else:
                     E[c[w] + label, h // 2] += 1
             E[c[w] : c[w + 1]] -= 2 * q[:, None]
+        Z[:, :2] = 255
+        E[:, 0] = 0
         rows = np.r_[0, np.cumsum(np.maximum(k - 1, 0), dtype=np.int64)]
         X = np.empty((rows[-1], N), dtype=np.float32)
         cy.contrastBlock(Z, c, p, rows, X)
         X = X.astype(np.float64)
         np.testing.assert_allclose(X.T @ X, E.T @ E, atol=4e-6)
+        expected = (E.T @ E)[np.tril_indices(N)]
+        G = np.zeros(len(expected))
+        cy.gram(Z, c, p, G)
+        np.testing.assert_allclose(G, expected, rtol=0, atol=1e-12)
+
+    def test_fixed_reference_frequency_with_other_observed_categories(self):
+        Z = np.array([[0, 255, 1, 255, 0, 1]], np.uint8)
+        E = np.array([[0, -1, -1], [0, 1, 1]])
+        G = np.zeros(6)
+        cy.gram(Z, np.array([0, 2], np.int64), np.array([1.0, 0.0]), G)
+        np.testing.assert_array_equal(G, (E.T @ E)[np.tril_indices(3)])
 
     def test_active_contrasts_drop_unobserved_categories_and_fixed_windows(self):
         rng = np.random.default_rng(809)
@@ -235,10 +248,85 @@ class DirectProducts(unittest.TestCase):
         E -= 2 * p[:, None]
         X = X.astype(np.float64)
         np.testing.assert_allclose(X.T @ X, E.T @ E, atol=1e-6)
+        G = np.zeros(Z.shape[1] // 2 * (Z.shape[1] // 2 + 1) // 2)
+        cy.gram(Z, c, p, G)
+        np.testing.assert_allclose(
+            G, (E.T @ E)[np.tril_indices(Z.shape[1] // 2)], rtol=0, atol=1e-12
+        )
 
 
 ### Check PCA, projection, and GRM output
 class StructurePipeline(TemporaryTests):
+    def test_grm_threads_with_many_observed_and_unused_categories(self):
+        rng = np.random.default_rng(736)
+        N, W = 73, 41
+        for K in (2, 255):
+            Z = rng.integers(K, size=(W, 2 * N), dtype=np.uint8)
+            if K == 2:
+                Z *= 254
+            Z[rng.random(Z.shape) < 0.02] = 255
+            Z[3] = 255
+            Z[:, :2] = 255
+            src = writeClusters(self.root, f"input{K}", Z, 255 * np.arange(W + 1, dtype=np.int64))
+            saved = None
+            for threads in (1, 2, 4, 8):
+                out = self.root / f"grm{K}-{threads}"
+                command("struct", "--clusters", src, "--grm", "--threads", threads, "--out", out)
+                current = [
+                    Path(f"{out}{s}").read_bytes() for s in (".grm.bin", ".grm.N.bin", ".grm.id")
+                ]
+                if saved is None:
+                    saved = current
+                self.assertEqual(current, saved)
+
+    def test_all_outputs_are_identical_across_threads(self):
+        rng = np.random.default_rng(735)
+        N, W = 257, 1009
+        k = rng.integers(4, 9, W)
+        c = np.r_[0, np.cumsum(k)]
+        Z = np.array([rng.integers(K, size=2 * N) for K in k], np.uint8)
+        Z[rng.random(Z.shape) < 0.03] = 255
+        src = writeClusters(self.root, "input", Z, c)
+        saved = None
+        for nt in (1, 2, 4, 8):
+            out, query = self.root / f"fit{nt}", self.root / f"query{nt}"
+            command(
+                "struct",
+                "--clusters",
+                src,
+                "--pca",
+                17,
+                "--loadings",
+                "--power",
+                2,
+                "--grm",
+                "--raw",
+                "--threads",
+                nt,
+                "--out",
+                out,
+            )
+            command(
+                "struct",
+                "--clusters",
+                src,
+                "--projection",
+                self.root / "fit1",
+                "--raw",
+                "--threads",
+                nt,
+                "--out",
+                query,
+            )
+            current = [
+                Path(f"{out}{suffix}").read_bytes()
+                for suffix in (".vec", ".val", ".load", ".freq", ".grm.bin", ".grm.N.bin")
+            ]
+            current.append(Path(f"{query}.proj.vec").read_bytes())
+            if saved is None:
+                saved = current
+            self.assertEqual(current, saved)
+
     def test_shared_reader_with_and_without_frequencies_across_files(self):
         Z, c, p, _, obs = missingFixture()
         a = writeClusters(self.root, "a", Z[:3], c[:4])

@@ -271,6 +271,39 @@ class GeneticHMM(unittest.TestCase):
 
 ### Exercise complete map-based analyses and simulated date recovery
 class GeneticPipeline(TemporaryTests):
+    def test_dating_uses_decoder_budget_without_explicit_fixed_model(self):
+        W, K = 9000, 5
+        a = np.arange(W) // 400
+        Z = np.column_stack((a % K, (a + 2) % K)).astype(np.uint8)
+        ref = writeClusters(self.root, "small-buffer", Z, np.arange(W + 1) * K)
+        np.savetxt(f"{ref}.P", np.tile(np.eye(K), (W, 1)), fmt="%.10g")
+        np.savetxt(f"{ref}.Q", np.full((1, K), 1 / K), fmt="%.10g")
+        g = self.root / "map"
+        g.write_text(f"CHR BP CM\n1 1 0\n1 {W} {(W - 1) / 100}\n")
+        opts = (
+            "fatash",
+            "--clusters",
+            ref,
+            "--pfile",
+            f"{ref}.P",
+            "--qfile",
+            f"{ref}.Q",
+            "--map",
+            g,
+            "--dating",
+            "--buffer-mb",
+            2,
+        )
+        expected, actual = self.root / "fixed", self.root / "dated"
+        command(*opts, "--fixed-model", "--out", expected)
+        values = Path(f"{expected}.date").read_text().splitlines()
+        self.assertEqual(dict(zip(values[0].split(), values[1].split()))["status"], "converged")
+        command(*opts, "--out", actual)
+        for suffix in (".date", ".P", ".Q", ".ids", ".path"):
+            self.assertEqual(
+                Path(f"{actual}{suffix}").read_bytes(), Path(f"{expected}{suffix}").read_bytes()
+            )
+
     def fixture(self):
         rng = np.random.default_rng(20260929)
         N, W, K, t = 24, 1800, 3, 30
@@ -305,17 +338,30 @@ class GeneticPipeline(TemporaryTests):
         ref, g, t = self.fixture()
         opts = ["--clusters", ref, "--pfile", f"{ref}.P", "--qfile", f"{ref}.Q"]
         out, again = self.root / "dated", self.root / "again"
-        command(
-            "fatash",
-            *opts,
-            "--map",
-            g,
-            "--dating",
-            "--date-jackknife",
-            "--save-posteriors",
-            "--out",
-            out,
-        )
+        expected = None
+        for threads in (1, 2, 4, 8):
+            command(
+                "fatash",
+                *opts,
+                "--map",
+                g,
+                "--dating",
+                "--date-jackknife",
+                "--save-posteriors",
+                "--threads",
+                threads,
+                "--buffer-mb",
+                256 if threads == 1 else 1,
+                "--out",
+                out,
+            )
+            actual = [
+                Path(f"{out}{s}").read_bytes()
+                for s in (".date", ".P", ".Q", ".ids", ".path", ".prob")
+            ]
+            if expected is None:
+                expected = actual
+            self.assertEqual(actual, expected)
         values = Path(f"{out}.date").read_text().splitlines()
         result = dict(zip(values[0].split(), values[1].split()))
         fitted = float(result["generations"])

@@ -14,7 +14,7 @@ import numpy as np
 from helpers import TemporaryTests, command, readLog, writeClusters
 
 from hapla import fatash_cy as cy
-from hapla.fatash import refine
+from hapla.fatash import decode, refine
 from hapla.formats import readMetadata
 
 
@@ -128,6 +128,21 @@ class HMMCorrectness(unittest.TestCase):
                     _, _, L = cy.posterior(e, Q, 0.1, simple, dist=step)
                     _, _, S = cy.posterior(e, Q, 0.1, simple, score=True, dist=step)
                     np.testing.assert_array_equal(S, L)
+
+    def test_simple_validates_unreachable_states_and_emission_support(self):
+        Q = np.array([[1.0, 0.0]])
+        for E in (
+            [[0.0, np.nan]],
+            [[0.0, np.inf]],
+            [[-np.inf, 0.0]],
+            [[0.0, -np.inf], [-np.inf, 0.0]],
+        ):
+            for score in (False, True):
+                with (
+                    self.subTest(E=E, score=score),
+                    self.assertRaisesRegex(ValueError, "supported"),
+                ):
+                    cy.posterior(np.array([E]), Q, 0.1, simple=True, score=score)
 
     def test_enumerated_posteriors_paths_likelihood_and_reset_counts(self):
         rng = np.random.default_rng(143)
@@ -334,6 +349,33 @@ class HMMCorrectness(unittest.TestCase):
             self.assertAlmostEqual(last["objective"], last["log_likelihood"] + penalty, places=12)
             self.assertGreater(last["objective"], info["history"][0]["objective"])
 
+    def test_refinement_history_is_independent_of_batches(self):
+        rng = np.random.default_rng(721)
+        N, W, K = 17, 37, 5
+        Q = rng.dirichlet(np.ones(K), N)
+        Z = rng.integers(3, size=(W, 2 * N), dtype=np.uint8)
+        Z[:, :2] = 255
+        Z[3] = 255
+        c = np.arange(W + 1, dtype=np.int64) * 3
+        P = rng.dirichlet(np.ones(3), (W, K)).transpose(0, 2, 1).copy().ravel()
+        for loo, bw in itertools.product((False, True), repeat=2):
+            args = Namespace(baum_welch=bw, p_prior=10, q_prior=10, iter=2, tole=0, loo=loo)
+            expected = None
+            for size in (2, 8, 2 * N):
+                data = [
+                    (Z, c, np.ones(W, np.uint8), regions, size)
+                    for regions in ([(0, 19), (19, W)], [(0, W)])
+                ]
+                with redirect_stdout(StringIO()):
+                    pp, qq, info = refine(data, [P, P], Q, [0.01, 0.2], args)
+                actual = info["history"], info["stop"], info["iterations"]
+                if expected is None:
+                    expected = pp, qq, actual
+                for a, b in zip(pp, expected[0]):
+                    np.testing.assert_array_equal(a, b)
+                np.testing.assert_array_equal(qq, expected[1])
+                self.assertEqual(actual, expected[2])
+
     def test_convergence_empty_data_and_rejected_proposal(self):
         c = np.array([0, 2], np.int64)
         Z = np.zeros((1, 2), np.uint8)
@@ -487,6 +529,91 @@ class FatashPipeline(TemporaryTests):
         np.savetxt(f"{ref}.P", P)
         np.savetxt(f"{ref}.Q", Q)
         return ref, Z, c, P, Q
+
+    def test_thread_and_batch_invariance_in_fitting_and_decoding(self):
+        ref, _, _, _, _ = self.fixture(N=67, W=521)
+        rows = Path(f"{ref}.win").read_text().splitlines()
+        rows[261:] = ["2" + r[1:] for r in rows[261:]]
+        Path(f"{ref}.win").write_text("\n".join(rows) + "\n")
+        opts = (
+            "fatash",
+            "--clusters",
+            ref,
+            "--pfile",
+            f"{ref}.P",
+            "--qfile",
+            f"{ref}.Q",
+            "--iter",
+            2,
+            "--tole",
+            0,
+        )
+        for flags in (
+            (),
+            ("--baum-welch",),
+            ("--loo",),
+            ("--fixed-model",),
+            ("--fixed-model", "--simple"),
+            ("--fixed-model", "--viterbi"),
+        ):
+            expected = None
+            save = () if "--viterbi" in flags else ("--save-posteriors",)
+            for threads in (1, 2, 4, 8):
+                out = self.root / f"fit{threads}"
+                command(
+                    *opts,
+                    *flags,
+                    *save,
+                    "--threads",
+                    threads,
+                    "--buffer-mb",
+                    256 if threads == 1 else 1,
+                    "--out",
+                    out,
+                )
+                suffixes = (".P", ".Q", ".ids", ".path") + ((".prob",) if save else ())
+                files = [Path(f"{out}{s}").read_bytes() for s in suffixes]
+                log = readLog(out)
+                score = {
+                    k: log.get(k) for k in ("Mode", "Iterations", "Stop", "Mean alpha log-like")
+                }
+                if save:
+                    self.assertIsNotNone(score["Mean alpha log-like"])
+                history = Path(f"{out}.log").read_text().partition("  History:\n")[2]
+                if "--fixed-model" not in flags:
+                    self.assertTrue(history)
+                actual = files, score, history.partition("\n\n")[0]
+                if expected is None:
+                    expected = actual
+                self.assertEqual(actual, expected)
+                if threads in (1, 8):
+                    self.assertEqual(int(log["Batch haplotypes"]) == 134, threads == 1)
+
+    def test_decode_likelihood_is_independent_of_batches(self):
+        _, Z, c, P, Q = self.fixture()
+        table = cy.emissionTable(P.ravel(), c, 3)
+        path, prob = self.root / "path", self.root / "prob"
+        for simple in (False, True):
+            args = Namespace(simple=simple, viterbi=False, block=1, phase_correct=None)
+            expected = None
+            for size in (2, 8, Z.shape[1]):
+                info = decode(
+                    Z,
+                    table,
+                    Q,
+                    c,
+                    np.ones(len(Z), np.uint8),
+                    [(0, 6), (6, len(Z))],
+                    size,
+                    [0.01, 0.2],
+                    args,
+                    path,
+                    prob,
+                )
+                actual = info, path.read_bytes(), prob.read_bytes()
+                if expected is None:
+                    expected = actual
+                self.assertEqual(actual, expected)
 
     def test_mean_ensemble_bounded_batches_threads_and_single_filelist(self):
         ref, Z, c, P, Q = self.fixture(W=1031)

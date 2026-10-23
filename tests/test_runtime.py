@@ -85,8 +85,8 @@ lib = ctypes.CDLL(fatash_cy.__file__)
 print(json.dumps([
     lib.omp_get_max_threads(), lib.omp_get_thread_limit(),
     lib.omp_get_dynamic(), lib.omp_get_max_active_levels(),
-    [os.environ[k] for k in ('OPENBLAS_NUM_THREADS', 'BLIS_NUM_THREADS',
-     'GOTO_NUM_THREADS', 'MKL_NUM_THREADS', 'NUMEXPR_NUM_THREADS',
+    [os.environ[k] for k in ('OPENBLAS_NUM_THREADS', 'OPENBLAS_DEFAULT_NUM_THREADS',
+     'BLIS_NUM_THREADS', 'GOTO_NUM_THREADS', 'MKL_NUM_THREADS', 'NUMEXPR_NUM_THREADS',
      'NUMEXPR_MAX_THREADS', 'VECLIB_MAXIMUM_THREADS')],
     'MKL_DOMAIN_NUM_THREADS' in os.environ,
 ]))
@@ -100,6 +100,7 @@ print(json.dumps([
             MKL_DOMAIN_NUM_THREADS="MKL_DOMAIN_ALL=99",
             BLIS_NUM_THREADS="99",
             GOTO_NUM_THREADS="99",
+            OPENBLAS_DEFAULT_NUM_THREADS="99",
         )
         res = subprocess.run(
             [sys.executable, "-c", code],
@@ -109,7 +110,43 @@ print(json.dumps([
             check=True,
             timeout=30,
         )
-        self.assertEqual(json.loads(res.stdout), [3, 3, 0, 1, ["1"] * 7, False])
+        self.assertEqual(json.loads(res.stdout), [3, 3, 0, 1, ["1"] * 8, False])
+
+    def test_blas_limit_preserves_native_threads(self):
+        code = """
+import ctypes
+import json
+from hapla.runtime import blasThreads, configureThreads
+configureThreads(3, blas=1)
+blasThreads(1)
+import numpy as np
+from numpy.linalg import _umath_linalg
+from hapla import admix_cy
+lib = ctypes.CDLL(_umath_linalg.__file__)
+get = None
+for prefix in ('', 'scipy_'):
+    for suffix in ('', '64_'):
+        get = getattr(lib, prefix + 'openblas_get_num_threads' + suffix, None)
+        if get is not None:
+            break
+    if get is not None:
+        break
+A = np.ones((32768, 6), np.float32)
+A.T @ A
+print(json.dumps([ctypes.CDLL(admix_cy.__file__).omp_get_max_threads(),
+                  None if get is None else get()]))
+"""
+        res = subprocess.run(
+            [sys.executable, "-c", code],
+            env=dict(os.environ, PYTHONPATH=str(Path(hapla.__file__).resolve().parent.parent)),
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=30,
+        )
+        native, blas = json.loads(res.stdout)
+        self.assertEqual(native, 3)
+        self.assertIn(blas, (None, 1))
 
     def test_adaptive_batches_allow_all_workers_to_run(self):
         workers, window_bytes, queue_bytes = 4, 4096, 65536

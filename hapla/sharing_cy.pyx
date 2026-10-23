@@ -11,10 +11,12 @@ import numpy as np
 from libc.stdint cimport uint8_t, uint32_t, int64_t
 from libc.stdio cimport FILE, fopen, fclose, fwrite
 from libc.math cimport sqrt
+from libc.string cimport memmove
 
 ctypedef uint8_t u8
 ctypedef uint32_t u32
 ctypedef int64_t i64
+ctypedef float f32
 ctypedef double f64
 
 
@@ -519,19 +521,29 @@ def moments(const i64[::1] ptr, const u32[::1] col, const f64[::1] val):
     return np.asarray(mean), ss
 
 
-### Expand and center only the rows needed by the current kernel tile
+### Expand cached profiles with unique columns and center the current row tile
 def rows(
     const i64[::1] ptr, const u32[::1] col, const f64[::1] val, i64 beg,
     const f64[::1] mean, f64[:, ::1] out,
 ):
     cdef i64 i, j, e
-    for i in prange(out.shape[0], nogil=True, schedule="static"):
-        for j in range(out.shape[1]):
-            out[i, j] = 0
-        for e in range(ptr[beg + i], ptr[beg + i + 1]):
-            out[i, col[e]] += val[e]
-        for j in range(out.shape[1]):
-            out[i, j] -= mean[j]
+    with nogil:
+        for i in range(out.shape[0]):
+            for j in range(out.shape[1]):
+                out[i, j] = 0.0 - mean[j]
+            for e in range(ptr[beg + i], ptr[beg + i + 1]):
+                out[i, col[e]] += val[e]
+
+
+### Compact the lower triangle of a contiguous row tile in place
+def pack(f32[:, ::1] X, i64 beg):
+    cdef i64 i, n, off = 0
+    with nogil:
+        for i in range(X.shape[0]):
+            n = beg + i + 1
+            memmove(&X[0, 0] + off, &X[i, 0], n * sizeof(f32))
+            off += n
+    return off
 
 
 ### Form centered group profiles directly from the cached transpose
