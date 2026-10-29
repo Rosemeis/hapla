@@ -80,8 +80,8 @@ import json
 import os
 from hapla.runtime import configureThreads
 configureThreads(3, blas=1)
-from hapla import fatash_cy
-lib = ctypes.CDLL(fatash_cy.__file__)
+from hapla import local_cy
+lib = ctypes.CDLL(local_cy.__file__)
 print(json.dumps([
     lib.omp_get_max_threads(), lib.omp_get_thread_limit(),
     lib.omp_get_dynamic(), lib.omp_get_max_active_levels(),

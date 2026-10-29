@@ -13,9 +13,9 @@ from unittest.mock import patch
 import numpy as np
 from helpers import TemporaryTests, command, readLog, writeClusters
 
-from hapla import fatash_cy as cy
-from hapla.fatash import refine
+from hapla import local_cy as cy
 from hapla.formats import readMetadata
+from hapla.local import refine
 
 
 ### Construct the dense haploid transition matrix
@@ -381,8 +381,8 @@ class HMMCorrectness(unittest.TestCase):
             text = StringIO()
             clock[0] = 0
             with (
-                patch("hapla.fatash.perf_counter", side_effect=lambda: clock[0]),
-                patch("hapla.fatash.printTiming") as timing,
+                patch("hapla.local.perf_counter", side_effect=lambda: clock[0]),
+                patch("hapla.local.printTiming") as timing,
                 patch.object(cy, "posterior", side_effect=advance),
                 redirect_stdout(text),
             ):
@@ -440,7 +440,7 @@ class HMMCorrectness(unittest.TestCase):
 
 
 ### Check local ancestry fitting, streaming, and saved output
-class FatashPipeline(TemporaryTests):
+class LocalPipeline(TemporaryTests):
     def test_saved_q_ids_must_match_cluster_order(self):
         ref, _, _, _, _ = self.fixture()
         qfile = self.root / "swapped.Q"
@@ -449,10 +449,19 @@ class FatashPipeline(TemporaryTests):
         side.write_text("".join(f"s{i}\n" for i in reversed(range(7))))
         opts = ("--clusters", ref, "--pfile", f"{ref}.P", "--qfile", qfile, "--fixed-model")
         out = self.root / "order"
-        res = command("fatash", *opts, "--out", out, success=False)
+        res = command("local", *opts, "--out", out, success=False)
         self.assertIn("Q sample IDs differ", res.stderr)
         side.unlink()
-        command("fatash", *opts, "--out", out)
+        command("local", *opts, "--out", out)
+
+    def test_legacy_fatash_alias_matches_local(self):
+        ref, _, _, _, _ = self.fixture()
+        opts = ("--clusters", ref, "--pfile", f"{ref}.P", "--qfile", f"{ref}.Q", "--fixed-model")
+        new, old = self.root / "new", self.root / "old"
+        command("local", *opts, "--out", new)
+        res = command("fatash", *opts, "--out", old)
+        self.assertIn("legacy alias", res.stderr)
+        self.assertEqual(Path(f"{new}.path").read_bytes(), Path(f"{old}.path").read_bytes())
 
     def test_native_text_output_appends_across_buffer_boundaries(self):
         D = np.tile(np.arange(255, dtype=np.uint8), (1200, 1))
@@ -497,7 +506,7 @@ class FatashPipeline(TemporaryTests):
         for i, threads in enumerate((1, 4)):
             out = self.root / f"out{i}"
             command(
-                "fatash",
+                "local",
                 "--filelist",
                 files,
                 "--pfilelist",
@@ -529,7 +538,7 @@ class FatashPipeline(TemporaryTests):
         Path(f"{ref}.win").write_text("\n".join(rows) + "\n")
         out = self.root / "joined"
         command(
-            "fatash",
+            "local",
             "--clusters",
             ref,
             "--pfile",
@@ -563,7 +572,7 @@ class FatashPipeline(TemporaryTests):
 
         # A block larger than the chromosome must allocate only real output windows.
         command(
-            "fatash",
+            "local",
             "--clusters",
             ref,
             "--pfile",
@@ -601,7 +610,7 @@ class FatashPipeline(TemporaryTests):
         ):
             out = self.root / mode
             res = command(
-                "fatash",
+                "local",
                 "--clusters",
                 ref,
                 "--pfile",
@@ -638,7 +647,7 @@ class FatashPipeline(TemporaryTests):
             np.testing.assert_allclose(q[0], Q[0], atol=5e-10)
             repeat = self.root / f"{mode}-reuse"
             command(
-                "fatash",
+                "local",
                 "--clusters",
                 ref,
                 "--pfile",
@@ -683,7 +692,7 @@ class FatashPipeline(TemporaryTests):
                 multi, threads, buf = i > 0, 4 if i else 1, 1 if i else 256
                 out = self.root / f"joint{i}{bool(bw)}"
                 command(
-                    "fatash",
+                    "local",
                     *inp,
                     "--qfile",
                     f"{ref}.Q",
@@ -732,7 +741,7 @@ class FatashPipeline(TemporaryTests):
             ["--block", 2],
         ):
             result = command(
-                "fatash",
+                "local",
                 "--clusters",
                 ref,
                 "--pfile",
@@ -754,7 +763,7 @@ class FatashPipeline(TemporaryTests):
         Path(f"{ref}.P").write_text("1\n")
         for mode in ([], ["--viterbi"], ["--fixed-model", "--simple"]):
             command(
-                "fatash",
+                "local",
                 "--clusters",
                 ref,
                 "--pfile",
@@ -769,7 +778,7 @@ class FatashPipeline(TemporaryTests):
         empty = writeClusters(self.root, "empty", np.full((1, 2), 255, np.uint8), np.array([0, 0]))
         Path(f"{empty}.P").touch()
         command(
-            "fatash",
+            "local",
             "--clusters",
             empty,
             "--pfile",
@@ -784,7 +793,7 @@ class FatashPipeline(TemporaryTests):
         ref, _, _, P, _ = self.fixture()
         out = self.root / "protected"
         command(
-            "fatash",
+            "local",
             "--clusters",
             ref,
             "--pfile",
@@ -800,7 +809,7 @@ class FatashPipeline(TemporaryTests):
         P[0, 0] = np.nan
         np.savetxt(f"{ref}.P", P)
         r = command(
-            "fatash",
+            "local",
             "--clusters",
             ref,
             "--pfile",
@@ -816,11 +825,11 @@ class FatashPipeline(TemporaryTests):
         self.assertTrue(Path(f"{out}.prob").exists())
         ref, *_ = self.fixture()
         command(
-            "fatash", "--clusters", ref, "--pfile", f"{ref}.P", "--qfile", f"{ref}.Q", "--out", out
+            "local", "--clusters", ref, "--pfile", f"{ref}.P", "--qfile", f"{ref}.Q", "--out", out
         )
         self.assertFalse(Path(f"{out}.prob").exists())
         r = command(
-            "fatash",
+            "local",
             "--clusters",
             ref,
             "--pfile",

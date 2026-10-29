@@ -18,7 +18,7 @@ def main():
     # Shared options
     cmds = {
         name: subs.add_parser(name)
-        for name in ("cluster", "predict", "struct", "admix", "fatash", "deconv", "eval")
+        for name in ("cluster", "predict", "struct", "admix", "local", "deconv", "eval")
     }
     clu, pre, pca, adm, lai, dec, eva = cmds.values()
     for name, sub in cmds.items():
@@ -321,7 +321,7 @@ def main():
         help="Prefix for multiple haplotype cluster frequency files",
     )
 
-    # hapla fatash
+    # hapla local
     lai.description = (
         "Local ancestry inference with regularized Baum-Welch fitting of supplied P/Q by default."
     )
@@ -520,6 +520,9 @@ def main():
     )
 
     # Parse once and dispatch through the matching command parser
+    if sys.argv[1:2] == ["fatash"]:  # legacy name of hapla local
+        sys.argv[1] = "local"
+        print("hapla fatash is a legacy alias of hapla local", file=sys.stderr)
     args = parser.parse_args()
     if len(sys.argv) < 2:
         parser.print_help()
