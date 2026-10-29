@@ -11,9 +11,9 @@ from unittest.mock import patch
 import numpy as np
 from helpers import TemporaryTests, command, readLog, writeClusters
 from test_admix import simplex
-from test_fatash import enumerateHMM
+from test_local import enumerateHMM
 
-from hapla import admix_cy, fatash, fatash_cy, functions
+from hapla import admix_cy, functions, local, local_cy
 
 
 ### Delete donor observations explicitly rather than subtracting their counts
@@ -147,7 +147,7 @@ class LeaveOneOutTests(TemporaryTests):
             fits = []
             for size in (4, 2 * N):
                 with redirect_stdout(StringIO()):
-                    pp, qq, info = fatash.refine(
+                    pp, qq, info = local.refine(
                         [(Z, c, use, regions, size)] * 2, [P.ravel()] * 2, Q, alpha, args
                     )
                 for p in pp:
@@ -166,7 +166,7 @@ class LeaveOneOutTests(TemporaryTests):
         P = np.array([0.8, 0.2, 0.2, 0.8] * 2)
         Q = np.array([[0.7, 0.3], [0.4, 0.6]])
         args = Namespace(baum_welch=True, p_prior=0, q_prior=0, iter=1, tole=0, loo=True)
-        posterior = fatash_cy.posterior
+        posterior = local_cy.posterior
         calls = [0]
 
         def lower(*args, **kwargs):
@@ -174,8 +174,8 @@ class LeaveOneOutTests(TemporaryTests):
             calls[0] += 1
             return G, C, L - 1000 * calls[0]
 
-        with patch.object(fatash_cy, "posterior", side_effect=lower), redirect_stdout(StringIO()):
-            _, _, info = fatash.refine(
+        with patch.object(local_cy, "posterior", side_effect=lower), redirect_stdout(StringIO()):
+            _, _, info = local.refine(
                 [(Z, c, np.ones(2, np.uint8), [(0, 2)], 4)], [P], Q, [0.1], args
             )
         self.assertEqual(info["iterations"], 1)
@@ -221,7 +221,7 @@ class LeaveOneOutTests(TemporaryTests):
         args = Namespace(baum_welch=True, p_prior=0, q_prior=0, iter=2, tole=0, loo=True)
         for Z in (np.zeros((2, 2), np.uint8), np.full((2, 2), 255, np.uint8)):
             with redirect_stdout(StringIO()):
-                _, q, info = fatash.refine(
+                _, q, info = local.refine(
                     [(Z, c, np.ones(2, np.uint8), [(0, 2)], 2)], [P], Q, [0.01, 0.1], args
                 )
             np.testing.assert_array_equal(q, Q)
@@ -271,7 +271,7 @@ class LeaveOneOutTests(TemporaryTests):
         for threads in (1, 4):
             out = self.root / f"hmm{threads}"
             command(
-                "fatash",
+                "local",
                 "--clusters",
                 *refs,
                 "--qfile",
@@ -310,7 +310,7 @@ class LeaveOneOutTests(TemporaryTests):
             np.testing.assert_array_equal(a, b)
         out = self.root / "reuse"
         command(
-            "fatash",
+            "local",
             "--clusters",
             *refs,
             "--qfile",
@@ -327,13 +327,13 @@ class LeaveOneOutTests(TemporaryTests):
             np.testing.assert_allclose(np.loadtxt(str(out) + s), a, atol=1e-8)
         for mode, opts in (
             ("admix", ["--K", K, "--projection", pfiles[0]]),
-            ("fatash", ["--qfile", qfile, "--pfile", pfiles[0], "--fixed-model"]),
+            ("local", ["--qfile", qfile, "--pfile", pfiles[0], "--fixed-model"]),
         ):
             res = command(mode, "--clusters", refs[0], "--loo", *opts, success=False)
             self.assertIn("--loo requires", res.stderr)
         for mode, opts in (
             ("admix", ["--K", K, "--random-init"]),
-            ("fatash", ["--qfile", qfile, "--pfile", *pfiles]),
+            ("local", ["--qfile", qfile, "--pfile", *pfiles]),
         ):
             out = self.root / f"stop-{mode}"
             command(

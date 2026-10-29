@@ -112,10 +112,10 @@ class CodebaseContracts(TemporaryTests):
         np.savetxt(f"{a}.Q", [[0.8, 0.2], [0.2, 0.8]])
         np.savetxt(f"{a}.P", np.full((4, 2), 0.5))
         np.savetxt(f"{b}.P", np.full((4, 2), 0.5))
-        for name in ("struct", "admix", "fatash", "eval"):
+        for name in ("struct", "admix", "local", "eval"):
             res = command(name, "--clusters", "--out", self.root / "bad", success=False)
             self.assertIn("expected at least one argument", res.stderr)
-        base = ["fatash", "--clusters", a, b, "--qfile", f"{a}.Q", "--fixed-model"]
+        base = ["local", "--clusters", a, b, "--qfile", f"{a}.Q", "--fixed-model"]
         res = command(*base, "--pfile", f"{a}.P", success=False)
         self.assertIn("counts differ", res.stderr)
         res = command(*base, "--pfile", f"{a}.P", f"{b}.P", "--pfilelist", "unused", success=False)

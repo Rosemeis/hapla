@@ -7,7 +7,7 @@ from time import perf_counter
 
 import numpy as np
 
-from hapla import fatash_cy as cy
+from hapla import local_cy as cy
 from hapla.formats import sampleIndices
 from hapla.maps import chromosome
 from hapla.runtime import printTiming

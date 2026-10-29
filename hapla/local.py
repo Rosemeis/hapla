@@ -154,7 +154,7 @@ def readP(pth, c, K):
     P = np.loadtxt(pth, ndmin=2)
     if P.shape != (c[-1], K) or not np.all(np.isfinite(P)) or np.any(P < 0):
         raise ValueError("P dimensions or finite nonnegative cluster probabilities do not match")
-    from hapla import fatash_cy as cy
+    from hapla import local_cy as cy
 
     cy.normalizeP(P, c)
     return P.ravel()
@@ -208,7 +208,7 @@ def haplotypes(Z, size):
 def looQ(Z, c, use, regions, size, table, base, counts, Q, alpha, mass, dist=None):
     import numpy as np
 
-    from hapla import fatash_cy as cy
+    from hapla import local_cy as cy
 
     K = Q.shape[1]
     total = cy.looTotals(counts, c, K)
@@ -231,7 +231,7 @@ def looQ(Z, c, use, regions, size, table, base, counts, Q, alpha, mass, dist=Non
 def refine(data, P, Q, alpha, args, dist=None):
     import numpy as np
 
-    from hapla import fatash_cy as cy
+    from hapla import local_cy as cy
 
     if args.loo:
         from hapla.admix_cy import damp
@@ -367,7 +367,7 @@ def refine(data, P, Q, alpha, args, dist=None):
 def decode(Z, table, Q, c, use, regions, size, alpha, args, path, prob, dist=None):
     import numpy as np
 
-    from hapla import fatash_cy as cy
+    from hapla import local_cy as cy
 
     K, n_fix = Q.shape[1], 0
     ll = None if args.viterbi else np.zeros(Z.shape[1])
@@ -420,13 +420,13 @@ def main(args):
     configureThreads(args.threads, blas=1)
     import numpy as np
 
-    from hapla import fatash_cy as cy
+    from hapla import local_cy as cy
     from hapla.formats import MAGIC, checkQIds, readHeader, readMetadata, readPaths
     from hapla.formats import readWindows as readRows
     from hapla.struct import readData
 
     tick = perf_counter()
-    printHeader("fatash", args)
+    printHeader("local", args)
     print("Reading clusters and P/Q estimates.", flush=True)
     paths, ids, counts, sizes = readMetadata(args.clusters, args.filelist, likes=args.medians)
     pfiles = readPaths(args.pfilelist, args.pfile)
@@ -594,7 +594,7 @@ def main(args):
             printTiming(label, row["seconds"])
             del table, likes
         stats["elapsed_seconds"] = perf_counter() - tick
-        writeLog(out, "fatash", args, stats)
+        writeLog(out, "local", args, stats)
         commitOutputs(args.out, out, stale=stale)
     printDone(args.out, out, stats["elapsed_seconds"])
     return stats

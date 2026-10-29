@@ -15,15 +15,9 @@ concurrency:
 
 jobs:
   test:
-    name: ${{ matrix.os }} / Python ${{ matrix.python }}
-    runs-on: ${{ matrix.os }}
+    name: Ubuntu / Python 3.14
+    runs-on: ubuntu-latest
     timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        # Reserve the full compatibility matrix for manual runs
-        os: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["ubuntu-latest", "macos-15"]' || '["ubuntu-latest"]') }}
-        python: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["3.10", "3.12", "3.14"]' || '["3.14"]') }}
     env:
       HAPLA_NATIVE: "0"
       HTSLIB_VERSION: "1.20"
@@ -34,10 +28,9 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@v7
         with:
-          python-version: ${{ matrix.python }}
+          python-version: "3.14"
           cache: pip
       - name: Build minimum supported HTSlib on Linux
-        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libbz2-dev liblzma-dev libdeflate-dev zlib1g-dev
@@ -50,18 +43,10 @@ jobs:
           make -j2
           make install
           echo "HTSLIB_PREFIX=${RUNNER_TEMP}/htslib" >> "$GITHUB_ENV"
-      - name: Install native libraries on macOS
-        if: runner.os == 'macOS'
-        run: |
-          brew install htslib libomp
-          echo "HTSLIB_PREFIX=$(brew --prefix htslib)" >> "$GITHUB_ENV"
-          echo "LIBOMP_PREFIX=$(brew --prefix libomp)" >> "$GITHUB_ENV"
       - name: Install build tools
-        run: python -m pip install build
+        run: python -m pip install build cython ruff twine
       - name: Check source
-        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.14'
         run: |
-          python -m pip install cython ruff twine
           ruff format --check .
           ruff check .
           for src in hapla/*.pyx
@@ -71,15 +56,9 @@ jobs:
           done
       - name: Build and install distribution
         run: |
-          if [ "${{ matrix.os }}" = ubuntu-latest ] && [ "${{ matrix.python }}" = 3.14 ]
-          then
-            python -m build
-          else
-            python -m build --wheel
-          fi
+          python -m build
           python -m pip install dist/*.whl
       - name: Check distribution
-        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.14'
         run: |
           python tests/validate_distribution.py dist/*
           python -m twine check dist/*

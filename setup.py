@@ -66,7 +66,7 @@ def extensions():
     out = []
     for name in (
         "admix_cy",
-        "fatash_cy",
+        "local_cy",
         "eval_cy",
         "vcf_cy",
         "packed_cy",

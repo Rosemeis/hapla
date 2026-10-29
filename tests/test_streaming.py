@@ -491,7 +491,7 @@ class FormatAndPipelineTests(TemporaryTests):
                 "struct", "--clusters", prefix, "--grm", "--out", self.root / f"struct{missing}"
             )
             result = command(
-                "fatash",
+                "local",
                 "--clusters",
                 prefix,
                 "--qfile",
@@ -503,7 +503,7 @@ class FormatAndPipelineTests(TemporaryTests):
                 "--alpha",
                 10,
                 "--out",
-                self.root / f"fatash{missing}",
+                self.root / f"local{missing}",
             )
             self.assertEqual(result.returncode, 0)
 
