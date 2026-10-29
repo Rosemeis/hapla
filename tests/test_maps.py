@@ -10,13 +10,13 @@ from pathlib import Path
 
 import numpy as np
 from helpers import TemporaryTests, command, readLog, writeClusters
-from test_fatash import transition
+from test_local import transition
 from test_sharing import exactMatches, exactSharing
 
-from hapla import fatash_cy as cy
+from hapla import local_cy as cy
 from hapla import sharing
 from hapla.dating import maximize
-from hapla.fatash import refine
+from hapla.local import refine
 from hapla.maps import coordinates, distances, readMap
 
 
@@ -281,7 +281,7 @@ class GeneticPipeline(TemporaryTests):
         g = self.root / "map"
         g.write_text(f"CHR BP CM\n1 1 0\n1 {W} {(W - 1) / 100}\n")
         opts = (
-            "fatash",
+            "local",
             "--clusters",
             ref,
             "--pfile",
@@ -341,7 +341,7 @@ class GeneticPipeline(TemporaryTests):
         expected = None
         for threads in (1, 2, 4, 8):
             command(
-                "fatash",
+                "local",
                 *opts,
                 "--map",
                 g,
@@ -371,7 +371,7 @@ class GeneticPipeline(TemporaryTests):
         self.assertEqual(result["status"], "converged")
         self.assertTrue(float(result["lower"]) < fitted < float(result["upper"]))
         command(
-            "fatash",
+            "local",
             *opts,
             "--map",
             g,
@@ -392,7 +392,7 @@ class GeneticPipeline(TemporaryTests):
         )
         g.write_text(g.read_text().replace("59.9", "119.8"))
         command(
-            "fatash",
+            "local",
             *opts,
             "--map",
             g,
@@ -425,7 +425,7 @@ class GeneticPipeline(TemporaryTests):
             ["--date-min", 2],
             ["--map", g, "--dating", "--date-min", 501],
         ):
-            res = command("fatash", *opts, *flags, "--out", self.root / "bad", success=False)
+            res = command("local", *opts, *flags, "--out", self.root / "bad", success=False)
             self.assertIn("error:", res.stderr)
 
     def test_target_selection_fixed_time_refinement_and_stale_dates(self):
@@ -433,7 +433,7 @@ class GeneticPipeline(TemporaryTests):
         opts = ["--clusters", ref, "--pfile", f"{ref}.P", "--qfile", f"{ref}.Q", "--map", g]
         ids, out = self.root / "targets", self.root / "target-fit"
         ids.write_text("s0\ns3\ns2\ns7\n")
-        command("fatash", *opts, "--dating", "--date-samples", ids, "--out", out)
+        command("local", *opts, "--dating", "--date-samples", ids, "--out", out)
         self.assertEqual(np.loadtxt(f"{out}.path").shape[0], 48)
         row = Path(f"{out}.date").read_text().splitlines()
         self.assertEqual(dict(zip(row[0].split(), row[1].split()))["samples"], "4")
@@ -441,18 +441,18 @@ class GeneticPipeline(TemporaryTests):
         for text in ("unknown\n", "s0\ns0\n", "s0 s3\n", ""):
             ids.write_text(text)
             res = command(
-                "fatash", *opts, "--dating", "--date-samples", ids, "--out", out, success=False
+                "local", *opts, "--dating", "--date-samples", ids, "--out", out, success=False
             )
             self.assertIn("error:", res.stderr)
             self.assertEqual(before, Path(f"{out}.path").read_bytes())
         for flag in ([], ["--baum-welch"], ["--loo"]):
-            command("fatash", *opts, "--time", 30, "--iter", 2, *flag, "--out", out)
+            command("local", *opts, "--time", 30, "--iter", 2, *flag, "--out", out)
             self.assertFalse(Path(f"{out}.date").exists())
             self.assertEqual(readLog(out)["Iterations"], "2")
 
         # A flat likelihood must preserve the previous result set.
         before = Path(f"{out}.path").read_bytes()
         g.write_text(g.read_text().replace("59.9", "0"))
-        res = command("fatash", *opts, "--dating", "--out", out, success=False)
+        res = command("local", *opts, "--dating", "--out", out, success=False)
         self.assertIn("not identifiable", res.stderr)
         self.assertEqual(before, Path(f"{out}.path").read_bytes())

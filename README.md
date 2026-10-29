@@ -46,7 +46,7 @@ After clustering each chromosome, pass the cluster prefixes in chromosome order:
 ```bash
 hapla struct --clusters chr{1..22} --pca 20 --loadings --threads 8 --out pca
 hapla admix --clusters chr{1..22} --K 5 --threads 8 --out fit
-hapla fatash --clusters chr{1..22} \
+hapla local --clusters chr{1..22} \
     --pfile fit.K5.s42.chr{1..22}.P --qfile fit.K5.s42.Q \
     --threads 8 --out lai
 hapla eval --clusters chr{1..22} --qfile fit.K5.s42.Q --threads 8 --out residuals
@@ -54,7 +54,7 @@ hapla eval --clusters chr{1..22} --qfile fit.K5.s42.Q --threads 8 --out residual
 
 Bash and Zsh expand unquoted braces. Hapla uses the resulting order as given.
 For a saved list, use `--filelist prefixes.txt` with one prefix per line.
-`fatash` also accepts `--pfilelist fit.K5.s42.plist`. Cluster and P-file
+`local` also accepts `--pfilelist fit.K5.s42.plist`. Cluster and P-file
 lists must have the same order, and sample IDs must match across cluster files.
 Q rows must follow that sample order. Hapla checks the sibling `.ids` file for
 saved `.Q` files when present. Check each log for convergence and input notes.
@@ -80,7 +80,7 @@ These options apply to every command. A dash means no default value.
 
 ### Cluster input options
 
-Shared by `struct`, `admix`, `fatash`, and `eval`. Select exactly one input form.
+Shared by `struct`, `admix`, `local`, and `eval`. Select exactly one input form.
 
 | Option | Default | Description |
 | --- | --- | --- |
@@ -158,7 +158,7 @@ bits, so additional missing-window loss has a cost rather than being discarded.
 Equal costs favor more usable alleles, then fewer windows.
 This is a compression proxy, not an automatic biological optimum.
 Variable windows change regional weighting in downstream analyses. Use map-aware
-FATASH transitions when a genetic map is available. Prediction reuses the saved
+`local` transitions when a genetic map is available. Prediction reuses the saved
 boundaries.
 
 The fitter deduplicates haplotypes and grows binary medians using XOR/popcount
@@ -350,7 +350,7 @@ or `.chr1.P`, `.chr2.P`, etc. plus `.plist` for multiple inputs. P-file lists
 contain absolute paths. Rerunning with `--no-freqs` removes prior P outputs for
 the current input set.
 
-## hapla fatash
+## hapla local
 
 Infer haploid local ancestry from admix P/Q. Regularized Baum–Welch refines P
 and Q by default, with one Q per individual across all chromosomes. Each
@@ -405,7 +405,7 @@ counts retain their input values. Zero input probabilities are not smoothed
 into positive support. Prior masses are tuning parameters.
 
 Both commands use the same P pseudocount rule. `admix` targets pooled cluster
-frequencies to stabilize estimation. `fatash` targets the supplied
+frequencies to stabilize estimation. `local` targets the supplied
 ancestry-specific P to keep local refinement near the initial model.
 
 `--loo` removes each individual's posterior cluster counts from the P used
@@ -442,7 +442,7 @@ the fitted `--time` instead of alpha.
 
 ### Genetic distances and dating
 
-`cluster`, `struct`, and `fatash` interpolate the supplied map internally. Use the
+`cluster`, `struct`, and `local` interpolate the supplied map internally. Use the
 same genome build as the clusters, with increasing bp and nondecreasing cM.
 The whitespace-separated map contains all required chromosomes:
 
@@ -459,15 +459,15 @@ HapMap columns are also accepted, including `.gz` files. `chr1` and `1` match.
 Linear interpolation covers window endpoints and midpoints. Coordinates outside
 map coverage are rejected. Flat intervals retain zero genetic distance.
 
-With `--map`, FATASH uses `T = exp(-t d) I + (1 - exp(-t d)) Q` for adjacent
+With `--map`, `local` uses `T = exp(-t d) I + (1 - exp(-t d)) Q` for adjacent
 window midpoints, where `d` is in Morgans. `--time` fixes `t` while retaining
 the selected P/Q refinement mode. Genetic transitions require `--block 1`
 and replace the alpha ensemble. They cannot use `--alpha` or `--simple`.
 
 ```bash
-hapla fatash --clusters chr{1..22} --pfile fit.chr{1..22}.P --qfile fit.Q \
+hapla local --clusters chr{1..22} --pfile fit.chr{1..22}.P --qfile fit.Q \
     --map genetic.map --dating --date-samples admixed.ids --out dated
-hapla fatash --clusters chr{1..22} --pfile fit.chr{1..22}.P --qfile fit.Q \
+hapla local --clusters chr{1..22} --pfile fit.chr{1..22}.P --qfile fit.Q \
     --map genetic.map --time 20 --fixed-model --out paths
 hapla struct --clusters chr{1..22} --map genetic.map --hsm-svd 20 --out sharing
 ```
@@ -521,8 +521,8 @@ tests the installed package and rejects a checkout on the import path.
 
 [CI](.github/workflows/ci.yml) checks Python style and Cython warnings, validates
 the wheel and source archive, and runs the installed tests with one and two
-native threads. Pushes to `main` and pull requests use Ubuntu with Python 3.14.
-Manual runs add Ubuntu and macOS 15 wheels for Python 3.10, 3.12, and 3.14.
+native threads. Pushes to `main`, pull requests, and manual runs use one Ubuntu
+job with Python 3.14.
 
 Use short module summaries and camelCase helper names. Use `#####` for sections,
 `###` above functions and test classes, and `#` inside functions. Keep two blank
