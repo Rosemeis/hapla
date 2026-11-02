@@ -618,14 +618,12 @@ def main(args):
                     np.savetxt(out[sfx], part, fmt="%.10g")
                 pfx = Path(f_out).absolute()
                 out[".plist"].write_text("".join(f"{pfx}{sfx}\n" for sfx in p_sfxs))
-                if snp_vcf is not None:
-                    np.savetxt(
-                        out[".snp.P"], P[M_clusters * args.K :].reshape(-1, args.K), fmt="%.10g"
-                    )
             else:
                 np.savetxt(
                     out[".P"], P[: M_clusters * args.K].reshape(M_clusters, args.K), fmt="%.10g"
                 )
+            if snp_vcf is not None:
+                np.savetxt(out[".snp.P"], P[M_clusters * args.K :].reshape(-1, args.K), fmt="%.10g")
         stats.update(output_seconds=time() - ts, elapsed_seconds=time() - start)
         writeLog(out, "admix", args, stats, f_out)
         commitOutputs(f_out, out, stale=stale)

@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
-from helpers import TemporaryTests, command, missingFixture, readLog, writeClusters
+from helpers import TemporaryTests, command, missingFixture, readLog, toBcf, writeClusters, writeVcf
 
 from hapla import admix_cy as cy
 from hapla import functions
@@ -119,6 +119,16 @@ def reference(P, Q, ctx, rows=None):
 
 ### Check ancestry updates, initialization, and command output
 class AdmixtureTests(TemporaryTests):
+    def test_hybrid_single_cluster_file_writes_snp_frequencies(self):
+        G = np.random.default_rng(7).integers(0, 2, size=(96, 40), dtype=np.uint8)
+        rows = [("1", j + 1, [f"{a}|{b}" for a, b in g.reshape(-1, 2)]) for j, g in enumerate(G)]
+        vcf, bcf, ref, out = (self.root / s for s in ("h.vcf", "h.bcf", "h", "a"))
+        writeVcf(vcf, rows, samples=tuple(f"s{i}" for i in range(20)))
+        toBcf(vcf, bcf)
+        command("cluster", "--bcf", bcf, "--size", 8, "--min-mac", 1, "--out", ref)
+        command("admix", "--clusters", ref, "--bcf", bcf, "--K", 2, "--seed", 1, "--out", out)
+        self.assertEqual(np.loadtxt(f"{out}.K2.s1.snp.P", ndmin=2).shape[1], 2)
+
     def test_em_workspace_is_bounded_for_large_cohorts(self):
         k = np.full(129, 255, dtype=np.uint32)
         for N, K in ((500_000, 10), (1_000_000, 20)):
