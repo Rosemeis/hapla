@@ -1,11 +1,10 @@
 """Cluster and SNP ancestry-copy output contracts."""
 
-import subprocess
 import unittest
 from pathlib import Path
 
 import numpy as np
-from helpers import TemporaryTests, command, writeClusters, writeVcf
+from helpers import TemporaryTests, command, toBcf, writeClusters, writeVcf
 
 from hapla.formats import mapLabels
 
@@ -101,14 +100,12 @@ class DeconvolutionTests(TemporaryTests):
             "0",
         )
         output = Path(f"{self.root / 'out.chr1'}.bcf")
-        header = subprocess.check_output(["bcftools", "view", "-h", output], text=True)
-        self.assertNotIn("ID=PP", header)
-        header = next(row for row in header.splitlines() if row.startswith("#CHROM")).split("\t")
+        toBcf(output, self.root / "out.vcf", mode=b"w")
+        rows = (self.root / "out.vcf").read_text().splitlines()
+        self.assertFalse(any("ID=PP" in row for row in rows if row.startswith("##")))
+        header = next(row for row in rows if row.startswith("#CHROM")).split("\t")
         s0 = header.index("s0_0")
-        records = subprocess.check_output(
-            ["bcftools", "view", "-H", output], text=True
-        ).splitlines()
-        records = [row.split("\t") for row in records]
+        records = [row.split("\t") for row in rows if not row.startswith("#")]
         self.assertEqual(records[0][s0], "0|1")
         self.assertEqual(records[2][s0], ".|.")
 
