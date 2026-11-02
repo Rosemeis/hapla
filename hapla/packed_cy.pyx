@@ -943,6 +943,44 @@ cdef bint repeatedSample(const u64[:, ::1] X, const u8[::1] valid) noexcept nogi
     return sampled >= 8 and n * 4 <= sampled * 3
 
 
+### Reuse labels through exact word comparisons in a bounded hash table
+cdef void nearestHashed(
+    const u64[:, ::1] X,
+    const u64[:, ::1] R,
+    const u8[::1] valid,
+    u8[::1] labels,
+    u32* cache,
+    Py_ssize_t B,
+) noexcept nogil:
+    cdef:
+        Py_ssize_t h, k, key, probe, used = 0
+        u32 prev, best, d
+        u64 word
+        u8 dst
+    for h in range(X.shape[0]):
+        if valid[h]:
+            word = X[h, 0]
+            key = ((word ^ (word >> 32)) * <u64>11400714819323198485) >> 50
+            prev = cache[key]
+            probe = 1
+            while prev != <u32>-1 and X[prev, 0] != word and probe < 32:
+                key = (key + 1) & 16383
+                prev = cache[key]
+                probe += 1
+            if prev == <u32>-1 or X[prev, 0] != word:
+                best, dst = B + 1, 0
+                for k in range(R.shape[0]):
+                    d = hapla_popcount(word ^ R[k, 0])
+                    if d <= best:
+                        best, dst = d, k
+                if prev == <u32>-1 and used < 8192:
+                    cache[key] = h
+                    used += 1
+            else:
+                dst = labels[prev]
+            labels[h] = dst
+
+
 ### Assign complete haplotypes to their nearest packed reference median
 def predictHaplotypes(const u8[:, ::1] G, const u8[:, ::1] medians):
     """Exact packed nearest-median assignment. Any missing allele excludes its haplotype."""
@@ -958,7 +996,7 @@ def predictHaplotypes(const u8[:, ::1] G, const u8[:, ::1] medians):
         u64[:, ::1] R = np.zeros((K, Q), dtype=np.uint64)
         u8[::1] valid = np.ones(H, dtype=np.uint8)
         u8[::1] labels = np.full(H, 255, dtype=np.uint8)
-        u8[65536] cache
+        u32[16384] cache
     with nogil:
         for j in range(B):
             for h in range(H):
@@ -978,7 +1016,10 @@ def predictHaplotypes(const u8[:, ::1] G, const u8[:, ::1] medians):
         if not bad and K:
             if B <= 16 and H >= 512 and K > 1 and (B <= 12 or repeatedSample(X, valid)):
                 memset(cache, 255, 1 << B)
-                nearestCached(X, R, valid, labels, cache, B)
+                nearestCached(X, R, valid, labels, <u8*>cache, B)
+            elif 16 < B <= 64 and 512 <= H < <u32>-1 and K >= 8 and repeatedSample(X, valid):
+                memset(cache, 255, sizeof(cache))
+                nearestHashed(X, R, valid, labels, cache, B)
             elif Q == 1:
                 nearest[u8](0, X, R, valid, labels, B)
             else:

@@ -2,6 +2,7 @@
 
 __author__ = "Jonas Meisner"
 
+from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
@@ -54,6 +55,47 @@ def exactSharing(rec, H, x, left, right):
 
 ### Check matching and products against independent references
 class SharingTests(TemporaryTests):
+    def test_cached_rows_match_separate_centering_bits_and_positive_zero(self):
+        rng = np.random.default_rng(736)
+        N = 137
+        C = rng.uniform(0.1, 1, (N, N))
+        C[rng.random(C.shape) < 0.8] = 0
+        C[:, 0] += 1
+        C[:, -1] = 0
+        i, j = np.nonzero(C)
+        ptr = np.r_[0, np.cumsum(np.bincount(i, minlength=N))]
+        raw = (ptr, j.astype(np.uint32), C[i, j])
+        for root in (False, True):
+            data = sharing.profiles(
+                [raw, raw], 2 * C.sum(axis=1), self.root / f"rows{root}", root=root
+            )
+            row, col, val = data[0]
+            expected = np.zeros_like(C)
+            for i in range(N):
+                js = col[row[i] : row[i + 1]]
+                self.assertEqual(len(js), len(np.unique(js)))
+                expected[i, js] += val[row[i] : row[i + 1]]
+            mean, _ = sharing.moments(data)
+            expected -= mean
+            for beg in range(0, N, 13):
+                end = min(beg + 13, N)
+                actual = np.empty((end - beg, N))
+                cy.rows(*data[0], beg, mean, actual)
+                np.testing.assert_array_equal(
+                    actual.view(np.uint64), expected[beg:end].view(np.uint64)
+                )
+                np.testing.assert_array_equal(actual[:, -1].view(np.uint64), 0)
+
+    def test_triangle_tiles_pack_in_place(self):
+        for N, tile in ((1, 1), (7, 1), (7, 3), (7, 7), (257, 128)):
+            X = np.arange(N * N, dtype=np.float32).reshape(N, N)
+            for beg in range(0, N, tile):
+                end = min(beg + tile, N)
+                T = X[beg:end, :end].copy()
+                expected = np.concatenate([X[i, : i + 1] for i in range(beg, end)])
+                n = cy.pack(T, beg)
+                np.testing.assert_array_equal(T.reshape(-1)[:n], expected)
+
     def test_cached_metadata_and_category_counts_preserve_sharing(self):
         rng = np.random.default_rng(39)
         Z = rng.integers(0, 3, (29, 20), dtype=np.uint8)
@@ -293,6 +335,49 @@ class SharingTests(TemporaryTests):
         for opt in (("--hsm-gap", 50), ("--hsm-sqrt",)):
             result = command("struct", "--clusters", src, "--pca", 2, *opt, success=False)
             self.assertIn("require --hsm", result.stderr)
+
+    def test_all_sharing_outputs_are_identical_across_threads(self):
+        rng = np.random.default_rng(734)
+        N, W = 257, 97
+        Z = rng.integers(0, 4, (W, 2 * N), dtype=np.uint8)
+        Z[rng.random(Z.shape) < 0.02] = 255
+        src = writeClusters(self.root, "input", Z, 4 * np.arange(W + 1, dtype=np.int64))
+        rows = readWindows(src)
+        with Path(f"{src}.win").open("w") as dst:
+            for i, row in enumerate(rows):
+                dst.write(" ".join(map(str, (1 if i < W // 2 else 2, *row[1:]))) + "\n")
+        for root in (False, True):
+            saved = None
+            for nt in (1, 2, 4, 8):
+                out = self.root / f"fit{root}{nt}"
+                command(
+                    "struct",
+                    "--clusters",
+                    src,
+                    "--hsm",
+                    "--hsm-svd",
+                    3,
+                    "--hsm-groups",
+                    3,
+                    "--power",
+                    2,
+                    "--raw",
+                    "--threads",
+                    nt,
+                    *(("--hsm-sqrt",) if root else ()),
+                    "--out",
+                    out,
+                )
+                info = readLog(out)
+                self.assertEqual(int(info["Chromosomes"]), 2)
+                self.assertEqual(int(info["Index threads"]), min(nt, 2))
+                current = [
+                    Path(f"{out}{suffix}").read_bytes()
+                    for suffix in (".hsm.cov", ".hsm.grm.bin", ".hsm.vec", ".hsm.val", ".hsm.grp")
+                ]
+                if saved is None:
+                    saved = current
+                self.assertEqual(current, saved)
 
     def test_cli_kernel_components_ids_and_optional_outputs(self):
         rng = np.random.default_rng(291)

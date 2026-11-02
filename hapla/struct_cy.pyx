@@ -332,9 +332,68 @@ cpdef void contrastBlock(
 
 
 ### Accumulate only the lower triangle, in double precision
-cpdef void addGram(const f32[:, ::1] A, f64[::1] G, Py_ssize_t start) noexcept nogil:
+def addGram(const f32[:, ::1] A, f64[::1] G, Py_ssize_t start):
     cdef Py_ssize_t N = A.shape[0], i, j, off
-    for i in prange(N, schedule="static"):
-        off = (start + i) * (start + i + 1) // 2
-        for j in range(start + i + 1):
-            G[off + j] += A[i, j]
+    with nogil:
+        for i in range(N):
+            off = (start + i) * (start + i + 1) // 2
+            for j in range(start + i + 1):
+                G[off + j] += A[i, j]
+
+
+### Accumulate one sample's categorical products in fixed window order
+cdef void _gram(
+    const u8[:, ::1] Z,
+    const i64[::1] c,
+    const f64[::1] p,
+    const f64[::1] p2,
+    f64[::1] G,
+    Py_ssize_t i,
+) noexcept nogil:
+    cdef:
+        Py_ssize_t w, j, k, off = i * (i + 1) // 2
+        u8 r, s
+        int n
+        f64 m, shift
+        f64[256] lut
+        const u8* z
+    lut[255] = 0.0
+    for w in range(Z.shape[0]):
+        z = &Z[w, 0]
+        r, s = z[2 * i], z[2 * i + 1]
+        n, m = 0, 0.0
+        if r != 255:
+            n += 1
+            m += p[c[w] + r]
+        if s != 255:
+            n += 1
+            m += p[c[w] + s]
+        if n == 0 or (p2[w] == 1.0 and m == n):
+            continue
+        shift = n * p2[w] - m
+        for k in range(c[w + 1] - c[w]):
+            lut[k] = (r == k) + (s == k) - n * p[c[w] + k] + shift
+        for j in range(i + 1):
+            G[off + j] += lut[z[2 * j]] + lut[z[2 * j + 1]]
+
+
+### Form categorical Gram products without expanding sample dosages
+def gram(
+    const u8[:, ::1] Z,
+    const i64[::1] c,
+    const f64[::1] p,
+    f64[::1] G,
+    int threads=1,
+):
+    cdef:
+        Py_ssize_t w, k, i, N = Z.shape[1] // 2
+        f64 val
+        f64[::1] p2 = np.empty(Z.shape[0])
+    with nogil:
+        for w in range(Z.shape[0]):
+            val = 0.0
+            for k in range(c[w], c[w + 1]):
+                val += p[k] * p[k]
+            p2[w] = val
+    for i in prange(N, nogil=True, schedule="dynamic", num_threads=min(N, threads)):
+        _gram(Z, c, p, p2, G, N - i - 1)

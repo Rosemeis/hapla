@@ -21,6 +21,36 @@ def labels(prefix, samples=3):
 
 ### Compare packed predictions with scalar references
 class PackedPredictionTests(unittest.TestCase):
+    def test_exact_matches_and_distance_ties_choose_last_median(self):
+        for B in (1, 16, 17, 64, 65, 129):
+            R = np.zeros((8, B), np.uint8)
+            R[1::2, 0] = 1
+            G = np.repeat(R.T, 128, axis=1).copy()
+            expected = np.repeat(np.tile(np.array([6, 7], np.uint8), 4), 128)
+            np.testing.assert_array_equal(packed_cy.predictHaplotypes(G, R), expected)
+            if B > 1:
+                G[-1] = 1
+                np.testing.assert_array_equal(packed_cy.predictHaplotypes(G, R), expected)
+
+    def test_word_lookup_collisions_and_bounded_capacity(self):
+        rng = np.random.default_rng(873)
+        for B in (17, 64):
+            H, K = 9000, 17
+            words = np.arange(H, dtype=np.uint64)
+            if B == 64:
+                # Force a collision chain beyond the lookup's probe limit.
+                inv = pow(11400714819323198485, -1, 2**64)
+                vals = [(i * inv) % 2**64 for i in range(64)]
+                words[:64] = [value ^ (value >> 32) for value in vals]
+            G = ((words[:, None] >> np.arange(B, dtype=np.uint64)) & 1).astype(np.uint8).T.copy()
+            G[:, np.arange(16) * H // 16] = 0
+            G[0, 7] = 255
+            R = rng.integers(0, 2, (K, B), dtype=np.uint8)
+            D = np.stack([np.count_nonzero(G != r[:, None], axis=0) for r in R])
+            expected = (K - 1 - np.argmin(D[::-1], axis=0)).astype(np.uint8)
+            expected[7] = 255
+            np.testing.assert_array_equal(packed_cy.predictHaplotypes(G, R), expected)
+
     def test_short_window_lookup_matches_reference_with_duplicates_and_missingness(self):
         rng = np.random.default_rng(904)
         B, H, K = 16, 1024, 17

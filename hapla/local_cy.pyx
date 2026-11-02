@@ -276,6 +276,29 @@ cdef int _prepare(
     return log(qm) + log(-expm1(-amin)) - span < -300
 
 
+### Validate log recursion without preparing unused probability emissions
+cdef int _support(
+    const f64* E,
+    const f64* q,
+    Py_ssize_t W,
+    Py_ssize_t K,
+) noexcept nogil:
+    cdef:
+        Py_ssize_t w, k
+        f64 value
+        bint found
+    for w in range(W):
+        found = False
+        for k in range(K):
+            value = E[w * K + k]
+            if value != value or value == INFINITY:
+                return -1
+            found |= q[k] > 0 and value != -INFINITY
+        if not found:
+            return -1
+    return 0
+
+
 ### Scaled forward/backward: T = exp(-alpha) I + (1-exp(-alpha)) q 1'
 cdef f64 _fbProb(
     const f64* E,
@@ -489,13 +512,16 @@ cdef _posterior(
         f64[:, ::1] C = np.zeros((N, K)) if resets else np.empty((0, 0))
         f64[:, ::1] ll = np.empty((N, A))
         f64[:, ::1] F = np.empty((nt, W * K))
-        f64[:, ::1] S = np.empty((nt, W * K))
+        f64[:, ::1] S = None if simple else np.empty((nt, W * K))
         f64[:, ::1] shift = np.empty((nt, W))
-        f64[:, ::1] scale = np.empty((nt, W)) if not score else np.empty((0, 0))
+        f64[:, ::1] scale = None if score or simple else np.empty((nt, W))
         f64[:, ::1] tmp = np.empty((nt, 5 * K))
     for i in prange(N, nogil=True, schedule="static", num_threads=nt):
         t = threadid()
-        mode = _prepare(&E[i, 0, 0], &S[t, 0], &shift[t, 0], &q[i, 0], W, K, amin)
+        if simple:
+            mode = _support(&E[i, 0, 0], &q[i, 0], W, K)
+        else:
+            mode = _prepare(&E[i, 0, 0], &S[t, 0], &shift[t, 0], &q[i, 0], W, K, amin)
         if mode < 0:
             bad |= 1
             continue

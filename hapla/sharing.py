@@ -3,6 +3,7 @@
 __author__ = "Jonas Meisner"
 
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
 from hashlib import sha256
 from pathlib import Path
 from resource import RLIMIT_NOFILE, getrlimit
@@ -275,27 +276,36 @@ def moments(data):
 
 
 ### Stream the full lower triangle using bounded BLAS tiles
-def grm(path, data, mean, ss, tile=None):
+def grm(path, data, mean, ss, tile=None, threads=1):
     N = len(data[0][0]) - 1
     if tile is None:
-        tile = max(1, min(256, 8 * 1024**2 // (8 * N)))
+        tile = max(1, min(128, 8 * 1024**2 // (8 * N)))
     tile = min(N, tile)
-    X, Y = np.empty((tile, N)), np.empty((tile, N))
-    T = np.empty((tile, N), dtype="<f4")
+    nt = min(threads, (N + tile - 1) // tile, max(1, 64 * 1024**2 // (20 * tile * N)))
     scale = (N - 1) / ss
-    with Path(path).open("wb") as dst:
-        for beg in range(0, N, tile):
-            end = min(beg + tile, N)
-            A = X[: end - beg]
-            cy.rows(*data[0], beg, mean, A)
-            for b in range(0, end, tile):
-                e = min(b + tile, end)
-                B = A if b == beg else Y[: e - b]
-                if b != beg:
-                    cy.rows(*data[0], b, mean, B)
-                T[: len(A), b:e] = (A @ B.T) * scale
-            for i in range(len(A)):
-                T[i, : beg + i + 1].tofile(dst)
+
+    def gram(beg):
+        end = min(beg + tile, N)
+        A, Y = np.empty((end - beg, N)), np.empty((tile, N))
+        T = np.empty((len(A), end), dtype="<f4")
+        cy.rows(*data[0], beg, mean, A)
+        for b in range(0, beg, tile):
+            cy.rows(*data[0], b, mean, Y)
+            T[:, b : b + tile] = (A @ Y.T) * scale
+        T[:, beg:end] = (A @ A.T) * scale
+        n = cy.pack(T, beg)
+        return T.reshape(-1)[:n]
+
+    with (
+        ThreadPoolExecutor(max_workers=nt) if nt > 1 else nullcontext() as pool,
+        Path(path).open("wb") as dst,
+    ):
+        for beg in range(0, N, tile * nt):
+            jobs = range(beg, min(N, beg + tile * nt), tile)
+            runs = map(gram, jobs) if pool is None else pool.map(gram, jobs)
+            for T in runs:
+                T.tofile(dst)
+            del T
 
 
 ### Apply centered sharing or its transpose
@@ -312,8 +322,8 @@ def product(data, Q, transpose=False):
     return out
 
 
-### Fit randomized SVD and return unit-norm eigenvectors and singular values
-def pca(data, K, power, seed, strict=True):
+### Fit randomized SVD and optionally retain scores from the same subspace
+def pca(data, K, power, seed, strict=True, extra=0):
     N = len(data[0][0]) - 1
     if not 1 <= K < N:
         raise ValueError("Sharing components must be between one and samples minus one")
@@ -335,4 +345,9 @@ def pca(data, K, power, seed, strict=True):
     K = min(K, rank)
     V = Q @ R[:K].T
     V *= np.sign(V[np.argmax(np.abs(V), axis=0), np.arange(K)])
+    if extra:
+        r = min(extra, rank)
+        X = Q @ R[:r].T
+        X *= np.sign(X[np.argmax(np.abs(X), axis=0), np.arange(r)])
+        return V, S[:K], X * S[:r]
     return V, S[:K]

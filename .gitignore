@@ -58,6 +58,7 @@ venv/
 *.pca
 *.hsm.json
 *.hsm.cov
+*.hsm.grp
 *.Q
 *.P
 *.plist

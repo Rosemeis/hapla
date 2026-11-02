@@ -570,8 +570,8 @@ tests the installed package and rejects a checkout on the import path.
 
 [CI](.github/workflows/ci.yml) checks Python style and Cython warnings, validates
 the wheel and source archive, and runs the installed tests with one and two
-native threads. Pushes to `main` and pull requests use Ubuntu with Python 3.14.
-Manual runs add Ubuntu and macOS 15 wheels for Python 3.10, 3.12, and 3.14.
+native threads. Pushes to `main`, pull requests, and manual runs use one Ubuntu
+job with Python 3.14.
 
 Use short module summaries and camelCase helper names. Use `#####` for sections,
 `###` above functions and test classes, and `#` inside functions. Keep two blank
