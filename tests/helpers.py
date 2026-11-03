@@ -57,6 +57,7 @@ def writeVcf(path, rows, *, fields="GT", samples=("A", "B", "C")):
         "##contig=<ID=2,length=10000000>\n"
         '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
         '##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Depth">\n'
+        '##FORMAT=<ID=PP,Number=.,Type=String,Description="Posterior probabilities">\n'
     )
     header += "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t" + "\t".join(samples) + "\n"
     with open(path, "w") as handle:
@@ -68,7 +69,8 @@ def writeVcf(path, rows, *, fields="GT", samples=("A", "B", "C")):
 
 
 ### Build fixtures through the reader's linked HTSlib without shipping a BCF writer
-def toBcf(vcf, bcf, index=False):
+### (mode=b"w" writes text VCF, e.g. to read BCF output back without bcftools)
+def toBcf(vcf, bcf, index=False, mode=b"wb"):
     lib = ct.CDLL(vcf_cy.__file__)
     ptr, num, txt = ct.c_void_p, ct.c_int, ct.c_char_p
     for name, result, args in (
@@ -95,7 +97,7 @@ def toBcf(vcf, bcf, index=False):
         hdr, rec = lib.bcf_hdr_read(src), lib.bcf_init()
         if not hdr or not rec:
             raise OSError("Cannot read fixture header or allocate record")
-        dst = lib.hts_open(os.fsencode(bcf), b"wb")
+        dst = lib.hts_open(os.fsencode(bcf), mode)
         if not dst or lib.bcf_hdr_write(dst, hdr) < 0:
             raise OSError("Cannot write BCF fixture header")
         while True:

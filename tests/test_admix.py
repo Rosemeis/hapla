@@ -2,6 +2,7 @@
 
 __author__ = "Jonas Meisner"
 
+import itertools
 import sys
 from argparse import Namespace
 from contextlib import redirect_stdout
@@ -10,10 +11,36 @@ from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
-from helpers import TemporaryTests, command, missingFixture, readLog, writeClusters
+from helpers import TemporaryTests, command, missingFixture, readLog, toBcf, writeClusters, writeVcf
 
 from hapla import admix_cy as cy
 from hapla import functions
+
+
+def test_weighted_q_update_matches_scalar_reference():
+    rng = np.random.default_rng(8)
+    N, W, K = 3, 3, 3
+    Z = rng.integers(0, 2, (W, 2 * N), dtype=np.uint8)
+    k = np.full(W, 2, np.uint32)
+    c = np.insert(np.cumsum(k * K, dtype=np.uint32), 0, 0)
+    P = rng.random(c[-1])
+    for w in range(W):
+        for ancestry in range(K):
+            P[c[w] + ancestry : c[w + 1] : K] /= P[c[w] + ancestry : c[w + 1] : K].sum()
+    Q = rng.dirichlet(np.ones(K), N)
+    weights = np.array([1.0, 0.25, 2.0])
+    observed = np.full(N, 2 * weights.sum())
+    T, out = np.empty_like(Q), np.empty_like(Q)
+    pt, qt = functions.emWorkspace(N, K, k)
+    ctx = (Z, k, c, T, pt, qt, None, None, weights)
+    functions.emStep(P, Q, None, out, ctx, qo=observed)
+    expected = np.zeros_like(Q)
+    for w, i, h in itertools.product(range(W), range(N), range(2)):
+        p = P[c[w] + Z[w, 2 * i + h] * K : c[w] + (Z[w, 2 * i + h] + 1) * K]
+        expected[i] += weights[w] * p / np.dot(p, Q[i])
+    expected *= Q / observed[:, None]
+    expected /= expected.sum(axis=1, keepdims=True)
+    np.testing.assert_allclose(out, expected)
 
 
 ### Solve the constrained M-step by independent bisection
@@ -92,6 +119,16 @@ def reference(P, Q, ctx, rows=None):
 
 ### Check ancestry updates, initialization, and command output
 class AdmixtureTests(TemporaryTests):
+    def test_hybrid_single_cluster_file_writes_snp_frequencies(self):
+        G = np.random.default_rng(7).integers(0, 2, size=(96, 40), dtype=np.uint8)
+        rows = [("1", j + 1, [f"{a}|{b}" for a, b in g.reshape(-1, 2)]) for j, g in enumerate(G)]
+        vcf, bcf, ref, out = (self.root / s for s in ("h.vcf", "h.bcf", "h", "a"))
+        writeVcf(vcf, rows, samples=tuple(f"s{i}" for i in range(20)))
+        toBcf(vcf, bcf)
+        command("cluster", "--bcf", bcf, "--size", 8, "--min-mac", 1, "--out", ref)
+        command("admix", "--clusters", ref, "--bcf", bcf, "--K", 2, "--seed", 1, "--out", out)
+        self.assertEqual(np.loadtxt(f"{out}.K2.s1.snp.P", ndmin=2).shape[1], 2)
+
     def test_em_workspace_is_bounded_for_large_cohorts(self):
         k = np.full(129, 255, dtype=np.uint32)
         for N, K in ((500_000, 10), (1_000_000, 20)):

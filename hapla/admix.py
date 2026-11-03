@@ -23,6 +23,8 @@ from hapla.runtime import (
 
 ### hapla admix
 def main(args):
+    snp_vcf = getattr(args, "snp_vcf", None)
+    hybrid_init = snp_vcf is not None
     # Check input
     if args.supervised is not None and args.projection is not None:
         raise ValueError("Choose either --supervised or --projection")
@@ -30,6 +32,8 @@ def main(args):
         raise ValueError("--p-prior cannot update fixed projection frequencies")
     if args.loo and args.projection is not None:
         raise ValueError("--loo requires fitted P, not fixed projection frequencies")
+    if snp_vcf is not None and args.loo:
+        raise ValueError("Weighted SNP input is not supported with --loo")
     if (args.filelist is None) == (args.clusters is None):
         raise ValueError("Provide exactly one of --clusters or --filelist")
     if not args.prefix or any(x in args.prefix for x in ("/", "\\")):
@@ -76,7 +80,7 @@ def main(args):
     import numpy as np
 
     from hapla import admix_cy, functions, struct_cy
-    from hapla.formats import mapLabels, readMetadata, readPaths, sampleIndices
+    from hapla.formats import mapLabels, readMetadata, readPaths, readWindows, sampleIndices
 
     blasThreads(1)
 
@@ -91,6 +95,7 @@ def main(args):
         raise ValueError("No observed cluster alleles for ancestry estimation")
     if M * args.K > np.iinfo(np.uint32).max:
         raise ValueError("Too many cluster parameters for the native index range")
+    M_clusters = M
 
     # Select samples from keep file
     if args.keep is not None:
@@ -124,6 +129,74 @@ def main(args):
         B += w_vec[z]
     del z_tmp
 
+    # Give every cluster window one unit of total SNP weight.
+    weights = None
+    snp_count = 0
+    if snp_vcf is not None:
+        from hapla.vcf_cy import Reader
+
+        intervals = {}
+        offset = 0
+        for pfx, n_win in zip(Z_list, w_vec):
+            rows = readWindows(pfx)
+            if len(rows) != n_win:
+                raise ValueError("Cluster window metadata does not match assignments")
+            for w, row in enumerate(rows):
+                intervals.setdefault(row[0].removeprefix("chr"), []).append(
+                    (row[1], row[2], offset + w)
+                )
+            offset += n_win
+        intervals = {
+            chrom: tuple(np.asarray(x) for x in zip(*sorted(values)))
+            for chrom, values in intervals.items()
+        }
+        with Reader(snp_vcf, max(0, args.threads - 1)) as src:
+            index = {sample: i for i, sample in enumerate(src.samples)}
+            if any(sample not in index for sample in q_ids):
+                raise ValueError("Cluster samples are missing from the SNP VCF/BCF")
+            sel = np.asarray([index[sample] for sample in q_ids], dtype=np.int64)
+            hsel = np.ravel(np.column_stack((2 * sel, 2 * sel + 1)))
+            chunks, parent = [], []
+            while not src.finished:
+                raw = np.empty((65536, 2 * len(src.samples)), dtype=np.uint8)
+                pos = np.empty(65536, dtype=np.int64)
+                chrom = np.empty(65536, dtype=np.int32)
+                missing = np.empty(65536, dtype=np.uint8)
+                got = src.readInto(raw, pos, chrom, missing)
+                if not got:
+                    break
+                keep_rows, keep_parent = [], []
+                for r in range(got):
+                    interval = intervals.get(src.contigs[chrom[r]].removeprefix("chr"))
+                    if interval is None:
+                        continue
+                    beg, end, idx = interval
+                    j = np.searchsorted(beg, pos[r], side="right") - 1
+                    if j >= 0 and pos[r] <= end[j]:
+                        keep_rows.append(r)
+                        keep_parent.append(idx[j])
+                if keep_rows:
+                    chunks.append(raw[np.asarray(keep_rows)][:, hsel])
+                    parent.extend(keep_parent)
+        if not parent:
+            raise ValueError("No SNPs overlap the cluster windows")
+        parent = np.asarray(parent, dtype=np.int64)
+        snp_count = len(parent)
+        counts = np.bincount(parent, minlength=W)
+        snp_weights = 1.0 / counts[parent]
+        Z = np.vstack((Z, np.vstack(chunks)))
+        k_vec = np.concatenate((k_vec, np.full(len(parent), 2, dtype=np.uint32)))
+        weights = np.concatenate((np.ones(W), snp_weights))
+        W = Z.shape[0]
+        args.batches = 1
+        print(
+            f"Added {len(parent):,} SNPs ({snp_weights.sum():,.1f} window equivalents).", flush=True
+        )
+
+    M = int(np.sum(k_vec, dtype=np.uint64))
+    if M * args.K > np.iinfo(np.uint32).max:
+        raise ValueError("Too many cluster parameters for the native index range")
+
     # Histogram validation also supplies observed-only means and window counts
     c_tmp = np.insert(np.cumsum(k_vec, dtype=np.uint32), 0, 0)
     prior = args.p_prior
@@ -148,11 +221,15 @@ def main(args):
     del obs
 
     # Count haplotype cluster alleles
-    L_nrm = 2.0 * float(M) * float(N)
+    if weights is None:
+        L_nrm = 2.0 * float(M) * float(N)
+    else:
+        q_obs = np.sum((Z.reshape(W, N, 2) != 255) * weights[:, None, None], axis=(0, 2))
+        L_nrm = 2.0 * float(N) * float(np.dot(weights, k_vec))
     c_vec = c_tmp * args.K
 
     # Print information
-    print(f"Data size: {N:,} samples, {W:,} windows, {M:,} clusters", flush=True)
+    print(f"Data size: {N:,} samples, {W:,} windows, {M_clusters:,} clusters", flush=True)
     printMissing(n_miss, W * 2 * N)
     print("\nInitialization:", flush=True)
 
@@ -210,6 +287,20 @@ def main(args):
                 p_tmp = p_tmp.ravel()
                 P[c_vec[f_vec[p]] : c_vec[f_vec[p + 1]]] = p_tmp
             del p_tmp
+            if snp_vcf is not None:
+                snp_path = Path(args.projection).with_suffix(".snp.P")
+                if not snp_path.is_file():
+                    raise ValueError(
+                        "Hybrid projection requires the reference .snp.P frequency file"
+                    )
+                p_tmp = np.loadtxt(snp_path, dtype=float, ndmin=2)
+                shape = (snp_count * 2, args.K)
+                if p_tmp.shape != shape:
+                    raise ValueError(
+                        "Reference SNP P rows/columns do not match the BCF input and K"
+                    )
+                P[c_vec[f_vec[-1]] :] = p_tmp.ravel()
+                del p_tmp
         else:  # Load single frequency file
             P = np.loadtxt(args.projection, dtype=float, ndmin=2)
             if P.shape != (M, args.K):
@@ -234,10 +325,16 @@ def main(args):
     else:  # SVD/ALS initialization
         print("Computing SVD/ALS estimates.", flush=True)
         ts = time()
-        W_s = f_vec[ceil(F / args.subsampling)] if F > 1 else W
+        # SNP rows are appended after the cluster rows. A cluster-only prefix
+        # would omit them from the SVD basis, so hybrid inputs use the complete
+        # joint representation with the same marker weights as the EM fit.
+        W_s = W if hybrid_init else (f_vec[ceil(F / args.subsampling)] if F > 1 else W)
+        init_weights = np.repeat(weights, k_vec) if hybrid_init else None
+        if init_weights is not None:
+            print("Applying SNP weights to all hybrid SVD/ALS markers.", flush=True)
         try:
             U, S, V = functions.centerSVD(
-                Z, p_vec, c_tmp, W_s, args.K, args.chunk, args.power, rng, w_obs
+                Z, p_vec, c_tmp, W_s, args.K, args.chunk, args.power, rng, w_obs, init_weights
             )
         except ValueError:
             if W_s == W:
@@ -245,21 +342,30 @@ def main(args):
             print("SVD subset lacks rank. Using all windows.", flush=True)
             W_s = W
             U, S, V = functions.centerSVD(
-                Z, p_vec, c_tmp, W_s, args.K, args.chunk, args.power, rng, w_obs
+                Z, p_vec, c_tmp, W_s, args.K, args.chunk, args.power, rng, w_obs, init_weights
             )
         U_r = (
             functions.centerSub(Z, S, V, p_vec, c_tmp, W_s, args.chunk, w_obs) if W_s < W else None
         )
         p = p_vec.astype(np.float32)
         P, Q = functions.factorALS(
-            U, S, V, p[: len(U)], k_vec[:W_s], c_tmp[: W_s + 1], args.als_iter, args.als_tole, rng
+            U,
+            S,
+            V,
+            p[: len(U)],
+            k_vec[:W_s],
+            c_tmp[: W_s + 1],
+            args.als_iter,
+            args.als_tole,
+            rng,
+            None if init_weights is None else init_weights[: len(U)],
         )
         if U_r is not None:
             Y = np.empty((M, len(S)), dtype=np.float32)
             Y[: len(U)] = U
             Y[len(U) :] = U_r
             Y *= S
-            P, Q = functions.alsStep(Y, V, p, k_vec, c_tmp, Q)
+            P, Q = functions.alsStep(Y, V, p, k_vec, c_tmp, Q, weights=init_weights)
             del Y
         del U, U_r, p
         printTiming("SVD/ALS complete.", time() - ts)
@@ -288,7 +394,7 @@ def main(args):
     stats = dict(
         samples=N,
         windows=W,
-        clusters=int(M),
+        clusters=int(M_clusters),
         K=args.K,
         threads=args.threads,
         missing_assignments=int(n_miss),
@@ -301,17 +407,19 @@ def main(args):
         stats["p_prior"] = prior
     if args.loo:
         stats.update(loo=True, convergence="parameter RMSE")
+    if snp_count:
+        stats["snp_markers"] = snp_count
     Q1, T = np.empty_like(Q), np.empty_like(Q)
     Q2 = None if args.loo else np.empty_like(Q)
     P1 = None if args.projection else np.empty_like(P)
     P2 = None if args.projection or args.loo else np.empty_like(P)
     pt, qt = functions.emWorkspace(N, args.K, k_vec)
-    ctx = (Z, k_vec, c_vec, T, pt, qt, w_obs, y)
+    ctx = (Z, k_vec, c_vec, T, pt, qt, w_obs, y, weights)
     em_kw = dict(pool=p_vec, prior=prior, scratch=P2)
     like = np.empty(W)
 
     def score():
-        ll = admix_cy.likelihood(Z, P, Q, c_vec, like, w_obs)
+        ll = admix_cy.likelihood(Z, P, Q, c_vec, like, w_obs, weights, L_nrm)
         obj = ll
         if prior:
             obj += admix_cy.priorScore(P, p_vec, k_vec, c_vec, args.K, prior) / L_nrm
@@ -370,7 +478,18 @@ def main(args):
             step = W // batches
             for b in range(batches):
                 rows = s_win[b * step : W if b == batches - 1 else (b + 1) * step]
-                qo = None if q_obs is None else admix_cy.observedCounts(Z, rows)
+                qo = (
+                    None
+                    if q_obs is None
+                    else (
+                        admix_cy.observedCounts(Z, rows)
+                        if weights is None
+                        else np.sum(
+                            (Z[rows].reshape(len(rows), N, 2) != 255) * weights[rows, None, None],
+                            axis=(0, 2),
+                        )
+                    )
+                )
                 functions.emQuasi(P, Q, P1, P2, Q1, Q2, ctx, rows, qo, **em_kw)
             functions.emQuasi(P, Q, P1, P2, Q1, Q2, ctx, qo=q_obs, **em_kw)
         else:
@@ -476,11 +595,17 @@ def main(args):
     freqs = not args.no_freqs and P1 is not None
     if freqs:
         sfxs += p_sfxs + ([".plist"] if F > 1 else [])
+        if snp_vcf is not None:
+            sfxs += [".snp.P"]
     inputs = [f"{p}{s}" for p in Z_list for s in (".bca", ".win", ".ids")]
-    inputs += [args.filelist, args.keep, args.supervised, args.projection]
+    inputs += [
+        p
+        for p in (args.filelist, args.keep, args.supervised, args.projection, snp_vcf)
+        if p is not None
+    ]
     if args.projection and F > 1:
         inputs += P_list
-    stale = (".P", ".plist") + tuple(p_sfxs if F > 1 else ())
+    stale = (".P", ".plist", ".snp.P") + tuple(p_sfxs if F > 1 else ())
     ts = time()
     with ExitStack() as stack:
         out = stageOutputs(stack, f_out, sfxs, inputs, stale=stale)
@@ -494,7 +619,11 @@ def main(args):
                 pfx = Path(f_out).absolute()
                 out[".plist"].write_text("".join(f"{pfx}{sfx}\n" for sfx in p_sfxs))
             else:
-                np.savetxt(out[".P"], P.reshape(M, args.K), fmt="%.10g")
+                np.savetxt(
+                    out[".P"], P[: M_clusters * args.K].reshape(M_clusters, args.K), fmt="%.10g"
+                )
+            if snp_vcf is not None:
+                np.savetxt(out[".snp.P"], P[M_clusters * args.K :].reshape(-1, args.K), fmt="%.10g")
         stats.update(output_seconds=time() - ts, elapsed_seconds=time() - start)
         writeLog(out, "admix", args, stats, f_out)
         commitOutputs(f_out, out, stale=stale)

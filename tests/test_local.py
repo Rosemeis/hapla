@@ -496,6 +496,15 @@ class LocalPipeline(TemporaryTests):
         side.unlink()
         command("local", *opts, "--out", out)
 
+    def test_legacy_fatash_alias_matches_local(self):
+        ref, _, _, _, _ = self.fixture()
+        opts = ("--clusters", ref, "--pfile", f"{ref}.P", "--qfile", f"{ref}.Q", "--fixed-model")
+        new, old = self.root / "new", self.root / "old"
+        command("local", *opts, "--out", new)
+        res = command("fatash", *opts, "--out", old)
+        self.assertIn("legacy alias", res.stderr)
+        self.assertEqual(Path(f"{new}.path").read_bytes(), Path(f"{old}.path").read_bytes())
+
     def test_native_text_output_appends_across_buffer_boundaries(self):
         D = np.tile(np.arange(255, dtype=np.uint8), (1200, 1))
         P = np.linspace(0, 1, D.size).reshape(D.shape)

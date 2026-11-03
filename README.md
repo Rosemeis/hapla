@@ -320,7 +320,12 @@ no observed assignments receive uniform Q unless fixed by supervision.
 
 Supervision and projection are mutually exclusive. Supervised labels must fit
 0..255. Projection requires P rows to match the cluster order and fixes P while
-fitting Q. The default unsupervised initializer uses SVD/ALS. Opt-in P shrinkage
+fitting Q. For a hybrid cluster-plus-SNP fit, the reference run also writes a
+matching `.snp.P` file beside its `.plist`; provide the same BCF/VCF to the
+projection run and this sibling file is loaded automatically. The default
+unsupervised initializer uses SVD/ALS. With a SNP BCF/VCF,
+it uses the complete joint cluster/SNP representation with the same per-window
+marker weights as the hybrid likelihood. Opt-in P shrinkage
 uses pooled cluster frequencies within each window and cannot update a fixed
 projection P. With shrinkage, convergence uses the regularized objective while
 the log also records the likelihood. Timings cover each `--check` interval and
@@ -346,9 +351,10 @@ buffers. Parameter arrays and input storage still scale with the dataset.
 
 Outputs use `<out>.K<K>.s<seed>`, or `<out>.proj.K<K>.s<seed>` for projection.
 They include `.Q`, `.ids`, and `.log`. Fitted frequencies use `.P` for one input
-or `.chr1.P`, `.chr2.P`, etc. plus `.plist` for multiple inputs. P-file lists
-contain absolute paths. Rerunning with `--no-freqs` removes prior P outputs for
-the current input set.
+or `.chr1.P`, `.chr2.P`, etc. plus `.plist` for multiple inputs. Hybrid
+multi-input fits additionally write `.snp.P`. P-file lists contain absolute
+paths. Rerunning with `--no-freqs` removes prior P outputs for the current input
+set.
 
 ## hapla local
 
@@ -356,6 +362,8 @@ Infer haploid local ancestry from admix P/Q. Regularized Baum–Welch refines P
 and Q by default, with one Q per individual across all chromosomes. Each
 window has its own P. Missing and length-filtered windows have neutral emissions.
 Chains reset at chromosome boundaries.
+
+`hapla fatash` remains as a legacy alias of `hapla local`.
 
 | Option | Default | Description |
 | --- | --- | --- |
@@ -388,7 +396,7 @@ Chains reset at chromosome boundaries.
 | `--medians` | Off | Use `.blk` cluster scores in emissions |
 | `--simple` | Off | Use simplified column-normalized transitions |
 | `--viterbi` | Off | Decode the most probable path for each alpha |
-| `--save-posteriors` | Off | Save confidence for the mean-posterior calls |
+| `--save-posteriors` | Off | Save call support for the mean-posterior calls |
 | `--phase-correct [INT]` | Off | Correct reciprocal switches up to INT windows apart, default 0 when set |
 | `--prefix TEXT` | `chr` | Label for numbered chromosome outputs |
 
@@ -488,6 +496,47 @@ vectors per worker. Jackknifing adds a fit per chromosome. Maps and transition
 tables are outside the batch memory budget. Residual LD, phasing errors, and
 incorrect P/Q can bias the effective HMM date. Simulation calibration is needed
 before interpreting it as a historical admixture event.
+
+## hapla deconv
+
+Expand decoded local-ancestry paths into one ancestry-specific copy per
+individual and ancestry. The command reads the same ordered cluster inputs used
+by `local`, plus a matching list of `.path` files. It can write expanded Hapla
+cluster bundles for downstream `admix`, `struct`, or `eval`, masked phased BCFs
+for SNP-based analyses, or both. The input genotype files must be the phased,
+biallelic files from which the matching cluster assignments were made.
+
+```bash
+printf '%s\n' lai.chr{1..22}.path > paths.txt
+printf '%s\n' input.chr{1..22}.bcf > genotypes.txt
+hapla deconv --clusters chr{1..22} --path-filelist paths.txt --K 4 \
+    --format both --bcf-filelist genotypes.txt --include-original \
+    --min-call-support 0.95 --min-tract-windows 6 --out deconv/lai
+```
+
+Cluster output is written as `<out>.<input-suffix>.bca`, `.ids`, `.win`, and
+`.ref`; `<out>.filelist` lists those prefixes in input order. BCF output
+uses matching `<out>.<input-suffix>.bcf` files and `<out>.bcfs` lists them.
+Each retained copy is named `SAMPLE_K`, where `K` is its zero-based ancestry
+label. `--include-original` retains the unmasked samples before these copies.
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--path-filelist FILE` | Required | Ordered decoded-path files |
+| `--K INT` | Required | Number of ancestry labels |
+| `--format clusters\|bcf\|both` | `clusters` | Requested output type |
+| `--bcf-filelist FILE` | — | Ordered phased genotype files for BCF output |
+| `--min-call-support FLOAT` | Off | Mask calls below this decoded-call support |
+| `--min-tract-windows INT` | Off | Mask retained tracts shorter than this length |
+| `--homozygous-only` | Off | Mask windows whose two haplotypes differ in ancestry |
+| `--min-fraction FLOAT` | `0.05` | Drop copies with less retained data |
+| `--include-original` | Off | Include unmasked originals in the output |
+| `--save-filtered-paths` | Off | Write the filtered paths used for output |
+
+Filtering is applied in this order: call support, homozygous-ancestry masking,
+then short-tract masking. A short tract is masked rather than reassigned. Call
+support is useful for conservative masking, but is a decoded-call diagnostic and
+not a calibrated confidence interval.
 
 ## hapla eval
 

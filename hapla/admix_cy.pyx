@@ -188,6 +188,7 @@ cdef inline void _pair(
     Py_ssize_t K,
     bint first,
     bint second,
+    f64 weight,
 ) noexcept nogil:
     cdef:
         Py_ssize_t k
@@ -197,10 +198,10 @@ cdef inline void _pair(
         if pt != NULL:
             for k in range(K):
                 pt[r + k] += q[k] * a
-                qt[k] += p[r + k] * a
+                qt[k] += weight * p[r + k] * a
         else:
             for k in range(K):
-                qt[k] += p[r + k] * a
+                qt[k] += weight * p[r + k] * a
         return
     if first:
         a = 1.0 / _prob(&p[r], q, K)
@@ -210,18 +211,18 @@ cdef inline void _pair(
         if pt != NULL:
             for k in range(K):
                 pt[r + k] += q[k] * a
-                qt[k] += p[r + k] * a
+                qt[k] += weight * p[r + k] * a
         else:
             for k in range(K):
-                qt[k] += p[r + k] * a
+                qt[k] += weight * p[r + k] * a
     if second:
         if pt != NULL:
             for k in range(K):
                 pt[s + k] += q[k] * b
-                qt[k] += p[s + k] * b
+                qt[k] += weight * p[s + k] * b
         else:
             for k in range(K):
-                qt[k] += p[s + k] * b
+                qt[k] += weight * p[s + k] * b
 
 
 ### Compile constant-width loops for K=5 and K=6, plus a generic fallback
@@ -248,6 +249,7 @@ cdef inline void _emWindow(
     Py_ssize_t K,
     bint first,
     bint last,
+    f64 weight,
 ) noexcept nogil:
     cdef:
         Py_ssize_t i, k, c
@@ -271,6 +273,7 @@ cdef inline void _emWindow(
                 K,
                 True,
                 True,
+                weight,
             )
     else:
         for i in range(N):
@@ -284,6 +287,7 @@ cdef inline void _emWindow(
                 K,
                 z[2 * i] != 255,
                 z[2 * i + 1] != 255,
+                weight,
             )
     if out != NULL and last:
         if mass > 0.0:
@@ -313,6 +317,7 @@ cpdef void em(
     const u32[::1] obs = None,
     const f64[::1] pool = None,
     f64 mass = 0.0,
+    const f64[::1] weights = None,
 ) except * nogil:
     cdef:
         Py_ssize_t W = Z.shape[0] if rows is None else rows.shape[0]
@@ -379,6 +384,7 @@ cpdef void em(
                         5,
                         beg == 0,
                         end == N,
+                        1.0 if weights is None else weights[w],
                     )
                 elif K == 6:
                     _emWindow[u32](
@@ -397,6 +403,7 @@ cpdef void em(
                         6,
                         beg == 0,
                         end == N,
+                        1.0 if weights is None else weights[w],
                     )
                 else:
                     _emWindow[f64](
@@ -415,6 +422,7 @@ cpdef void em(
                         K,
                         beg == 0,
                         end == N,
+                        1.0 if weights is None else weights[w],
                     )
         for t in prange((end - beg + 31) // 32, schedule="static"):
             for i in range(t * 32, min(end - beg, (t + 1) * 32)):
@@ -788,6 +796,19 @@ cpdef void accelQ(
                     Q_tmp[i, k] = 0.0
 
 
+### Update Q with weighted observations, such as appended SNP rows
+cpdef void accelQWeight(const f64[:, ::1] Q, f64[:, ::1] Q_new,
+                        f64[:, ::1] Q_tmp, const f64[::1] obs) noexcept nogil:
+    cdef Py_ssize_t N = Q.shape[0], K = Q.shape[1], i, k
+    for i in prange(N, schedule='guided'):
+        if obs[i] > 0:
+            _updateQ(&Q[i, 0], &Q_new[i, 0], &Q_tmp[i, 0], 1.0 / obs[i], K)
+        else:
+            for k in range(K):
+                Q_new[i, k] = Q[i, k]
+                Q_tmp[i, k] = 0.0
+
+
 ### Accelerated jump for Q (QN)
 cpdef void jumpQ(f64[:, ::1] Q0, const f64[:, ::1] Q1, const f64[:, ::1] Q2) noexcept nogil:
     cdef:
@@ -867,6 +888,8 @@ cpdef f64 likelihood(
     const u32[::1] c_vec,
     f64[::1] work,
     const u32[::1] obs = None,
+    const f64[::1] weights = None,
+    f64 norm = 0.0,
 ) noexcept nogil:
     cdef:
         Py_ssize_t w, N = Q.shape[0], K = Q.shape[1]
@@ -887,7 +910,9 @@ cpdef f64 likelihood(
                 0, &Z[w, 0], &P[c_vec[w]], &Q[0, 0], N, K, obs is not None and obs[w] != 2 * N
             )
     for w in range(Z.shape[0]):
-        total += work[w]
+        total += work[w] * (1.0 if weights is None else weights[w])
+    if norm > 0.0:
+        return total / norm
     return total * (<f64>K / (<f64>P.shape[0] * (2 * N)))
 
 
