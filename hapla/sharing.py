@@ -89,7 +89,8 @@ def paint(path, count, x, left, right, bins=1):
     chunk = (N + bins - 1) // bins
     edge = np.minimum(np.arange(bins + 1) * chunk, N)
     n = int(np.diff(ptr[2 * edge]).max())
-    # Use RAM for segment buffers up to 64 MiB.
+
+    # Use RAM for segment buffers up to 64 MiB
     seg = (
         np.empty((n, 3), np.uint32)
         if 12 * n <= 64 * 1024**2
@@ -333,7 +334,10 @@ def pca(data, K, power, seed, strict=True, extra=0):
     shift = 0.0
     for _ in range(power):
         A = product(data, Q, True)
-        Q, R = np.linalg.qr(product(data, A) - shift * Q, mode="reduced")
+        H = product(data, A)
+        H -= shift * Q
+        Q, R = np.linalg.qr(H, mode="reduced")
+        del H
         low = np.linalg.svd(R, compute_uv=False)[-1]
         if low > shift:
             shift = 0.5 * (low + shift)

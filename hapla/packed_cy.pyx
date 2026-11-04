@@ -82,7 +82,7 @@ cdef void radixOrder(
         for i in range(H):
             cnt[(X_pack[src[i], q] >> shift) & 255] += 1
 
-        # Constant digits cannot change the ordering.
+        # Constant digits cannot change the ordering
         if cnt[(X_pack[src[0], q] >> shift) & 255] == H:
             continue
         total = 0
@@ -410,6 +410,7 @@ def fitWindow(
     Py_ssize_t offset = 0,
 ):
     """Fit GT directly, or reuse packWindow output for the same unchanged GT block."""
+
     # Complete windows skip missingness checks inside the clustering kernel
     cdef:
         Py_ssize_t B = G.shape[0], H = G.shape[1], Q = (B + 63) >> 6
@@ -555,7 +556,7 @@ def fitWindow(
     X = X[:U]
     w_vec = w_vec[:U]
 
-    # Drop packing/sort temporaries and orient the major allele as zero.
+    # Drop packing/sort temporaries and orient the major allele as zero
     X_pack = None
     order = tmp = None
     cdef:
@@ -576,7 +577,7 @@ def fitWindow(
                 for q in range(Q):
                     X[i, q] ^= flip[q]
 
-    # Exact supported patterns attain zero error in the one-mismatch regime.
+    # Exact supported patterns attain zero error in the one-mismatch regime
     d_lim = max(1, math.ceil(alpha * B))
     cdef:
         u8[:, ::1] exact_R
@@ -611,7 +612,7 @@ def fitWindow(
             stats=dict(missing=H - H_obs, K=U, capped=False, exact=True),
         )
 
-    # Maintain counts and cached assignments across growth and pruning.
+    # Maintain counts and cached assignments across growth and pruning
     cdef:
         u64[:, ::1] R = np.zeros((K_max, Q), dtype=np.uint64)
         u64[:, ::1] R_old = np.zeros((K_max, Q), dtype=np.uint64)
@@ -688,7 +689,7 @@ def fitWindow(
             k = kept[i]
             remap[k] = i
             for j in range(B):
-                # Export medians and counts in the input REF/ALT coding.
+                # Export medians and counts in the input REF/ALT coding
                 value = (flip[j >> 6] >> (j & 63)) & 1
                 R_out[i, j] = ((R[k, j >> 6] >> (j & 63)) & 1) ^ value
                 if value:
@@ -829,7 +830,7 @@ def likelihoods(const u8[:, ::1] R, const u64[:, ::1] C, const u64[::1] n):
     with nogil:
         for a in range(K):
             for j in range(B):
-                # Compute complementary logs from the same minor count under either coding.
+                # Compute complementary logs from the same minor count under either coding
                 p = max(1e-5, <double>min(C[a, j], n[a] - C[a, j]) / <double>n[a])
                 one[a, j], zero[a, j] = log(p), log(1.0 - p)
                 if C[a, j] > (n[a] >> 1):

@@ -111,7 +111,7 @@ class MapTests(TemporaryTests):
         np.testing.assert_allclose(sharing.product(cache, np.eye(H // 2)), B, atol=1e-13)
         self.assertEqual(info["distance_unit"], "Morgans")
 
-        # The CLI must use the same map for both the kernel and its eigenvalues.
+        # The CLI must use the same map for both the kernel and its eigenvalues
         path = self.root / "map"
         path.write_text("CHR BP CM\n1 1 0\n1 50 .3\n1 110 .3\n1 200 2\n")
         out = self.root / "genetic"
@@ -450,7 +450,7 @@ class GeneticPipeline(TemporaryTests):
             self.assertFalse(Path(f"{out}.date").exists())
             self.assertEqual(readLog(out)["Iterations"], "2")
 
-        # A flat likelihood must preserve the previous result set.
+        # A flat likelihood must preserve the previous result set
         before = Path(f"{out}.path").read_bytes()
         g.write_text(g.read_text().replace("59.9", "0"))
         res = command("local", *opts, "--dating", "--out", out, success=False)

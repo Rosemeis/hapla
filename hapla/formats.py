@@ -2,6 +2,7 @@
 
 __author__ = "Jonas Meisner"
 
+from contextlib import nullcontext
 from pathlib import Path
 
 import numpy as np
@@ -29,6 +30,40 @@ def readIds(pth):
     if not ids or any(not s or any(c.isspace() for c in s) for s in ids):
         raise ValueError("Sample file must contain one nonempty ID per line, without whitespace")
     return np.asarray(ids, dtype=np.str_)
+
+
+### Read and normalize one ancestry simplex per sample
+def readQ(pth, N, minimum=1, maximum=255):
+    Q = np.loadtxt(pth, ndmin=2)
+    K = Q.shape[1]
+    if (
+        Q.shape[0] != N
+        or K < minimum
+        or (maximum is not None and K > maximum)
+        or not np.all(np.isfinite(Q))
+        or np.any(Q < 0)
+    ):
+        raise ValueError("Q dimensions or finite nonnegative ancestry proportions do not match")
+    sums = Q.sum(axis=1, keepdims=True)
+    if not np.allclose(sums, 1, rtol=0, atol=1e-5):
+        raise ValueError("Q rows must sum to one")
+    Q /= sums
+    return Q
+
+
+### Format numeric matrices in bounded blocks with the existing text precision
+def writeMatrix(path, X, fmt="%.10g"):
+    X = np.asarray(X)
+    if X.ndim == 1:
+        X = X[:, None]
+    if X.ndim != 2 or np.iscomplexobj(X):
+        raise ValueError("Numeric output requires a real vector or matrix")
+    row = " ".join([fmt] * X.shape[1]) + "\n"
+    chunk = max(1, 8192 // max(1, X.shape[1]))
+    with nullcontext(path) if hasattr(path, "write") else open(path, "w") as dst:
+        for beg in range(0, len(X), chunk):
+            block = X[beg : beg + chunk]
+            dst.write((row * len(block)) % tuple(block.flat))
 
 
 ### Check the sample sidecar when reading a saved Hapla Q matrix

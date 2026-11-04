@@ -38,6 +38,7 @@ def covariance(data, Q, chunk=1024):
     chunk = max(255, min(chunk, 64 * 1024**2 // (24 * N)))
     C, E, tmp = np.zeros((N, N)), np.zeros((N, N)), np.empty((N, N))
     U = basis(Q)
+    buf = np.empty((min(sum(int(c[-1]) for _, c, _ in data), chunk), N))
     V, full = np.zeros(N), np.zeros(N)
     left, right, rows = [], [], 0
     last, prior, part = None, None, np.zeros(N)
@@ -68,10 +69,10 @@ def covariance(data, Q, chunk=1024):
     for Z, c, _, obs in blocks(data, chunk):
         if not c[-1] or (obs is not None and not np.any(obs)):
             continue
-        R = np.empty((c[-1], N))
+        R = buf[: c[-1]]
         if obs is None:
             if U.shape[1] == N:
-                continue  # The fitted subspace leaves no residual degrees of freedom.
+                continue  # The fitted subspace leaves no residual degrees of freedom
             np.matmul(cy.project(Z, c, U), U.T, out=R)
             full += cy.residuals(R, Z, c, False)
         else:
@@ -89,7 +90,7 @@ def covariance(data, Q, chunk=1024):
                 else:
                     h = (Z[w, ::2] != 255).astype(float) + (Z[w, 1::2] != 255)
 
-                    # Reuse one missingness pattern, including across dosage blocks.
+                    # Reuse one missingness pattern, including across dosage blocks
                     if last is None or not np.array_equal(h, last):
                         if last is not None:
                             expected(prior, part)
@@ -147,7 +148,7 @@ def main(args):
     import numpy as np
 
     from hapla import eval_cy as cy
-    from hapla.formats import checkQIds, readMetadata, sampleIndices
+    from hapla.formats import checkQIds, readMetadata, readQ, sampleIndices
     from hapla.struct import readData
 
     start = perf_counter()
@@ -169,16 +170,7 @@ def main(args):
         data = subset
         ids = ids[idx]
     q_ids = checkQIds(args.qfile, ids)
-    Q = np.loadtxt(args.qfile, ndmin=2)
-    if Q.shape[0] != len(ids) or Q.shape[1] < 2 or not np.all(np.isfinite(Q)) or np.any(Q < 0):
-        raise ValueError(
-            "Q requires one row per sample and at least two finite nonnegative ancestries"
-        )
-    sums = Q.sum(axis=1, keepdims=True)
-    if not np.allclose(sums, 1, rtol=0, atol=1e-5):
-        raise ValueError("Q rows must sum to one")
-    Q /= sums
-    del sums
+    Q = readQ(args.qfile, len(ids), minimum=2, maximum=None)
     stats = dict(
         samples=len(ids),
         windows=len(k),

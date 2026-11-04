@@ -475,7 +475,7 @@ def main():
     dec.add_argument(
         "--bcf-filelist",
         metavar="FILE",
-        help="One phased VCF/BCF per cluster input, in input order; required for BCF output",
+        help="One phased VCF/BCF per cluster input, in input order, required for BCF output",
     )
     dec.add_argument(
         "--min-call-support",

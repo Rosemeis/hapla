@@ -211,6 +211,7 @@ def matches(
                     extend |= j < r
                 if extend:
                     continue
+
                 # Keep two extra matches for self-exclusion
                 if l != cl or r != cr:
                     cl, cr, m = l, r, 0
@@ -344,6 +345,7 @@ cdef f64 _paint(
             den[w] = (right[w] - left[w]) / den[w]
     for e in range(beg, end):
         b, r = seg[e, 1], seg[e, 2]
+
         # Tied matches share the same integral
         if e > beg and b == seg[e - 1, 1] and r == seg[e - 1, 2]:
             val[e] = val[e - 1]

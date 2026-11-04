@@ -185,7 +185,7 @@ class SharingTests(TemporaryTests):
             np.testing.assert_allclose(sharing.product(d, Q), B @ Q, atol=1e-13)
             np.testing.assert_allclose(sharing.product(d, Q, True), B.T @ Q, atol=1e-13)
 
-            # Chromosome accumulation must normalize once using combined exposure.
+            # Chromosome accumulation must normalize once using combined exposure
             merged = sharing.profiles([data, data], 2 * cov, self.root / f"merged{root}", root=root)
             np.testing.assert_allclose(sharing.product(merged, Q), B @ Q, atol=1e-13)
             V, S = sharing.pca(d, 4, 2, 92)
@@ -233,7 +233,7 @@ class SharingTests(TemporaryTests):
             self.assertAlmostEqual(np.trace(G), N - 1)
 
     def test_uniform_profiles_keep_small_centered_variance(self):
-        # Uniform off-diagonal profiles have squared centered norm 1/(N-1), or 1 with sqrt.
+        # Uniform off-diagonal profiles have squared centered norm 1/(N-1), or 1 with sqrt
         N = 2001
         ptr = np.arange(N + 1, dtype=np.int64) * (N - 1)
         col = np.tile(np.arange(N - 1, dtype=np.uint32), (N, 1))

@@ -89,7 +89,7 @@ class CovarianceTests(unittest.TestCase):
     def test_shared_missingness_and_observed_runs_across_blocks(self):
         Z, c, _, Q = fixture(False)
 
-        # Equal observed counts give the same fitted basis, regardless of which copy is missing.
+        # Equal observed counts give the same fitted basis, regardless of which copy is missing
         Z[[0, 3], 0] = 255
         Z[4, 1] = 255
         Z[5, 3:6] = 255

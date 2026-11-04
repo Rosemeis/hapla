@@ -177,8 +177,74 @@ cdef inline void _project(f32* p, Py_ssize_t n, Py_ssize_t stride) noexcept nogi
         p[j * stride] /= total
 
 
+### Select K=2..16 at compile time without allocating the tag types
+ctypedef struct k2:
+    f64 values[2]
+
+ctypedef struct k3:
+    f64 values[3]
+
+ctypedef struct k4:
+    f64 values[4]
+
+ctypedef struct k5:
+    f64 values[5]
+
+ctypedef struct k6:
+    f64 values[6]
+
+ctypedef struct k7:
+    f64 values[7]
+
+ctypedef struct k8:
+    f64 values[8]
+
+ctypedef struct k9:
+    f64 values[9]
+
+ctypedef struct k10:
+    f64 values[10]
+
+ctypedef struct k11:
+    f64 values[11]
+
+ctypedef struct k12:
+    f64 values[12]
+
+ctypedef struct k13:
+    f64 values[13]
+
+ctypedef struct k14:
+    f64 values[14]
+
+ctypedef struct k15:
+    f64 values[15]
+
+ctypedef struct k16:
+    f64 values[16]
+
+ctypedef fused width:
+    k2
+    k3
+    k4
+    k5
+    k6
+    k7
+    k8
+    k9
+    k10
+    k11
+    k12
+    k13
+    k14
+    k15
+    k16
+    f64
+
+
 ### Accumulate a diploid sample and reuse the denominator for matching labels
 cdef inline void _pair(
+    width* mode,
     const f64* p,
     const f64* q,
     f64* pt,
@@ -193,6 +259,8 @@ cdef inline void _pair(
     cdef:
         Py_ssize_t k
         f64 a = 0.0, b = 0.0
+    if width is not f64:
+        K = sizeof(width) // sizeof(f64)
     if first and second and r == s:
         a = 2.0 * (1.0 / _prob(&p[r], q, K))
         if pt != NULL:
@@ -225,16 +293,9 @@ cdef inline void _pair(
                 qt[k] += weight * p[s + k] * b
 
 
-### Compile constant-width loops for K=5 and K=6, plus a generic fallback
-ctypedef fused width:
-    u8
-    u32
-    f64
-
-
 ### Fit one window with reusable counts and no heap allocation
 cdef inline void _emWindow(
-    width mode,
+    width* mode,
     const u8* z,
     bint missing,
     const f64* p,
@@ -254,52 +315,112 @@ cdef inline void _emWindow(
     cdef:
         Py_ssize_t i, k, c
         f64 base
-    if width is u8:
-        K = 5
-    elif width is u32:
-        K = 6
+    if width is not f64:
+        K = sizeof(width) // sizeof(f64)
     if out != NULL and first:
         for c in range(C * K):
             pt[c] = 0.0
+
+    # Keep the original shared pair helper for K=5/6
     if not missing:
         for i in range(N):
-            _pair(
-                p,
-                &q[i * K],
-                pt if out != NULL else NULL,
-                &qt[i * K],
-                z[2 * i] * K,
-                z[2 * i + 1] * K,
-                K,
-                True,
-                True,
-                weight,
-            )
+            if width is k5 or width is k6:
+                _pair[f64](
+                    NULL, p, &q[i * K], pt if out != NULL else NULL, &qt[i * K], z[2 * i] * K,
+                    z[2 * i + 1] * K, K, True, True, weight,
+                )
+            else:
+                _pair[width](
+                    mode, p, &q[i * K], pt if out != NULL else NULL, &qt[i * K], z[2 * i] * K,
+                    z[2 * i + 1] * K, K, True, True, weight,
+                )
     else:
         for i in range(N):
-            _pair(
-                p,
-                &q[i * K],
-                pt if out != NULL else NULL,
-                &qt[i * K],
-                z[2 * i] * K,
-                z[2 * i + 1] * K,
-                K,
-                z[2 * i] != 255,
-                z[2 * i + 1] != 255,
-                weight,
-            )
+            if width is k5 or width is k6:
+                _pair[f64](
+                    NULL, p, &q[i * K], pt if out != NULL else NULL, &qt[i * K], z[2 * i] * K,
+                    z[2 * i + 1] * K, K, z[2 * i] != 255, z[2 * i + 1] != 255, weight,
+                )
+            else:
+                _pair[width](
+                    mode, p, &q[i * K], pt if out != NULL else NULL, &qt[i * K], z[2 * i] * K,
+                    z[2 * i + 1] * K, K, z[2 * i] != 255, z[2 * i + 1] != 255, weight,
+                )
     if out != NULL and last:
         if mass > 0.0:
             for c in range(C):
                 base = mass * pool[c]
                 for k in range(K):
-                    out[c * K + k] = p[c * K + k] * pt[c * K + k] + base
+                    out[c * K + k] = weight * p[c * K + k] * pt[c * K + k] + base
         else:
             for c in range(C * K):
                 out[c] = p[c] * pt[c]
         for k in range(K):
             _simplex(&out[k], C, K)
+
+
+### Dispatch other widths separately to preserve K=5/6 compiler inlining
+cdef void _emDispatch(
+    const u8* z, bint missing, const f64* p, f64* out, const f64* q,
+    const f64* pool, f64 mass, f64* pt, f64* qt, Py_ssize_t N, Py_ssize_t C,
+    Py_ssize_t K, bint first, bint last, f64 weight,
+) noexcept nogil:
+    if K == 2:
+        _emWindow[k2](
+            NULL, z, missing, p, out, q, pool, mass, pt, qt, N, C, 2, first, last, weight,
+        )
+    elif K == 3:
+        _emWindow[k3](
+            NULL, z, missing, p, out, q, pool, mass, pt, qt, N, C, 3, first, last, weight,
+        )
+    elif K == 4:
+        _emWindow[k4](
+            NULL, z, missing, p, out, q, pool, mass, pt, qt, N, C, 4, first, last, weight,
+        )
+    elif K == 7:
+        _emWindow[k7](
+            NULL, z, missing, p, out, q, pool, mass, pt, qt, N, C, 7, first, last, weight,
+        )
+    elif K == 8:
+        _emWindow[k8](
+            NULL, z, missing, p, out, q, pool, mass, pt, qt, N, C, 8, first, last, weight,
+        )
+    elif K == 9:
+        _emWindow[k9](
+            NULL, z, missing, p, out, q, pool, mass, pt, qt, N, C, 9, first, last, weight,
+        )
+    elif K == 10:
+        _emWindow[k10](
+            NULL, z, missing, p, out, q, pool, mass, pt, qt, N, C, 10, first, last, weight,
+        )
+    elif K == 11:
+        _emWindow[k11](
+            NULL, z, missing, p, out, q, pool, mass, pt, qt, N, C, 11, first, last, weight,
+        )
+    elif K == 12:
+        _emWindow[k12](
+            NULL, z, missing, p, out, q, pool, mass, pt, qt, N, C, 12, first, last, weight,
+        )
+    elif K == 13:
+        _emWindow[k13](
+            NULL, z, missing, p, out, q, pool, mass, pt, qt, N, C, 13, first, last, weight,
+        )
+    elif K == 14:
+        _emWindow[k14](
+            NULL, z, missing, p, out, q, pool, mass, pt, qt, N, C, 14, first, last, weight,
+        )
+    elif K == 15:
+        _emWindow[k15](
+            NULL, z, missing, p, out, q, pool, mass, pt, qt, N, C, 15, first, last, weight,
+        )
+    elif K == 16:
+        _emWindow[k16](
+            NULL, z, missing, p, out, q, pool, mass, pt, qt, N, C, 16, first, last, weight,
+        )
+    else:
+        _emWindow[f64](
+            NULL, z, missing, p, out, q, pool, mass, pt, qt, N, C, K, first, last, weight,
+        )
 
 
 ### Fixed window partitions make the Q reduction independent of thread count
@@ -338,6 +459,10 @@ cpdef void em(
         with gil:
             raise ValueError("Invalid P prior dimensions or mass")
 
+    if weights is not None and weights.shape[0] != Z.shape[0]:
+        with gil:
+            raise ValueError("Window weights do not match assignments")
+
     # Direct native callers may update P in place without a spare output buffer
     if tile < N and P_new is not None and P.shape[0] and &P[0] == &P_new[0]:
         with gil:
@@ -368,60 +493,21 @@ cpdef void em(
                 # Keep P counts in the output until the last sample tile
                 work = out if tile < N else &pt[b, 0]
                 if K == 5:
-                    _emWindow[u8](
-                        0,
-                        &Z[w, 2 * beg],
-                        missing,
-                        &P[l],
-                        out,
-                        &Q[beg, 0],
-                        base,
-                        mass,
-                        work,
-                        &qt[b, 0, 0],
-                        end - beg,
-                        k_vec[w],
-                        5,
-                        beg == 0,
-                        end == N,
+                    _emWindow[k5](
+                        NULL, &Z[w, 2 * beg], missing, &P[l], out, &Q[beg, 0], base, mass,
+                        work, &qt[b, 0, 0], end - beg, k_vec[w], 5, beg == 0, end == N,
                         1.0 if weights is None else weights[w],
                     )
                 elif K == 6:
-                    _emWindow[u32](
-                        0,
-                        &Z[w, 2 * beg],
-                        missing,
-                        &P[l],
-                        out,
-                        &Q[beg, 0],
-                        base,
-                        mass,
-                        work,
-                        &qt[b, 0, 0],
-                        end - beg,
-                        k_vec[w],
-                        6,
-                        beg == 0,
-                        end == N,
+                    _emWindow[k6](
+                        NULL, &Z[w, 2 * beg], missing, &P[l], out, &Q[beg, 0], base, mass,
+                        work, &qt[b, 0, 0], end - beg, k_vec[w], 6, beg == 0, end == N,
                         1.0 if weights is None else weights[w],
                     )
                 else:
-                    _emWindow[f64](
-                        0,
-                        &Z[w, 2 * beg],
-                        missing,
-                        &P[l],
-                        out,
-                        &Q[beg, 0],
-                        base,
-                        mass,
-                        work,
-                        &qt[b, 0, 0],
-                        end - beg,
-                        k_vec[w],
-                        K,
-                        beg == 0,
-                        end == N,
+                    _emDispatch(
+                        &Z[w, 2 * beg], missing, &P[l], out, &Q[beg, 0], base, mass,
+                        work, &qt[b, 0, 0], end - beg, k_vec[w], K, beg == 0, end == N,
                         1.0 if weights is None else weights[w],
                     )
         for t in prange((end - beg + 31) // 32, schedule="static"):
@@ -432,6 +518,27 @@ cpdef void em(
                 for i in range(t * 32, min(end - beg, (t + 1) * 32)):
                     for k in range(K):
                         T[beg + i, k] += qt[b, i, k]
+
+
+### Sum weighted observed haplotypes without a window-by-sample temporary
+def weightedCounts(
+    const u8[:, ::1] Z,
+    const f64[::1] weights,
+    const u32[::1] rows = None,
+):
+    cdef:
+        Py_ssize_t N = Z.shape[1] // 2, W = Z.shape[0] if rows is None else rows.shape[0]
+        Py_ssize_t b, t, w, i
+        f64[::1] out = np.zeros(N)
+    if weights.shape[0] != Z.shape[0]:
+        raise ValueError("Window weights do not match assignments")
+    for b in prange((N + 255) // 256, nogil=True, schedule="static", use_threads_if=N * W >= 1048576):
+        for t in range(W):
+            w = t if rows is None else rows[t]
+            for i in range(b * 256, min(N, (b + 1) * 256)):
+                out[i] += weights[w] * (Z[w, 2 * i] != 255)
+                out[i] += weights[w] * (Z[w, 2 * i + 1] != 255)
+    return np.asarray(out)
 
 
 ##### Leave-one-out updates
@@ -459,6 +566,7 @@ cdef void _looCounts(
         if r != 255 and r == s:
             r *= K
             inv = 1.0 / _prob(&p[r], qi, K)
+
             # Preserve both haplotype additions
             for k in range(K):
                 out[r + k] += p[r + k] * qi[k] * inv
@@ -797,10 +905,15 @@ cpdef void accelQ(
 
 
 ### Update Q with weighted observations, such as appended SNP rows
-cpdef void accelQWeight(const f64[:, ::1] Q, f64[:, ::1] Q_new,
-                        f64[:, ::1] Q_tmp, const f64[::1] obs) noexcept nogil:
-    cdef Py_ssize_t N = Q.shape[0], K = Q.shape[1], i, k
-    for i in prange(N, schedule='guided'):
+cpdef void accelQWeight(
+    const f64[:, ::1] Q,
+    f64[:, ::1] Q_new,
+    f64[:, ::1] Q_tmp,
+    const f64[::1] obs,
+) noexcept nogil:
+    cdef:
+        Py_ssize_t N = Q.shape[0], K = Q.shape[1], i, k
+    for i in prange(N, schedule="guided"):
         if obs[i] > 0:
             _updateQ(&Q[i, 0], &Q_new[i, 0], &Q_tmp[i, 0], 1.0 / obs[i], K)
         else:
@@ -852,7 +965,7 @@ cpdef void createQ(f64[:, ::1] Q) noexcept nogil:
 
 ### Score one window in a fixed order, reusing homozygous probabilities
 cdef f64 _likelihood(
-    width mode,
+    width* mode,
     const u8* z,
     const f64* p,
     const f64* q,
@@ -863,10 +976,8 @@ cdef f64 _likelihood(
     cdef:
         Py_ssize_t i, r, s
         f64 value, total = 0.0
-    if width is u8:
-        K = 5
-    elif width is u32:
-        K = 6
+    if width is not f64:
+        K = sizeof(width) // sizeof(f64)
     for i in range(N):
         r, s = z[2 * i] * K, z[2 * i + 1] * K
         if not missing or z[2 * i] != 255:
@@ -897,17 +1008,85 @@ cpdef f64 likelihood(
     for w in prange(Z.shape[0], schedule="static"):
         if c_vec[w + 1] == c_vec[w] or (obs is not None and obs[w] == 0):
             work[w] = 0.0
+        elif K == 2:
+            work[w] = _likelihood[k2](
+                NULL, &Z[w, 0], &P[c_vec[w]], &Q[0, 0], N, 2,
+                obs is not None and obs[w] != 2 * N,
+            )
+        elif K == 3:
+            work[w] = _likelihood[k3](
+                NULL, &Z[w, 0], &P[c_vec[w]], &Q[0, 0], N, 3,
+                obs is not None and obs[w] != 2 * N,
+            )
+        elif K == 4:
+            work[w] = _likelihood[k4](
+                NULL, &Z[w, 0], &P[c_vec[w]], &Q[0, 0], N, 4,
+                obs is not None and obs[w] != 2 * N,
+            )
         elif K == 5:
-            work[w] = _likelihood[u8](
-                0, &Z[w, 0], &P[c_vec[w]], &Q[0, 0], N, 5, obs is not None and obs[w] != 2 * N
+            work[w] = _likelihood[k5](
+                NULL, &Z[w, 0], &P[c_vec[w]], &Q[0, 0], N, 5,
+                obs is not None and obs[w] != 2 * N,
             )
         elif K == 6:
-            work[w] = _likelihood[u32](
-                0, &Z[w, 0], &P[c_vec[w]], &Q[0, 0], N, 6, obs is not None and obs[w] != 2 * N
+            work[w] = _likelihood[k6](
+                NULL, &Z[w, 0], &P[c_vec[w]], &Q[0, 0], N, 6,
+                obs is not None and obs[w] != 2 * N,
+            )
+        elif K == 7:
+            work[w] = _likelihood[k7](
+                NULL, &Z[w, 0], &P[c_vec[w]], &Q[0, 0], N, 7,
+                obs is not None and obs[w] != 2 * N,
+            )
+        elif K == 8:
+            work[w] = _likelihood[k8](
+                NULL, &Z[w, 0], &P[c_vec[w]], &Q[0, 0], N, 8,
+                obs is not None and obs[w] != 2 * N,
+            )
+        elif K == 9:
+            work[w] = _likelihood[k9](
+                NULL, &Z[w, 0], &P[c_vec[w]], &Q[0, 0], N, 9,
+                obs is not None and obs[w] != 2 * N,
+            )
+        elif K == 10:
+            work[w] = _likelihood[k10](
+                NULL, &Z[w, 0], &P[c_vec[w]], &Q[0, 0], N, 10,
+                obs is not None and obs[w] != 2 * N,
+            )
+        elif K == 11:
+            work[w] = _likelihood[k11](
+                NULL, &Z[w, 0], &P[c_vec[w]], &Q[0, 0], N, 11,
+                obs is not None and obs[w] != 2 * N,
+            )
+        elif K == 12:
+            work[w] = _likelihood[k12](
+                NULL, &Z[w, 0], &P[c_vec[w]], &Q[0, 0], N, 12,
+                obs is not None and obs[w] != 2 * N,
+            )
+        elif K == 13:
+            work[w] = _likelihood[k13](
+                NULL, &Z[w, 0], &P[c_vec[w]], &Q[0, 0], N, 13,
+                obs is not None and obs[w] != 2 * N,
+            )
+        elif K == 14:
+            work[w] = _likelihood[k14](
+                NULL, &Z[w, 0], &P[c_vec[w]], &Q[0, 0], N, 14,
+                obs is not None and obs[w] != 2 * N,
+            )
+        elif K == 15:
+            work[w] = _likelihood[k15](
+                NULL, &Z[w, 0], &P[c_vec[w]], &Q[0, 0], N, 15,
+                obs is not None and obs[w] != 2 * N,
+            )
+        elif K == 16:
+            work[w] = _likelihood[k16](
+                NULL, &Z[w, 0], &P[c_vec[w]], &Q[0, 0], N, 16,
+                obs is not None and obs[w] != 2 * N,
             )
         else:
             work[w] = _likelihood[f64](
-                0, &Z[w, 0], &P[c_vec[w]], &Q[0, 0], N, K, obs is not None and obs[w] != 2 * N
+                NULL, &Z[w, 0], &P[c_vec[w]], &Q[0, 0], N, K,
+                obs is not None and obs[w] != 2 * N,
             )
     for w in range(Z.shape[0]):
         total += work[w] * (1.0 if weights is None else weights[w])

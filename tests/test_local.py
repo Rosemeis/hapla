@@ -81,7 +81,7 @@ class HMMCorrectness(unittest.TestCase):
                 q = rng.dirichlet(np.ones(K))
                 E = np.log(rng.uniform(0.001, 1, (W, K)))
 
-                # Cross periodic score recentering and large block log offsets.
+                # Cross periodic score recentering and large block log offsets
                 E[97] -= 1e6
                 with np.errstate(divide="ignore"):
                     T = np.log(transition(q, 0.1, simple))
@@ -255,7 +255,7 @@ class HMMCorrectness(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "finite support"):
             cy.emissionTable(P, c, 2, np.full(4, -np.inf, np.float32))
 
-        # A tiny candidate likelihood must survive even when another ancestry has zero frequency.
+        # A tiny candidate likelihood must survive even when another ancestry has zero frequency
         rare = cy.emissionTable(
             np.array([1.0, 0.0, 0.0, 1.0]), c, 2, np.array([0.0, -1000.0, -1000.0, 0.0], np.float32)
         )
@@ -389,7 +389,7 @@ class HMMCorrectness(unittest.TestCase):
         self.assertLess(info["iterations"], 50)
         self.assertTrue(np.all(np.diff([r["objective"] for r in info["history"]]) >= -1e-12))
 
-        # An invalid M-step must never replace the last accepted model.
+        # An invalid M-step must never replace the last accepted model
         with patch.object(cy, "refineP", return_value=np.array([0.01, 0.01, 0.99, 0.99])):
             pp, qq, info = refine(data, P, Q, [0.1], args)
         np.testing.assert_array_equal(pp[0], P[0])
@@ -697,7 +697,7 @@ class LocalPipeline(TemporaryTests):
             np.loadtxt(f"{out}.prob"), np.concatenate(confidence, axis=1), atol=5e-9
         )
 
-        # A block larger than the chromosome must allocate only real output windows.
+        # A block larger than the chromosome must allocate only real output windows
         command(
             "local",
             "--clusters",

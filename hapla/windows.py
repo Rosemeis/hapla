@@ -131,7 +131,7 @@ def adaptiveWindows(buf, size, length, data=None, cm=None):
             if chrom not in data:
                 raise ValueError(f"Chromosome {chrom} is absent from the genetic map")
             if chrom != prev:
-                # Interpolation otherwise copies the entire strided map for every block.
+                # Interpolation otherwise copies the entire strided map for every block
                 bp, cm_pos = (np.ascontiguousarray(data[chrom][:, i]) for i in (0, 1))
                 prev = chrom
             if pos[0] < bp[0] or pos[n - 1] > bp[-1]:

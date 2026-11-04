@@ -68,8 +68,7 @@ def writeVcf(path, rows, *, fields="GT", samples=("A", "B", "C")):
             )
 
 
-### Build fixtures through the reader's linked HTSlib without shipping a BCF writer
-### (mode=b"w" writes text VCF, e.g. to read BCF output back without bcftools)
+### Convert fixtures through linked HTSlib, with mode=b"w" for text VCF
 def toBcf(vcf, bcf, index=False, mode=b"wb"):
     lib = ct.CDLL(vcf_cy.__file__)
     ptr, num, txt = ct.c_void_p, ct.c_int, ct.c_char_p

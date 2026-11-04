@@ -95,8 +95,8 @@ class ReaderTests(TemporaryTests):
         shared, indiv = struct.unpack_from("<II", raw, header_end)
         begin = header_end + 8 + shared
         block = raw[begin : begin + indiv]
-        self.assertEqual(block[0], 0x11)  # Scalar FORMAT ID in this controlled fixture.
-        self.assertEqual(block[2], 0x21)  # Two INT8 values per sample.
+        self.assertEqual(block[0], 0x11)  # Scalar FORMAT ID in this controlled fixture
+        self.assertEqual(block[2], 0x21)  # Two INT8 values per sample
         for encoding, format_string in ((2, "<h"), (3, "<i")):
             values = b"".join(struct.pack(format_string, value) for value in block[3:])
             altered = block[:2] + bytes((0x20 | encoding,)) + values
@@ -528,7 +528,7 @@ class FormatAndPipelineTests(TemporaryTests):
             labels == 255, [[False] * 6, [False, False, True, False, False, False]]
         )
 
-        # Two clusters per window, one byte per PLINK variant, second sample is missing.
+        # Two clusters per window, one byte per PLINK variant, second sample is missing
         bed = Path(f"{target}.bed").read_bytes()[3:]
         self.assertEqual(len(bed), 4)
         self.assertTrue(all((byte >> 2) & 3 == 1 for byte in bed[2:]))

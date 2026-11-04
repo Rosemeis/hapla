@@ -38,7 +38,7 @@ class PackedPredictionTests(unittest.TestCase):
             H, K = 9000, 17
             words = np.arange(H, dtype=np.uint64)
             if B == 64:
-                # Force a collision chain beyond the lookup's probe limit.
+                # Force a collision chain beyond the lookup's probe limit
                 inv = pow(11400714819323198485, -1, 2**64)
                 vals = [(i * inv) % 2**64 for i in range(64)]
                 words[:64] = [value ^ (value >> 32) for value in vals]

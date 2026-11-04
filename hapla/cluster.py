@@ -99,7 +99,7 @@ def adaptiveFit(meta, G, missing, opt, minimum, pos):
             )
             res["window"] = (meta[0] + beg, meta[1], int(pos[beg]), int(pos[end - 1]), B)
 
-            # A single exact pattern cannot benefit from another dictionary.
+            # A single exact pattern cannot benefit from another dictionary
             if obs == x.shape[1] and res["stats"]["exact"] and res["stats"]["K"] == 1:
                 return cost, lost, [res]
         if B >= 2 * minimum:

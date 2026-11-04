@@ -3,13 +3,14 @@
 __author__ = "Jonas Meisner"
 
 from contextlib import ExitStack
+from io import StringIO
 from pathlib import Path
 
 import numpy as np
 from hapla.vcf_cy import Reader
 from helpers import TemporaryTests, command, writeVcf
 
-from hapla.formats import readMetadata, readPaths
+from hapla.formats import readMetadata, readPaths, readQ, writeMatrix
 from hapla.runtime import commitOutputs, stageOutputs
 
 
@@ -24,6 +25,48 @@ class SharedInputTests(TemporaryTests):
             + "".join(f"1 {i + 1} {i + 1} 0 1 {k}\n" for i, k in enumerate(counts))
         )
         return pfx
+
+    def test_numeric_blocks_match_numpy_formatting_exactly(self):
+        rng = np.random.default_rng(716)
+        X = rng.standard_normal((4099, 7))
+        X[0] = [0, -0.0, np.inf, -np.inf, np.nan, 1e-300, 1e300]
+        cases = [
+            (X, "%.10g"),
+            (X[::3, ::2], "%.10g"),
+            (X[:, 1], "%.10g"),
+            (X[1:].astype(np.float32), "%.10g"),
+            (np.empty((0, 3)), "%.10g"),
+            (np.empty((4, 0)), "%.10g"),
+            (np.arange(-12000, 12000).reshape(-1, 4), "%d"),
+        ]
+        for values, fmt in cases:
+            with self.subTest(shape=values.shape, dtype=values.dtype, fmt=fmt):
+                expected, actual = StringIO(), StringIO()
+                np.savetxt(expected, values, fmt=fmt)
+                writeMatrix(actual, values, fmt)
+                self.assertFalse(actual.closed)
+                self.assertEqual(actual.getvalue(), expected.getvalue())
+                path = self.root / "matrix"
+                writeMatrix(path, values, fmt)
+                self.assertEqual(path.read_text(), expected.getvalue())
+
+    def test_shared_q_reader_preserves_command_bounds_and_normalization(self):
+        path = self.root / "model.Q"
+        Q = np.array([[0.2, 0.800000001], [0.4, 0.6]])
+        np.savetxt(path, Q)
+        np.testing.assert_array_equal(readQ(path, 2), Q / Q.sum(axis=1, keepdims=True))
+        for bad in (Q * 2, Q * np.nan, -Q, Q[:1]):
+            np.savetxt(path, bad)
+            with self.assertRaises(ValueError):
+                readQ(path, 2)
+        np.savetxt(path, np.ones((2, 1)))
+        np.testing.assert_array_equal(readQ(path, 2), 1)
+        with self.assertRaises(ValueError):
+            readQ(path, 2, minimum=2)
+        np.savetxt(path, np.full((2, 256), 1 / 256))
+        with self.assertRaises(ValueError):
+            readQ(path, 2)
+        self.assertEqual(readQ(path, 2, minimum=2, maximum=None).shape, (2, 256))
 
     def test_metadata_preserves_sample_and_chromosome_order(self):
         a = self.fixture("a", ["s2", "s1"], [2])

@@ -78,7 +78,7 @@ class CodebaseContracts(TemporaryTests):
         res = command("admix", "--clusters", ref, "--K", 3, "--prefix", "../bad", success=False)
         self.assertIn("filename", res.stderr)
 
-        # Invalid labels must be rejected even in samples excluded by --keep.
+        # Invalid labels must be rejected even in samples excluded by --keep
         Z = np.zeros((4, 18), np.uint8)
         Z[1, 16] = 2
         ref = writeClusters(self.root, "invalid", Z, np.arange(5) * 2)

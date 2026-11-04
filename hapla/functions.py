@@ -109,6 +109,8 @@ def alsStep(Y, V, p_vec, k_vec, c_vec, Q, P=None, weights=None):
 def factorALS(U, S, V, p_vec, k_vec, c_vec, iter, tole, rng, weights=None):
     M, K = U.shape[0], len(S) + 1
     Y = np.ascontiguousarray(U * S)
+    if weights is not None:
+        weights = np.asarray(weights, dtype=Y.dtype)
     P = rng.random(size=(M, K), dtype=np.float32)
     admix_cy.projectP(P, k_vec, c_vec)
     P, Q = alsStep(Y, V, p_vec, k_vec, c_vec, None, P, weights)

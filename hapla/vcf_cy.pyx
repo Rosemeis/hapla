@@ -45,11 +45,13 @@ cdef extern from "htslib/vcf.h" nogil:
         uint32_t p_len
     ctypedef struct bcf_dec_t:
         char** allele
+        bcf_fmt_t* fmt
     ctypedef struct bcf1_t:
         int64_t pos
         int32_t rid
         uint32_t n_allele
         uint32_t n_sample
+        uint32_t n_fmt
         int errcode
         bcf_dec_t d
     bcf_hdr_t* bcf_hdr_read(htsFile*)
@@ -62,6 +64,7 @@ cdef extern from "htslib/vcf.h" nogil:
     void bcf_hdr_remove(bcf_hdr_t*, int, const char*)
     int bcf_hdr_write(htsFile*, bcf_hdr_t*)
     int bcf_hdr_nsamples(const bcf_hdr_t*)
+    const char* bcf_hdr_int2id(const bcf_hdr_t*, int, int)
     const char* bcf_hdr_id2name(const bcf_hdr_t*, int)
     int bcf_hdr_id2int(const bcf_hdr_t*, int, const char*)
     bcf1_t* bcf_init()
@@ -79,6 +82,7 @@ cdef extern from "htslib/vcf.h" nogil:
     int BCF_HL_FMT
     int BCF_HT_STR
     int BCF_UN_STR
+    int BCF_UN_FMT
 
 
 ##### Genotype reader
@@ -100,36 +104,107 @@ cdef bint decode8(const int8_t* raw, uint8_t* output, int samples, uint8_t* miss
     return invalid == 0
 
 
+### Count retained haplotypes once per sample and window
+def deconvWeights(
+    const int16_t[:, ::1] ancestry,
+    const int64_t[::1] widths,
+    int64_t[:, ::1] counts,
+):
+    cdef:
+        Py_ssize_t i, w, k, N = counts.shape[0], K = counts.shape[1]
+    if ancestry.shape[0] != 2 * N or ancestry.shape[1] != widths.shape[0]:
+        raise ValueError("Ancestry paths and window widths differ")
+    with nogil:
+        for i in range(N):
+            for w in range(widths.shape[0]):
+                k = ancestry[2 * i, w]
+                if 0 <= k < K:
+                    counts[i, k] += widths[w]
+                k = ancestry[2 * i + 1, w]
+                if 0 <= k < K:
+                    counts[i, k] += widths[w]
+
+
+### Fill one output block without materializing the expanded chromosome
+def expandDeconv(
+    const uint8_t[:, ::1] labels,
+    const int16_t[:, ::1] ancestry,
+    const int32_t[:, ::1] selected,
+    uint8_t[:, ::1] out,
+    Py_ssize_t beg,
+    bint include_original = False,
+):
+    cdef:
+        Py_ssize_t N = labels.shape[1] // 2, W = labels.shape[0], S = selected.shape[0]
+        Py_ssize_t w, j, i, k, off = 2 * N if include_original else 0
+    if (
+        selected.shape[1] != 2 or ancestry.shape[0] != 2 * N or beg < 0
+        or beg + W > ancestry.shape[1] or out.shape[0] != W or out.shape[1] != off + 2 * S
+    ):
+        raise ValueError("Invalid deconvolution block dimensions")
+    for j in range(S):
+        if selected[j, 0] < 0 or selected[j, 0] >= N:
+            raise ValueError("Invalid selected-copy indices")
+    with nogil:
+        for w in range(W):
+            for i in range(off):
+                out[w, i] = labels[w, i]
+            for j in range(S):
+                i, k = 2 * selected[j, 0], selected[j, 1]
+                out[w, off + 2 * j] = labels[w, i] if ancestry[i, beg + w] == k else 255
+                out[w, off + 2 * j + 1] = labels[w, i + 1] if ancestry[i + 1, beg + w] == k else 255
+
+
 ### Stream masked ancestry copies directly to compressed BCF without VCF text
-def writeDeconvBcf(path, out, const int16_t[:, ::1] ancestry,
-                   const int32_t[:, ::1] selected, widths, copy_ids,
-                   bint include_original=False, int threads=0):
-    cdef object width_obj = np.ascontiguousarray(widths, dtype=np.int64)
-    cdef const int64_t[::1] width = width_obj
-    cdef bytes src_name = os.fsencode(path), dst_name = os.fsencode(out), sample
-    cdef htsFile *src = NULL
-    cdef htsFile *dst = NULL
-    cdef bcf_hdr_t *src_hdr = NULL
-    cdef bcf_hdr_t *dst_hdr = NULL
-    cdef bcf1_t *record = NULL
-    cdef int32_t *src_gt = NULL
-    cdef int32_t *dst_gt = NULL
-    cdef int cap = 0, status = 0, error = 0
-    cdef Py_ssize_t N, W, S, out_n, i, j, w = 0, seen = 0, records = 0
-    cdef int32_t a, b, k
+def writeDeconvBcf(
+    path,
+    out,
+    const int16_t[:, ::1] ancestry,
+    const int32_t[:, ::1] selected,
+    widths,
+    copy_ids,
+    bint include_original = False,
+    int threads = 0,
+    samples = None,
+    windows = None,
+):
+    cdef:
+        object width_obj = np.ascontiguousarray(widths, dtype=np.int64)
+        const int64_t[::1] width = width_obj
+        bytes src_name = os.fsencode(path), dst_name = os.fsencode(out), sample
+        htsFile* src = NULL
+        htsFile* dst = NULL
+        bcf_hdr_t* src_hdr = NULL
+        bcf_hdr_t* dst_hdr = NULL
+        bcf1_t* record = NULL
+        int32_t* src_gt = NULL
+        int32_t* dst_gt = NULL
+        int cap = 0, status = 0, error = 0
+        Py_ssize_t N, W, S, out_n, i, j, w = 0, seen = 0, records = 0
+        int32_t a, b, k, gid
+        const char* tag
+        const int64_t[:, ::1] bounds = None
+        int32_t[::1] rids = None
 
     if threads < 0:
         raise ValueError("HTSlib threads must be nonnegative")
     if ancestry.shape[0] % 2 or selected.shape[1] != 2:
         raise ValueError("Invalid ancestry paths or selected-copy indices")
     N, W, S = ancestry.shape[0] // 2, ancestry.shape[1], selected.shape[0]
-    if not N or len(width) != W or len(copy_ids) != S:
+    if not N or not W or len(width) != W or len(copy_ids) != S:
         raise ValueError("Deconvolution inputs have incompatible dimensions")
     if np.any(width_obj < 1):
         raise ValueError("Window sizes must be positive")
-    if np.any(np.asarray(selected)[:, 0] < 0) or np.any(np.asarray(selected)[:, 0] >= N) or np.any(np.asarray(selected)[:, 1] < 0):
+    if (
+        np.any(np.asarray(selected)[:, 0] < 0) or np.any(np.asarray(selected)[:, 0] >= N)
+        or np.any(np.asarray(selected)[:, 1] < 0)
+    ):
         raise ValueError("Invalid selected-copy indices")
     out_n = (N if include_original else 0) + S
+    if not out_n or out_n > 1073741823 or len(set(copy_ids)) != S:
+        raise ValueError("Invalid output sample count or duplicate sample IDs")
+    if windows is not None and len(windows) != W:
+        raise ValueError("Window coordinates do not match ancestry paths")
     src = hts_open(src_name, b"r")
     if src == NULL:
         raise OSError(f"Cannot open genotype file: {path}")
@@ -139,11 +214,27 @@ def writeDeconvBcf(path, out, const int16_t[:, ::1] ancestry,
         src_hdr = bcf_hdr_read(src)
         if src_hdr == NULL or bcf_hdr_nsamples(src_hdr) != N:
             raise ValueError("Genotype samples do not match ancestry paths")
+        if samples is not None and list(samples) != [
+            src_hdr.samples[i].decode("utf-8") for i in range(N)
+        ]:
+            raise ValueError("Genotype sample order differs from cluster samples")
+        if windows is not None:
+            bounds = np.ascontiguousarray([(r[1], r[2]) for r in windows], dtype=np.int64)
+            rids = np.empty(W, np.int32)
+            for w in range(W):
+                sample = os.fsencode(windows[w][0])
+                rids[w] = bcf_hdr_id2int(src_hdr, BCF_DT_CTG, sample)
+                if rids[w] < 0:
+                    raise ValueError("Genotype contigs differ from cluster windows")
+        w = 0
+        gid = bcf_hdr_id2int(src_hdr, BCF_DT_ID, b"GT")
         dst_hdr = bcf_hdr_dup(src_hdr) if include_original else bcf_hdr_subset(src_hdr, 0, NULL, NULL)
         if dst_hdr == NULL:
             raise MemoryError("Cannot allocate output BCF header")
         bcf_hdr_remove(dst_hdr, BCF_HL_FMT, NULL)
-        if bcf_hdr_append(dst_hdr, b"##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Phased genotypes\">") != 0:
+        if bcf_hdr_append(
+            dst_hdr, b"##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Phased genotypes\">"
+        ) != 0:
             raise MemoryError("Cannot define output GT format")
         for name in copy_ids:
             sample = os.fsencode(name)
@@ -179,10 +270,39 @@ def writeDeconvBcf(path, out, const int16_t[:, ::1] ancestry,
                 if w >= W:
                     error = 3
                     break
-                # The input uses GT and PP. Drop PP before changing sample count.
-                # Updating an absent tag is harmless, so plain GT inputs work too.
-                if bcf_update_format(src_hdr, record, b"PP", NULL, 0, BCF_HT_STR) < 0:
-                    error = 4
+                if record.n_allele != 2:
+                    error = 7
+                    break
+                if windows is not None and (
+                    record.rid != rids[w] or record.pos + 1 < bounds[w, 0]
+                    or record.pos + 1 > bounds[w, 1]
+                    or (seen == 0 and record.pos + 1 != bounds[w, 0])
+                    or (seen + 1 == width[w] and record.pos + 1 != bounds[w, 1])
+                ):
+                    error = 8
+                    break
+                for i in range(N):
+                    a, b = src_gt[2 * i], src_gt[2 * i + 1]
+                    if (
+                        a < 0 or b < 0 or a > 5 or b > 5
+                        or ((a >> 1) != (b >> 1) and not (b & 1))
+                    ):
+                        error = 9
+                        break
+                if error:
+                    break
+
+                # Remove all non-GT fields before expanding the sample axis
+                if bcf_unpack(record, BCF_UN_FMT) < 0:
+                    error = 1
+                    break
+                for i in range(record.n_fmt - 1, -1, -1):
+                    if record.d.fmt[i].id != gid:
+                        tag = bcf_hdr_int2id(src_hdr, BCF_DT_ID, record.d.fmt[i].id)
+                        if bcf_update_format(src_hdr, record, tag, NULL, 0, BCF_HT_STR) < 0:
+                            error = 4
+                            break
+                if error:
                     break
                 if include_original:
                     for i in range(2 * N):
@@ -190,9 +310,14 @@ def writeDeconvBcf(path, out, const int16_t[:, ::1] ancestry,
                 for j in range(S):
                     i, k = selected[j, 0], selected[j, 1]
                     a, b = src_gt[2 * i], src_gt[2 * i + 1]
-                    dst_gt[2 * ((N if include_original else 0) + j)] = a if ancestry[2 * i, w] == k else 0
-                    # BCF encodes a phased missing second allele as 1 (.|.), not 0 (./.).
-                    dst_gt[2 * ((N if include_original else 0) + j) + 1] = b if ancestry[2 * i + 1, w] == k else 1
+                    dst_gt[2 * ((N if include_original else 0) + j)] = (
+                        a if ancestry[2 * i, w] == k else 0
+                    )
+
+                    # A phased missing second allele is encoded as 1
+                    dst_gt[2 * ((N if include_original else 0) + j) + 1] = (
+                        b if ancestry[2 * i + 1, w] == k else 1
+                    )
                 if bcf_update_genotypes(dst_hdr, record, dst_gt, 2 * out_n) != 0:
                     error = 5
                     break
@@ -212,8 +337,15 @@ def writeDeconvBcf(path, out, const int16_t[:, ::1] ancestry,
                 4: "Cannot remove unsupported sample FORMAT fields",
                 5: "Cannot update output genotypes",
                 6: "Cannot write BCF record",
+                7: "Only biallelic variants are supported",
+                8: "Genotype coordinates differ from cluster windows",
+                9: "Only phased diploid biallelic GT is supported",
             }.get(error, "Genotype input has fewer variants than cluster windows")
             raise ValueError(f"{reason}: {path}")
+        status = hts_close(dst)
+        dst = NULL
+        if status != 0:
+            raise OSError(f"Cannot finish BCF output: {out}")
         return records
     finally:
         if src_gt != NULL:
@@ -412,7 +544,7 @@ cdef class Reader:
                     else:
                         a, b = self.gt[2 * i], self.gt[2 * i + 1]
 
-                    # Missing is 0/1. Negative values include vector-end/ploidy markers.
+                    # Missing is 0/1. Negative values include vector-end/ploidy markers
                     if a < 0 or b < 0:
                         error = 6
                         break
@@ -420,7 +552,7 @@ cdef class Reader:
                         error = 7
                         break
 
-                    # Homozygous or wholly missing calls have no phase ambiguity.
+                    # Homozygous or wholly missing calls have no phase ambiguity
                     if (a >> 1) != (b >> 1) and not (b & 1):
                         error = 8
                         break
@@ -435,7 +567,7 @@ cdef class Reader:
                         error = 1
                         break
 
-                    # Format a whole read block without taking the GIL for each variant.
+                    # Format a whole read block without taking the GIL for each variant
                     status = kputs(bcf_hdr_id2name(self.header, self.record.rid), &self.sbuf)
                     status |= kputc(9, &self.sbuf)
                     status |= kputll(self.record.pos + 1, &self.sbuf)

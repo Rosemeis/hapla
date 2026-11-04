@@ -225,7 +225,8 @@ def grm(data, p, chunk, center=True, tile=None, info=None, threads=1):
     if den <= 0:
         raise ValueError("GRM estimation requires variable cluster alleles")
     G = np.zeros(N * (N + 1) // 2)
-    # Choose by observed categories so every thread count uses the same arithmetic.
+
+    # Choose by observed categories so every thread count uses the same arithmetic
     if np.count_nonzero(p) > 32 * sum(len(Z) for Z, _, _ in data):
         off = 0
         for Z, c, _ in data:
@@ -281,6 +282,7 @@ def writeLoadings(pth, data, p, a, V, S, chunk):
     import numpy as np
 
     from hapla import struct_cy as cy
+    from hapla.formats import writeMatrix
 
     sums = V.sum(axis=0)
     buf = np.empty((min(len(p), max(chunk, 255)), V.shape[1]))
@@ -289,15 +291,15 @@ def writeLoadings(pth, data, p, a, V, S, chunk):
             A = buf[: c[-1]]
             cy.leftProduct(Z, c, p[s], a[s], V, sums, A, obs)
             A /= S
-            np.savetxt(dst, A, fmt="%.10g")
+            writeMatrix(dst, A)
 
 
 ### Write numeric PC columns directly, with optional sample identifiers
 def writeVectors(pth, V, ids, raw, dup, label="PC"):
-    import numpy as np
+    from hapla.formats import writeMatrix
 
     if raw:
-        np.savetxt(pth, V, fmt="%.10g")
+        writeMatrix(pth, V)
         return
     with Path(pth).open("w", buffering=1024**2) as dst:
         dst.write("#FID\tIID\t" + "\t".join(f"{label}{k + 1}" for k in range(V.shape[1])) + "\n")
@@ -341,7 +343,7 @@ def main(args):
     configureThreads(args.threads, blas=1)
     import numpy as np
 
-    from hapla.formats import readMetadata
+    from hapla.formats import readMetadata, writeMatrix
     from hapla.identity import checkModel, featureKeys, writeModel
 
     blasThreads(1)
@@ -453,7 +455,7 @@ def main(args):
                     step = perf_counter()
                     K, extra = args.hsm_svd, 0
                     if (args.hsm_groups or 0) > 1:
-                        # Reuse the decomposition only when both sketches are identical.
+                        # Reuse the decomposition only when both sketches are identical
                         r = min(max(args.hsm_groups, 10), 20, len(ids) - 1)
                         if min(max(K + 10, 20), len(ids) - 1) == min(r + 10, len(ids) - 1):
                             extra = r
@@ -461,7 +463,7 @@ def main(args):
                     V, S = cur[:2]
                     scores = cur[2] if extra else None
                     writeVectors(out[".hsm.vec"], V, ids, args.raw, args.duplicate_fid, "HC")
-                    np.savetxt(out[".hsm.val"], S * S * scale, fmt="%.10g")
+                    writeMatrix(out[".hsm.val"], S * S * scale)
                     info["svd_seconds"] = perf_counter() - step
                     printTiming("HSM components complete.", info["svd_seconds"])
                 if args.hsm_groups is not None:
@@ -510,7 +512,7 @@ def main(args):
             tick = perf_counter()
             print("\nComputing GRM.", flush=True)
 
-            # One represented categorical contrast per additional observed cluster allele.
+            # One represented categorical contrast per additional observed cluster allele
             count = int(np.maximum(levels.astype(np.int64) - 1, 0).sum())
             info = dict(
                 count_unit="categorical contrasts",
@@ -539,10 +541,10 @@ def main(args):
             print(f"\nComputing {args.pca} principal components.", flush=True)
             V, S, a = pca(data, p, args.pca, args.chunk, args.power, args.seed, v)
             writeVectors(out[".vec"], V, ids, args.raw, args.duplicate_fid)
-            np.savetxt(out[".val"], S * S / len(p), fmt="%.10g")
+            writeMatrix(out[".val"], S * S / len(p))
             if args.loadings:
                 writeLoadings(out[".load"], data, p, a, V, S, args.chunk)
-                np.savetxt(out[".freq"], p, fmt="%.10g")
+                writeMatrix(out[".freq"], p)
                 writeModel(out, keys)
             stats["pca_seconds"] = perf_counter() - tick
             printTiming("PCA complete.", stats["pca_seconds"])

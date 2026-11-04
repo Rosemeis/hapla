@@ -294,7 +294,8 @@ Groups describe sharing profiles and need not represent discrete populations.
 
 Estimate ancestry proportions Q and cluster frequencies P. Missing assignments
 contribute no likelihood or counts. Empty windows are allowed. Individuals with
-no observed assignments receive uniform Q unless fixed by supervision.
+no observed assignments receive uniform Q unless fixed by supervision. Hybrid
+SNP input requires nonoverlapping cluster windows.
 
 | Option | Default | Description |
 | --- | --- | --- |
@@ -321,7 +322,7 @@ no observed assignments receive uniform Q unless fixed by supervision.
 Supervision and projection are mutually exclusive. Supervised labels must fit
 0..255. Projection requires P rows to match the cluster order and fixes P while
 fitting Q. For a hybrid cluster-plus-SNP fit, the reference run also writes a
-matching `.snp.P` file beside its `.plist`; provide the same BCF/VCF to the
+matching `.snp.P` file beside its `.P` or `.plist`. Provide the same BCF/VCF to the
 projection run and this sibling file is loaded automatically. The default
 unsupervised initializer uses SVD/ALS. With a SNP BCF/VCF,
 it uses the complete joint cluster/SNP representation with the same per-window
@@ -351,10 +352,9 @@ buffers. Parameter arrays and input storage still scale with the dataset.
 
 Outputs use `<out>.K<K>.s<seed>`, or `<out>.proj.K<K>.s<seed>` for projection.
 They include `.Q`, `.ids`, and `.log`. Fitted frequencies use `.P` for one input
-or `.chr1.P`, `.chr2.P`, etc. plus `.plist` for multiple inputs. Hybrid
-multi-input fits additionally write `.snp.P`. P-file lists contain absolute
-paths. Rerunning with `--no-freqs` removes prior P outputs for the current input
-set.
+or `.chr1.P`, `.chr2.P`, etc. plus `.plist` for multiple inputs. Hybrid fits
+also write `.snp.P`. P-file lists contain absolute paths. Rerunning with
+`--no-freqs` removes prior P outputs for the current input set.
 
 ## hapla local
 
@@ -509,13 +509,15 @@ biallelic files from which the matching cluster assignments were made.
 ```bash
 printf '%s\n' lai.chr{1..22}.path > paths.txt
 printf '%s\n' input.chr{1..22}.bcf > genotypes.txt
+printf '%s\n' lai.chr{1..22}.prob > support.txt
 hapla deconv --clusters chr{1..22} --path-filelist paths.txt --K 4 \
     --format both --bcf-filelist genotypes.txt --include-original \
+    --support-filelist support.txt \
     --min-call-support 0.95 --min-tract-windows 6 --out deconv/lai
 ```
 
 Cluster output is written as `<out>.<input-suffix>.bca`, `.ids`, `.win`, and
-`.ref`; `<out>.filelist` lists those prefixes in input order. BCF output
+`.ref`. `<out>.filelist` lists those prefixes in input order. BCF output
 uses matching `<out>.<input-suffix>.bcf` files and `<out>.bcfs` lists them.
 Each retained copy is named `SAMPLE_K`, where `K` is its zero-based ancestry
 label. `--include-original` retains the unmasked samples before these copies.
@@ -526,12 +528,16 @@ label. `--include-original` retains the unmasked samples before these copies.
 | `--K INT` | Required | Number of ancestry labels |
 | `--format clusters\|bcf\|both` | `clusters` | Requested output type |
 | `--bcf-filelist FILE` | — | Ordered phased genotype files for BCF output |
+| `--support-filelist FILE` | — | Ordered decoded-call support matrices |
 | `--min-call-support FLOAT` | Off | Mask calls below this decoded-call support |
 | `--min-tract-windows INT` | Off | Mask retained tracts shorter than this length |
 | `--homozygous-only` | Off | Mask windows whose two haplotypes differ in ancestry |
 | `--min-fraction FLOAT` | `0.05` | Drop copies with less retained data |
 | `--include-original` | Off | Include unmasked originals in the output |
 | `--save-filtered-paths` | Off | Write the filtered paths used for output |
+
+BCF sample order and window coordinates must match the cluster input. Outputs
+contain GT only. Assignment expansion and text parsing use bounded buffers.
 
 Filtering is applied in this order: call support, homozygous-ancestry masking,
 then short-tract masking. A short tract is masked rather than reassigned. Call
@@ -576,7 +582,8 @@ job with Python 3.14.
 Use short module summaries and camelCase helper names. Use `#####` for sections,
 `###` above functions and test classes, and `#` inside functions. Keep two blank
 lines between top-level definitions and a blank line before comments unless
-they start an indented block. Tests use `unittest`, fixed seeds, and small shared fixtures.
+they start an indented block. Tests use `unittest`, fixed seeds, and small
+shared fixtures.
 
 ## Citation
 

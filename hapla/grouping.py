@@ -52,7 +52,7 @@ def assign(D, Z, K, X):
     n = np.bincount(out, minlength=K)
     empty = np.flatnonzero(n == 0)
     if len(empty):
-        # PCA distances choose a split without another kernel product.
+        # PCA distances choose a split without another kernel product
         A = np.zeros((K, X.shape[1]))
         np.add.at(A, out, X)
         A /= np.maximum(n, 1)[:, None]

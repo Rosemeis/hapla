@@ -183,7 +183,7 @@ def emissions(
     shape = (N, (end - beg + block - 1) // block, K)
     cdef f64[:, :, ::1] E = np.empty(shape) if direct else np.zeros(shape)
     if direct:
-        # Fill in parallel. The zero-initialized loop is faster with one thread.
+        # Fill in parallel. The zero-initialized loop is faster with one thread
         for i in prange(N, nogil=True, schedule="static"):
             for w in range(beg, end):
                 z = Z[i, w]
@@ -341,7 +341,7 @@ cdef f64 _fbProb(
             return -INFINITY
         ll += shift[w]
 
-        # _prepare bounds norm above exp(-300), so this product cannot underflow.
+        # _prepare bounds norm above exp(-300), so this product cannot underflow
         prod *= norm
         if prod < 1e-100:
             ll += log(prod)
@@ -450,7 +450,7 @@ cdef f64 _fbLog(
             if steps != NULL:
                 alpha, ls = steps[4 * w], steps[4 * w + 3]
             if count != NULL:
-                # Reuse the forward scale and posterior normalizer for reset counts.
+                # Reuse the forward scale and posterior normalizer for reset counts
                 norm += shift[w]
                 for k in range(K):
                     count[k] += weight * exp(ls + lq[k] + E[w * K + k] + beta[k] - norm)
@@ -502,7 +502,8 @@ cdef _posterior(
         f64 amin = positive.min() if len(positive) else 1, value, best
         f64* count
         f64* g
-    # The first alpha writes every posterior cell, avoiding a separate zeroing pass.
+
+    # The first alpha writes every posterior cell, avoiding a separate zeroing pass
     cdef:
         f64[:, :, ::1] G = (
             np.empty((0, 0, 0)) if score else np.empty((nt if decode else N, W, K))
@@ -670,7 +671,7 @@ cdef f64 _viterbiSmall(
         if norm == -INFINITY:
             return norm
 
-        # Periodic centering avoids growth of accumulated scores. Huge blocks center immediately.
+        # Periodic centering avoids growth of accumulated scores. Huge blocks center immediately
         if w % 64 == 0 or norm < -1e4 or norm > 1e4:
             for k in range(K):
                 b[k] -= norm
@@ -1074,6 +1075,7 @@ cdef void _looPair(
             pool = -(r == a) - (s == a)
             for k in range(K):
                 pool += counts[(c[w] + a) * K + k]
+
             # Pooled support is a haplotype count, so discard subtraction roundoff
             if rest < 0.5:
                 pool = 1.0 / (c[w + 1] - c[w])
@@ -1096,6 +1098,7 @@ cdef void _looPair(
                 value = min(1.0, value)
                 E[row + k] = log(value) if value > 0 else -INFINITY
                 support |= value > 0 and q[h * K + k] > 0
+
             # Unsupported private clusters are neutral, like missing emissions
             if not support:
                 for k in range(K):

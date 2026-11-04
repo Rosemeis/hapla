@@ -70,8 +70,8 @@ def threadPlan(threads, nio=None):
             "and HTSlib's I/O coordinator (at least 4 total for threaded decompression)"
         )
 
-    # The caller reads input. Workers run GIL-free serial kernels. No nested OpenMP.
-    # BGZF adds a coordinator thread as well as the requested decompression pool.
+    # The caller reads input. Workers run GIL-free serial kernels. No nested OpenMP
+    # BGZF adds a coordinator thread as well as the requested decompression pool
     workers = max(1, threads - nio - 1 - bool(nio))
     configureThreads(1)
     return workers, nio
@@ -314,7 +314,7 @@ def headerNotes(text):
 def openReader(stack, path, threads):
     from hapla.vcf_cy import Reader
 
-    # HTSlib has no per-reader log callback. Restore stderr even on header failure.
+    # HTSlib has no per-reader log callback. Restore stderr even on header failure
     with tempfile.TemporaryFile() as tmp:
         sys.stdout.flush()
         sys.stderr.flush()

@@ -195,7 +195,7 @@ print(json.dumps([ctypes.CDLL(admix_cy.__file__).omp_get_max_threads(),
             size_of=lambda batch: 4096,
         )
 
-        # Two submitted batches and one producer batch may be retained.
+        # Two submitted batches and one producer batch may be retained
         self.assertLessEqual(peak, 3)
         self.assertEqual(output, list(range(100)))
 

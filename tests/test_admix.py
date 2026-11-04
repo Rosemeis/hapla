@@ -17,32 +17,6 @@ from hapla import admix_cy as cy
 from hapla import functions
 
 
-def test_weighted_q_update_matches_scalar_reference():
-    rng = np.random.default_rng(8)
-    N, W, K = 3, 3, 3
-    Z = rng.integers(0, 2, (W, 2 * N), dtype=np.uint8)
-    k = np.full(W, 2, np.uint32)
-    c = np.insert(np.cumsum(k * K, dtype=np.uint32), 0, 0)
-    P = rng.random(c[-1])
-    for w in range(W):
-        for ancestry in range(K):
-            P[c[w] + ancestry : c[w + 1] : K] /= P[c[w] + ancestry : c[w + 1] : K].sum()
-    Q = rng.dirichlet(np.ones(K), N)
-    weights = np.array([1.0, 0.25, 2.0])
-    observed = np.full(N, 2 * weights.sum())
-    T, out = np.empty_like(Q), np.empty_like(Q)
-    pt, qt = functions.emWorkspace(N, K, k)
-    ctx = (Z, k, c, T, pt, qt, None, None, weights)
-    functions.emStep(P, Q, None, out, ctx, qo=observed)
-    expected = np.zeros_like(Q)
-    for w, i, h in itertools.product(range(W), range(N), range(2)):
-        p = P[c[w] + Z[w, 2 * i + h] * K : c[w] + (Z[w, 2 * i + h] + 1) * K]
-        expected[i] += weights[w] * p / np.dot(p, Q[i])
-    expected *= Q / observed[:, None]
-    expected /= expected.sum(axis=1, keepdims=True)
-    np.testing.assert_allclose(out, expected)
-
-
 ### Solve the constrained M-step by independent bisection
 def simplex(A):
     A = np.maximum(A, 0.0)
@@ -119,6 +93,33 @@ def reference(P, Q, ctx, rows=None):
 
 ### Check ancestry updates, initialization, and command output
 class AdmixtureTests(TemporaryTests):
+    def test_weighted_q_update_matches_scalar_reference(self):
+        rng = np.random.default_rng(8)
+        N, W, K = 3, 3, 3
+        Z = rng.integers(0, 2, (W, 2 * N), dtype=np.uint8)
+        k = np.full(W, 2, np.uint32)
+        c = np.insert(np.cumsum(k * K, dtype=np.uint32), 0, 0)
+        P = rng.random(c[-1])
+        for w in range(W):
+            for ancestry in range(K):
+                P[c[w] + ancestry : c[w + 1] : K] /= P[c[w] + ancestry : c[w + 1] : K].sum()
+        Q = rng.dirichlet(np.ones(K), N)
+        weights = np.array([1.0, 0.25, 2.0])
+        observed = np.full(N, 2 * weights.sum())
+        T, out = np.empty_like(Q), np.empty_like(Q)
+        pt, qt = functions.emWorkspace(N, K, k)
+        ctx = (Z, k, c, T, pt, qt, None, None, weights)
+        functions.emStep(P, Q, None, out, ctx, qo=observed)
+        expected = np.zeros_like(Q)
+        for w, i, h in itertools.product(range(W), range(N), range(2)):
+            p = P[c[w] + Z[w, 2 * i + h] * K : c[w] + (Z[w, 2 * i + h] + 1) * K]
+            expected[i] += weights[w] * p / np.dot(p, Q[i])
+        expected *= Q / observed[:, None]
+        expected /= expected.sum(axis=1, keepdims=True)
+        np.testing.assert_allclose(out, expected)
+        with self.assertRaisesRegex(ValueError, "weights"):
+            functions.emStep(P, Q, None, out, (*ctx[:8], weights[:-1]), qo=observed)
+
     def test_hybrid_single_cluster_file_writes_snp_frequencies(self):
         G = np.random.default_rng(7).integers(0, 2, size=(96, 40), dtype=np.uint8)
         rows = [("1", j + 1, [f"{a}|{b}" for a, b in g.reshape(-1, 2)]) for j, g in enumerate(G)]
@@ -128,6 +129,126 @@ class AdmixtureTests(TemporaryTests):
         command("cluster", "--bcf", bcf, "--size", 8, "--min-mac", 1, "--out", ref)
         command("admix", "--clusters", ref, "--bcf", bcf, "--K", 2, "--seed", 1, "--out", out)
         self.assertEqual(np.loadtxt(f"{out}.K2.s1.snp.P", ndmin=2).shape[1], 2)
+        projected = self.root / "projected"
+        command(
+            "admix",
+            "--clusters",
+            ref,
+            "--bcf",
+            bcf,
+            "--K",
+            2,
+            "--projection",
+            f"{out}.K2.s1.P",
+            "--iter",
+            2,
+            "--out",
+            projected,
+        )
+        Q = np.loadtxt(f"{projected}.proj.K2.s42.Q")
+        np.testing.assert_allclose(Q.sum(axis=1), 1, atol=1e-9)
+
+    def test_hybrid_multichromosome_alignment_and_projection(self):
+        from hapla.admix import readSnps
+        from hapla.identity import writeIdentity
+
+        refs = [
+            writeClusters(self.root, "a", np.zeros((2, 6), np.uint8), np.array([0, 2, 4])),
+            writeClusters(self.root, "b", np.zeros((1, 6), np.uint8), np.array([0, 2])),
+        ]
+        Path(f"{refs[1]}.win").write_text("#CHROM START END LENGTH SIZE K\n2 10 12 2 3 2\n")
+        files = {ext: Path(f"{refs[1]}{ext}") for ext in (".bca", ".ids", ".win", ".ref")}
+        writeIdentity(files, "0" * 64, 1, 2)
+        positions = [
+            ("1", 1),
+            ("1", 2),
+            ("1", 3),
+            ("2", 9),
+            ("2", 10),
+            ("2", 11),
+            ("2", 12),
+            ("2", 13),
+        ]
+        G = np.random.default_rng(214).integers(2, size=(8, 8), dtype=np.uint8)
+        vcf = self.root / "joint.vcf"
+        writeVcf(
+            vcf,
+            [
+                (chrom, pos, [f"{a}|{b}" for a, b in g.reshape(-1, 2)])
+                for (chrom, pos), g in zip(positions, G)
+            ],
+            samples=("extra", "s2", "s0", "s1"),
+        )
+        Z = np.zeros((3, 4), np.uint8)
+        labels, weights, n = readSnps(Z, refs, [2, 1], ["s1", "s0"], vcf, 1)
+        expected = G[np.ix_([0, 1, 4, 5, 6], [6, 7, 4, 5])]
+        np.testing.assert_array_equal(labels, np.concatenate((Z, expected)))
+        np.testing.assert_array_equal(weights, [1, 1, 1, 1, 1, 1 / 3, 1 / 3, 1 / 3])
+        self.assertEqual(n, 5)
+        out = self.root / "fit"
+        command(
+            "admix",
+            "--clusters",
+            *refs,
+            "--bcf",
+            vcf,
+            "--K",
+            2,
+            "--random-init",
+            "--iter",
+            2,
+            "--out",
+            out,
+        )
+        projected = self.root / "project"
+        command(
+            "admix",
+            "--clusters",
+            *refs,
+            "--bcf",
+            vcf,
+            "--K",
+            2,
+            "--projection",
+            f"{out}.K2.s42.plist",
+            "--iter",
+            2,
+            "--out",
+            projected,
+        )
+        Q = np.loadtxt(f"{projected}.proj.K2.s42.Q")
+        self.assertEqual(Q.shape, (3, 2))
+        np.testing.assert_allclose(Q.sum(axis=1), 1, atol=1e-9)
+
+    def test_weighted_p_prior_matches_the_regularized_likelihood(self):
+        P, Q, ctx = fixture(3)
+        Z, k, c = ctx[:3]
+        weights = np.array([0.25, 2, 0.5, 1, 0.125, 3])
+        pool = np.concatenate([np.bincount(z, minlength=C) / len(z) for z, C in zip(Z, k)])
+        out, T = P.copy(), np.empty_like(Q)
+        cy.em(Z, P, out, Q, T, k, c, ctx[4], ctx[5], pool=pool, mass=2, weights=weights)
+        expected = np.zeros_like(P).reshape(-1, 3)
+        for w, z in enumerate(Z):
+            beg, end = int(c[w] // 3), int(c[w + 1] // 3)
+            for h, label in enumerate(z):
+                post = P.reshape(-1, 3)[beg + int(label)] * Q[h // 2]
+                expected[beg + int(label)] += weights[w] * post / post.sum()
+            expected[beg:end] = simplex(expected[beg:end] + 2 * pool[beg:end, None])
+        np.testing.assert_allclose(out.reshape(-1, 3), expected, atol=3e-15, rtol=0)
+
+    def test_weighted_observation_counts_match_dense_full_and_subset_sums(self):
+        rng = np.random.default_rng(116)
+        Z = rng.integers(0, 3, size=(103, 2 * 513), dtype=np.uint8)
+        Z[::3, ::7] = 255
+        weights = rng.random(len(Z))
+        for rows in (None, np.array([102, 2, 47, 0], np.uint32), np.empty(0, np.uint32)):
+            idx = np.arange(len(Z)) if rows is None else rows
+            expected = np.sum(
+                (Z[idx].reshape(len(idx), 513, 2) != 255) * weights[idx, None, None], axis=(0, 2)
+            )
+            np.testing.assert_allclose(
+                cy.weightedCounts(Z, weights, rows), expected, atol=1e-12, rtol=0
+            )
 
     def test_em_workspace_is_bounded_for_large_cohorts(self):
         k = np.full(129, 255, dtype=np.uint32)
@@ -140,11 +261,43 @@ class AdmixtureTests(TemporaryTests):
             self.assertLessEqual(qt.nbytes, 8 * 1024**2)
             self.assertEqual(pt.shape, (64, 255 * K))
 
+    def test_small_k_kernels_match_dense_with_empty_and_missing_windows(self):
+        rng = np.random.default_rng(441)
+        N = 7
+        k = np.array([1, 3, 0, 2, 4], np.uint32)
+        Z = np.array(
+            [rng.integers(C, size=2 * N) if C else np.full(2 * N, 255) for C in k], np.uint8
+        )
+        Z[:, 1::6] = Z[:, ::6]
+        Z[:, :2] = 255
+        Z[1, 5] = 255
+        wo = (Z != 255).sum(axis=1, dtype=np.uint32)
+        qo = cy.observedCounts(Z)
+        for K in range(2, 18):
+            with self.subTest(K=K):
+                c = np.r_[0, np.cumsum(k * K)].astype(np.uint32)
+                P = np.concatenate([rng.dirichlet(np.ones(C), size=K).T.ravel() for C in k if C])
+                Q = rng.dirichlet(np.ones(K), size=N)
+                cy.createP(P, k, c, K)
+                cy.createQ(Q)
+                T = np.empty_like(Q)
+                pt, qt = functions.emWorkspace(N, K, k)
+                ctx = (Z, k, c, T, pt, qt, wo, None)
+                expected, q, _, ll = reference(P, Q, ctx)
+                actual = cy.likelihood(Z, P, Q, c, np.empty(len(k)), wo)
+                self.assertAlmostEqual(actual, ll, places=14)
+                A, B = np.empty_like(P), np.empty_like(Q)
+                functions.emStep(P, Q, A, B, ctx, qo=qo)
+                np.testing.assert_allclose(A, expected, atol=3e-15, rtol=0)
+                np.testing.assert_allclose(B, q, atol=3e-15, rtol=0)
+                functions.emStep(P, Q, None, B, ctx, qo=qo)
+                np.testing.assert_allclose(B, q, atol=3e-15, rtol=0)
+
     def test_sample_tiles_preserve_em_results_and_reduction_order(self):
         rng = np.random.default_rng(952)
         N, W = 79, 67
         k = np.resize(np.array([1, 2, 0, 7, 4, 3, 5], np.uint32), W)
-        for K in (3, 5, 6):
+        for K in range(2, 18):
             P = np.concatenate([rng.dirichlet(np.ones(C), size=K).T.ravel() for C in k if C])
             Q = rng.dirichlet(np.ones(K), size=N)
             c = np.r_[0, np.cumsum(k * K)].astype(np.uint32)
@@ -430,7 +583,7 @@ class AdmixtureTests(TemporaryTests):
         opts = ("admix", "--clusters", *refs, "--power", 2, "--als-iter", 4, "--als-tole", 0)
         opts += ("--iter", 3, "--check", 1, "--tole", 0, "--batches", 3)
         keys = ("Initial log-like", "Final log-like", "Iterations", "Final batches", "Converged")
-        for K in (5, 6):
+        for K in (3, 5, 6, 8, 16):
             for nt in (1, 2, 4, 8):
                 with self.subTest(K=K, threads=nt):
                     out = self.root / f"threads{nt}.K{K}"

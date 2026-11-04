@@ -127,22 +127,6 @@ def readWindows(rows, counts, args):
     return regions, use.astype(np.uint8)
 
 
-### Read and normalize one ancestry simplex per sample
-def readQ(pth, N):
-    import numpy as np
-
-    Q = np.loadtxt(pth, ndmin=2)
-    if Q.shape[0] != N or not 1 <= Q.shape[1] <= 255 or not np.all(np.isfinite(Q)) or np.any(Q < 0):
-        raise ValueError(
-            "Q must contain one row per sample and 1..255 finite nonnegative ancestry proportions"
-        )
-    sums = Q.sum(axis=1)
-    if not np.allclose(sums, 1, rtol=0, atol=1e-5):
-        raise ValueError("Q rows must sum to one")
-    Q /= sums[:, None]
-    return Q
-
-
 ### Read and normalize cluster frequencies within each window and ancestry
 def readP(pth, c, K):
     import numpy as np
@@ -168,7 +152,7 @@ def batchSize(N, W, regions, K, A, args, decode=False):
     row = W * (2 + 8 * args.save_posteriors) + B * K * (8 if viterbi or stream else 16)
     row += 8 * (3 * K + A)
 
-    # Include decoder output and expansion of blocked paths/confidence.
+    # Include decoder output and expansion of blocked paths/confidence
     if viterbi:
         row += B
         state = 5 if A > 1 else 1
@@ -260,7 +244,8 @@ def refine(data, P, Q, alpha, args, dist=None):
                 prior += cy.penalty(base, p, tp, table)
             countP = None if finish else np.zeros_like(p)
             one = args.loo and size >= Z.shape[1]
-            # Keep the per-file Q sum used by bounded LOO batches.
+
+            # Keep the per-file Q sum used by bounded LOO batches
             cq = np.zeros_like(Q) if one and len(regions) > 1 and not finish else countQ
             llf = np.zeros(Z.shape[1])
             for i, j, z in haplotypes(Z, size):
@@ -282,7 +267,8 @@ def refine(data, P, Q, alpha, args, dist=None):
                         if not args.loo or one:
                             cq[i // 2 : j // 2] += C.reshape(-1, 2, K).sum(axis=1)
                     del E, G, C, L
-            # Reduce haplotypes once per file, independent of batch and thread budgets.
+
+            # Reduce haplotypes once per file, independent of batch and thread budgets
             ll += float(llf.sum())
             if not finish:
                 if cq is not countQ:
@@ -336,7 +322,7 @@ def refine(data, P, Q, alpha, args, dist=None):
                 damp(prev[1].ravel(), Q.ravel()), *(damp(a, b) for a, b in zip(prev[0], P))
             )
 
-    # Report a final partial block using only accepted updates, including after rollback.
+    # Report a final partial block using only accepted updates, including after rollback
     it = max(0, len(history) - 1)
     if it % 5:
         printTiming(f"({it:,})  {label}: {history[-1]['objective']:,.1f}", perf_counter() - lap)
@@ -421,14 +407,24 @@ def main(args):
     import numpy as np
 
     from hapla import local_cy as cy
-    from hapla.formats import MAGIC, checkQIds, readHeader, readMetadata, readPaths
-    from hapla.formats import readWindows as readRows
+    from hapla.formats import (
+        MAGIC,
+        checkQIds,
+        readHeader,
+        readMetadata,
+        readPaths,
+        readQ,
+        writeMatrix,
+    )
     from hapla.struct import readData
 
     tick = perf_counter()
     printHeader("local", args)
     print("Reading clusters and P/Q estimates.", flush=True)
-    paths, ids, counts, sizes = readMetadata(args.clusters, args.filelist, likes=args.medians)
+    meta = []
+    paths, ids, counts, sizes = readMetadata(
+        args.clusters, args.filelist, likes=args.medians, meta=meta
+    )
     pfiles = readPaths(args.pfilelist, args.pfile)
     if len(pfiles) != len(paths):
         raise ValueError("Assignment and P file counts differ")
@@ -493,13 +489,12 @@ def main(args):
         print("Distance: Morgans (genetic map)", flush=True)
     with ExitStack() as stack:
         out = stageOutputs(stack, args.out, sfxs, inputs, stale=stale)
-        for pfx, pfile, W in zip(paths, pfiles, sizes):
+        for pfx, pfile, W, rows in zip(paths, pfiles, sizes, meta):
             W = int(W)
             k = counts[offset : offset + W]
             offset += W
             mapped, _ = readData([pfx], k, [W], len(ids), freq=False)
             Z, c, obs = mapped[0]
-            rows = readRows(pfx)
             regions, use = readWindows(rows, k, args)
             if args.dating:
                 chroms.append([rows[beg][0] for beg, _ in regions])
@@ -520,7 +515,7 @@ def main(args):
                     missing_assignments=int((N - obs).sum()) if obs is not None else 0,
                 )
             )
-        del gmap, rows, mapped, obs
+        del gmap, rows, meta, mapped, obs
         printMissing(sum(row["missing_assignments"] for row in stats["files"]), N * len(counts))
         if args.dating:
             from hapla.dating import fit, writeDate
@@ -541,7 +536,7 @@ def main(args):
                 mode = "LOO refinement" if args.baum_welch else "Regularized LOO refinement"
             print(f"\n{mode}:", flush=True)
             P, Q, stats["fit"] = refine(data, P, Q, alpha, args, dist)
-        np.savetxt(out[".Q"], Q, fmt="%.10g")
+        writeMatrix(out[".Q"], Q)
         np.savetxt(out[".ids"], ids, fmt="%s")
         if len(paths) > 1:
             out[".plist"].write_text("".join(f"{Path(args.out).absolute()}{s}.P\n" for s in stems))
@@ -568,7 +563,7 @@ def main(args):
                     else np.empty(0, np.float32)
                 )
             table = cy.emissionTable(p, c, K, likes)
-            np.savetxt(out[f"{stem}.P"], p.reshape(-1, K), fmt="%.10g")
+            writeMatrix(out[f"{stem}.P"], p.reshape(-1, K))
             row.update(
                 decode(
                     Z,
