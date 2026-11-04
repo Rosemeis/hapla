@@ -126,10 +126,33 @@ jobs:
           path: wheelhouse/*.whl
           if-no-files-found: error
 
+  artifacts:
+    name: Validate release artifacts
+    needs: [sdist, wheels]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: distributions-*
+          path: dist
+          merge-multiple: true
+      - name: Validate distributions
+        run: |
+          python -m pip install twine
+          python tests/validate_distribution.py --bundled dist/*
+          python -m twine check dist/*
+
   publish:
     name: Publish to PyPI
     if: github.event_name == 'release'
-    needs: [sdist, wheels]
+    needs: artifacts
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment:
