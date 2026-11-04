@@ -14,7 +14,7 @@ description = "Framework for haplotype clustering in phased genotype data"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "GPL-3.0-only"
-license-files = ["LICENSE"]
+license-files = ["LICENSE", "licenses/*.txt"]
 authors = [
     { name = "Jonas Meisner", email = "meisnerucph@gmail.com" }
 ]
