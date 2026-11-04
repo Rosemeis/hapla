@@ -13,9 +13,9 @@ and must be rebuilt from the original genotypes.
 
 ## Installation
 
-Use Python 3.10 or newer. NumPy is the only Python runtime dependency.
+Use Linux with Python 3.11 or newer. NumPy is the only Python runtime dependency.
 Source builds also need a C compiler with OpenMP and HTSlib 1.20+ headers and
-libraries. On macOS, install these with `brew install htslib libomp`.
+libraries.
 
 Install the current GitHub version:
 
@@ -41,13 +41,15 @@ python -m pip install "hapla>=1.0.0"
 ```
 
 The [release workflow](https://github.com/Rosemeis/hapla/blob/main/.github/workflows/release.yml) builds wheels for Linux
-(glibc 2.28+) and macOS 15+, on x86-64 and ARM64. Wheels bundle HTSlib and OpenMP.
-Source installations need the build dependencies above. PyPI may lag behind
-the GitHub version.
+(glibc 2.28+) on x86-64 and ARM64. Wheels bundle HTSlib, libdeflate, and OpenMP.
+No compiler or separate HTSlib/OpenMP installation is needed. Pip installs NumPy.
+The system supplies glibc and zlib, as on RHEL/Rocky/AlmaLinux 8+ and Ubuntu 20.04+.
+Source installations need the build dependencies above. Older systems need a source
+build or a newer container. PyPI may lag behind the GitHub version.
 
 Builds are portable by default. To tune a source build to the current CPU, use
 `HAPLA_NATIVE=1 python -m pip install .` when build and compute CPUs match.
-`HTSLIB_PREFIX` and, on macOS, `LIBOMP_PREFIX` select custom library locations.
+`HTSLIB_PREFIX` selects a custom HTSlib installation.
 Check the installation with `hapla --version`.
 
 ## Quick start
